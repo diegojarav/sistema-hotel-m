@@ -1,0 +1,12 @@
+# Ignorar bases de datos locales (¡MUY IMPORTANTE!)
+*.xlsx
+/data
+
+# Ignorar archivos de sistema y python
+__pycache__/
+*.pyc
+.DS_Store
+
+# Ignorar secretos (API Keys)
+.env
+.streamlit/secrets.toml
