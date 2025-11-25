@@ -3,6 +3,70 @@ import pandas as pd
 from datetime import datetime, date
 import os
 
+import google.generativeai as genai
+from PIL import Image
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde el archivo .env
+load_dotenv()
+
+# --- CONFIGURACIÓN DE IA (GOOGLE GEMINI) ---
+# ¡OJO! PRUEBA.
+# Configurar la API Key de forma segura
+API_KEY = os.getenv("GOOGLE_API_KEY")
+if not API_KEY:
+    st.error("⚠️ Error: No se encontró la API KEY. Revisa tu archivo .env")
+else:
+    genai.configure(api_key=API_KEY)
+
+def analizar_documento_con_ia(imagen_upload):
+    """Envía la imagen a Google Gemini y extrae los datos en JSON"""
+    try:
+        # CORRECCIÓN DEL NOMBRE DEL MODELO (Para evitar el error 404)
+        # Usamos 'gemini-1.5-flash-latest' que suele ser el alias más estable
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        img = Image.open(imagen_upload)
+
+        # PROMPT UNIVERSAL (MERCOSUR + PASAPORTES)
+        prompt = """
+        Actúa como un recepcionista experto en documentos internacionales. Analiza esta imagen.
+        Puede ser: Cédula de Paraguay, DNI de Argentina, RG/CNH de Brasil o Pasaporte de cualquier país.
+        
+        Tu tarea es identificar qué documento es y extraer los datos visibles.
+        
+        Reglas OBLIGATORIAS:
+        1. Devuelve SOLO un JSON válido.
+        2. Si un dato no aparece en la foto (ej: Estado Civil en DNI argentino), devuelve null o string vacío "".
+        3. Fechas: Formato YYYY-MM-DD. Si no tiene año completo, deduce el siglo (19xx o 20xx).
+        4. Nro_Documento: Solo números y letras, sin puntos ni guiones.
+        
+        Estructura JSON a completar:
+        {
+            "Apellidos": "string",
+            "Nombres": "string",
+            "Nacionalidad": "string (Si no dice explícitamente, infiérela del país emisor)",
+            "Fecha_Nacimiento": "YYYY-MM-DD",
+            "Nro_Documento": "string",
+            "Pais": "string (Ej: Paraguay, Argentina, Brasil)",
+            "Sexo": "string",
+            "Estado_Civil": "string (Solo si aparece)",
+            "Procedencia": "string (Ciudad o Domicilio si aparece)"
+        }
+        """
+        
+        response = model.generate_content([prompt, img])
+        
+        # Limpieza de seguridad por si la IA responde con ```json ... ```
+        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
+        
+        import json
+        return json.loads(texto_limpio)
+        
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return None
+
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Hotel Munich - Recepción", page_icon="🏨", layout="wide")
 
@@ -139,21 +203,39 @@ with tab_reserva:
             st.success(f"✅ Reserva guardada correctamente con el Nro: {nro}")
 
 # --- PESTAÑA 3: FICHA DE DATOS (Réplica foto "Ficha marrón") ---
+# --- PESTAÑA 3: FICHA DE DATOS (CON IA) ---
 with tab_checkin:
     st.markdown("### 👤 Ficha de Ingreso (Check-In)")
     
-    # SECCIÓN DE IA (Futura implementación)
-    st.info("📷 Sube una foto del documento para llenar esto automáticamente (Próximamente con IA)")
+    # 1. Crear memoria para guardar los datos de la IA (si no existe)
+    if 'datos_ia' not in st.session_state:
+        st.session_state.datos_ia = {}
+
+    # 2. Subir archivo
+    st.info("📷 Sube una foto del documento para llenar esto automáticamente.")
     uploaded_file = st.file_uploader("Foto del Documento (Cédula/DNI)", type=['jpg', 'png', 'jpeg'])
     
-    if uploaded_file:
+    if uploaded_file is not None:
         st.image(uploaded_file, caption="Documento cargado", width=300)
-        # AQUÍ ES DONDE CONECTAREMOS EL AGENTE DE IA MÁS ADELANTE
-        # para leer la imagen y llenar los campos de abajo.
-    
+        
+        # 3. Botón Mágico de la IA
+        if st.button("✨ EXTRAER DATOS CON IA", type="primary"):
+            with st.spinner("Leyendo documento..."):
+                # Llamamos a la función que pusiste arriba
+                datos = analizar_documento_con_ia(uploaded_file)
+                if datos:
+                    st.session_state.datos_ia = datos
+                    st.success("¡Datos extraídos! Verifica el formulario abajo.")
+                else:
+                    st.error("No se pudo leer el documento.")
+
     st.markdown("---")
     
-    with st.form("form_ficha", clear_on_submit=True):
+    # 4. Recuperamos los datos de la memoria para llenar el formulario
+    ia = st.session_state.datos_ia
+    
+    # IMPORTANTE: clear_on_submit=False para que no se borre lo que llenó la IA
+    with st.form("form_ficha", clear_on_submit=False): 
         c1, c2, c3 = st.columns(3)
         ingreso_fecha = c1.date_input("Fecha Ingreso", value=date.today())
         habitacion = c2.text_input("Habitación Nro.")
@@ -162,30 +244,45 @@ with tab_checkin:
         st.markdown("---")
         
         c4, c5 = st.columns(2)
-        apellidos = c4.text_input("Apellidos")
-        nombres = c5.text_input("Nombres")
+        # Aquí usamos .get() para llenar si la IA trajo el dato
+        apellidos = c4.text_input("Apellidos", value=ia.get("Apellidos", ""))
+        nombres = c5.text_input("Nombres", value=ia.get("Nombres", ""))
         
         c6, c7 = st.columns(2)
-        nacionalidad = c6.text_input("Nacionalidad")
-        fecha_nac = c7.date_input("Fecha de Nacimiento", value=date(1980, 1, 1))
+        nacionalidad = c6.text_input("Nacionalidad", value=ia.get("Nacionalidad", ""))
+        
+        # Lógica para evitar errores con la fecha de nacimiento
+        fecha_nac_val = date(1980,1,1)
+        if ia.get("Fecha_Nacimiento"):
+            try:
+                fecha_nac_val = datetime.strptime(ia.get("Fecha_Nacimiento"), "%Y-%m-%d").date()
+            except:
+                pass 
+                
+        fecha_nac = c7.date_input("Fecha de Nacimiento", value=fecha_nac_val)
         
         c8, c9 = st.columns(2)
-        procedencia = c8.text_input("Procedencia (De dónde viene)")
-        destino = c9.text_input("Destino (Hacia dónde va)")
+        procedencia = c8.text_input("Procedencia", value=ia.get("Procedencia", ""))
+        destino = c9.text_input("Destino", value=ia.get("Destino", ""))
         
         c10, c11 = st.columns(2)
-        estado_civil = c10.selectbox("Estado Civil", ["Soltero/a", "Casado/a", "Viudo/a", "Divorciado/a"])
-        nro_documento = c11.text_input("Nº de Documento")
+        # Lógica para seleccionar el estado civil correcto
+        estado_civil_val = ia.get("Estado_Civil", "Soltero/a") 
+        opciones_civil = ["Soltero/a", "Casado/a", "Viudo/a", "Divorciado/a"]
+        idx_civil = 0
+        if estado_civil_val in opciones_civil:
+            idx_civil = opciones_civil.index(estado_civil_val)
+            
+        estado_civil = c10.selectbox("Estado Civil", opciones_civil, index=idx_civil)
+        nro_documento = c11.text_input("Nº de Documento", value=ia.get("Nro_Documento", ""))
         
-        pais = st.text_input("País")
+        pais = st.text_input("País", value=ia.get("Pais", ""))
         
         st.markdown("### 🧾 Datos de Facturación")
         facturacion = st.text_input("Nombre / Razón Social")
         ruc = st.text_input("RUC")
         
-        btn_ficha = st.form_submit_button("🖨️ GUARDAR FICHA DE HUÉSPED", type="primary", use_container_width=True)
-        
-        if btn_ficha:
+        if st.form_submit_button("🖨️ GUARDAR FICHA DE HUÉSPED", type="primary", use_container_width=True):
             datos_ficha = {
                 "Fecha_Ingreso": ingreso_fecha,
                 "Habitacion": habitacion,
@@ -205,3 +302,5 @@ with tab_checkin:
             }
             guardar_cliente(datos_ficha)
             st.success(f"✅ Ficha creada para {nombres} {apellidos}. Guardada en Excel.")
+            # Limpiamos la memoria de la IA para el siguiente cliente
+            st.session_state.datos_ia = {}

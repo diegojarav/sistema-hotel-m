@@ -1,4 +1,4 @@
-# Ignorar bases de datos locales (¡MUY IMPORTANTE!)
+# Ignorar bases de datos locales
 *.xlsx
 /data
 
