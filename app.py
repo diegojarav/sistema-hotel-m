@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import os
-
+import re
 import google.generativeai as genai
 from PIL import Image
 from dotenv import load_dotenv
@@ -70,20 +70,32 @@ def analizar_documento_con_ia(imagen_upload):
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="Hotel Munich - Recepción", page_icon="🏨", layout="wide")
 
-# --- RUTAS DE ARCHIVOS (BASE DE DATOS LOCAL) ---
+# --- CONSTANTES ---
 FILE_RESERVAS = "reservas.xlsx"
 FILE_CLIENTES = "fichas_huespedes.xlsx"
 
+# LISTA OFICIAL DE HABITACIONES
+LISTA_HABITACIONES = [
+    "31", "32", "33", "34", "35", "36",
+    "21", "22", "23", "24", "25", "26", "27", "28"
+]
+# Tipos de Habitación
+LISTA_TIPOS = [
+    "Matrimonial", 
+    "Doble (2 Camas)", 
+    "Triple", 
+    "Cuádruple", 
+    "Suite"
+]
 # --- FUNCIONES DEL BACKEND ---
-
 def init_db():
     """Crea los archivos Excel si no existen con las columnas de las fotos"""
     
     # 1. Mapeo exacto de la foto "REGISTRO DE RESERVAS"
     cols_reservas = [
         "Nro_Reserva", "Fecha_Registro", "Estadia_Dias", "A_Nombre_De", 
-        "Tipo_Habitacion", "Precio", "Hora_Llegada", "Reservado_Por", 
-        "Telefono", "Recibido_Por", "Fecha_Entrada", "Estado"
+        "Habitacion", "Tipo_Habitacion", "Precio", "Hora_Llegada",
+        "Reservado_Por", "Telefono", "Recibido_Por", "Fecha_Entrada", "Estado"
     ]
     
     # 2. Mapeo exacto de la foto "FICHA DE DATOS PERSONALES"
@@ -120,7 +132,104 @@ def guardar_cliente(datos):
     nuevo_df = pd.DataFrame([datos])
     df = pd.concat([df, nuevo_df], ignore_index=True)
     df.to_excel(FILE_CLIENTES, index=False)
+    
+# --- FUNCIONES AUXILIARES PARA EL CALENDARIO ---
 
+def limpiar_estadia_a_int(estadia_str):
+    """Extrae el número de días del texto"""
+    try:
+        match = re.search(r'\d+', str(estadia_str))
+        if match:
+            return int(match.group())
+        return 1
+    except:
+        return 1
+
+def generar_vista_semanal(fecha_inicio):
+    """Genera la matriz para la planilla visual semanal"""
+    df_reservas = cargar_datos(FILE_RESERVAS)
+    
+    # Si el excel es nuevo y está vacío, devolver estructura vacía
+    if df_reservas.empty:
+        df_reservas = pd.DataFrame(columns=["Fecha_Entrada", "Habitacion", "Estado"])
+
+    df_reservas['Fecha_Entrada'] = pd.to_datetime(df_reservas['Fecha_Entrada']).dt.date
+    
+    lunes_inicio = fecha_inicio - timedelta(days=fecha_inicio.weekday())
+    fechas_cols = [lunes_inicio + timedelta(days=i) for i in range(7)]
+    nombres_cols = [f.strftime("%A %d/%m") for f in fechas_cols]
+
+    matriz_semanal = pd.DataFrame(index=LISTA_HABITACIONES, columns=nombres_cols)
+    matriz_semanal = matriz_semanal.fillna("")
+
+    if not df_reservas.empty:
+        for _, reserva in df_reservas.iterrows():
+            if reserva['Estado'] == 'Cancelada': continue
+
+            # DATOS DE LA RESERVA
+            f_inicio_res = reserva['Fecha_Entrada']
+            dias = limpiar_estadia_a_int(reserva['Estadia_Dias'])
+            f_fin_res = f_inicio_res + timedelta(days=dias - 1)
+            
+            # AQUI USAMOS LA NUEVA COLUMNA 'Habitacion'
+            hab = str(reserva['Habitacion']) 
+
+            if hab not in LISTA_HABITACIONES: continue
+            
+            for i, fecha_col in enumerate(fechas_cols):
+                if f_inicio_res <= fecha_col <= f_fin_res:
+                    col_name = nombres_cols[i]
+                    # Mostramos Nombre del Huésped
+                    matriz_semanal.at[hab, col_name] = reserva['A_Nombre_De']
+
+    return matriz_semanal
+
+def generar_vista_diaria(fecha_seleccionada):
+    """Genera lista estado diario"""
+    df_reservas = cargar_datos(FILE_RESERVAS)
+    if not df_reservas.empty:
+        df_reservas['Fecha_Entrada'] = pd.to_datetime(df_reservas['Fecha_Entrada']).dt.date
+    
+    datos_diarios = []
+
+    for hab in LISTA_HABITACIONES:
+        estado = "Libre"
+        huesped = "-"
+        tipo = ""
+        nro_reserva_a_cancelar = None
+
+        if not df_reservas.empty:
+            for _, reserva in df_reservas.iterrows():
+                if reserva['Estado'] == 'Cancelada': continue
+                
+                # AQUI USAMOS LA NUEVA COLUMNA 'Habitacion'
+                if str(reserva['Habitacion']) != hab: continue
+
+                f_inicio = reserva['Fecha_Entrada']
+                dias = limpiar_estadia_a_int(reserva['Estadia_Dias'])
+                f_fin = f_inicio + timedelta(days=dias - 1)
+
+                if f_inicio <= fecha_seleccionada <= f_fin:
+                    estado = "OCUPADA"
+                    huesped = reserva['A_Nombre_De']
+                    tipo = reserva['Tipo_Habitacion'] # Dato extra para mostrar
+                    nro_reserva_a_cancelar = reserva['Nro_Reserva']
+                    break 
+
+        datos_diarios.append({
+            "Hab.": hab,
+            "Estado": estado,
+            "Huésped": huesped,
+            "Tipo": tipo,
+            "Nro_Reserva": nro_reserva_a_cancelar
+        })
+        
+    return pd.DataFrame(datos_diarios)
+
+def cancelar_reserva(nro_reserva):
+    df = cargar_datos(FILE_RESERVAS)
+    df.loc[df["Nro_Reserva"] == nro_reserva, "Estado"] = "Cancelada"
+    df.to_excel(FILE_RESERVAS, index=False)
 # Inicializar DB al arrancar
 init_db()
 
@@ -135,31 +244,78 @@ tab_calendario, tab_reserva, tab_checkin = st.tabs([
     "👤 REGISTRO HUÉSPED (Ficha Marrón)"
 ])
 
-# --- PESTAÑA 1: CALENDARIO (Visión General) ---
+# --- PESTAÑA 1: CALENDARIO VISUAL (PLANILLAS) ---
 with tab_calendario:
-    st.header("Estado de Habitaciones y Reservas")
+    st.header("📅 Planilla de Ocupación")
     
-    df_res = cargar_datos(FILE_RESERVAS)
+    # Selector de fecha principal
+    col_fecha, col_ref = st.columns([1, 4])
+    fecha_referencia = col_fecha.date_input("Ver situación al día:", value=date.today())
     
-    if df_res.empty:
-        st.info("No hay reservas registradas aún.")
-    else:
-        # Mostrar las últimas reservas primero
+    # Sub-pestañas para Vista Semanal y Diaria
+    tab_semanal, tab_diaria, tab_listado = st.tabs(["🗓️ Vista Semanal (Planilla Grande)", "📝 Vista Diaria (Planilla Chica)", "📃 Listado Histórico"])
+    
+    # --- SUB-PESTAÑA: VISTA SEMANAL ---
+    with tab_semanal:
+        st.caption(f"Mostrando semana que incluye el: {fecha_referencia.strftime('%d/%m/%Y')}")
+        
+        # Generar la matriz
+        df_semanal = generar_vista_semanal(fecha_referencia)
+        
+        # Mostrar con estilo para resaltar celdas ocupadas
+        # Usamos un truco de pandas style para pintar celdas que tienen texto
         st.dataframe(
-            df_res.sort_values(by="Fecha_Entrada", ascending=False),
+            df_semanal.style.applymap(
+                lambda x: "background-color: #ffcdd2; color: black; font-weight: bold" if x != "" else "",
+            ),
             use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Nro_Reserva": "Nº Ficha",
-                "A_Nombre_De": "Huésped",
-                "Fecha_Entrada": st.column_config.DateColumn("Llegada"),
-                "Precio": st.column_config.NumberColumn("Precio Gs.", format="$%d")
-            }
+            height=600 # Altura fija para que se vea como la hoja
         )
-    
-    col_refresh, col_dummy = st.columns([1,4])
-    if col_refresh.button("🔄 Actualizar Tabla"):
-        st.rerun()
+        st.info("💡 Para registrar una reserva en un hueco libre, ve a la pestaña roja 'NUEVA RESERVA'.")
+
+    # --- SUB-PESTAÑA: VISTA DIARIA Y CANCELACIÓN ---
+    with tab_diaria:
+        st.caption(f"Situación detallada del día: {fecha_referencia.strftime('%d/%m/%Y')}")
+        
+        df_diario = generar_vista_diaria(fecha_referencia)
+
+        # Iteramos sobre las filas para mostrar una "tarjeta" por habitación
+        # Esto permite poner botones al lado de cada una
+        for index, row in df_diario.iterrows():
+            with st.container():
+                # Creamos columnas para diseñar la fila (Habitacion | Estado | Huesped | Boton Cancelar)
+                c1, c2, c3, c4 = st.columns([1, 2, 4, 2])
+                
+                c1.subheader(f"🚪{row['Hab.']}")
+                
+                if row['Estado'] == "OCUPADA":
+                    c2.markdown(":red[**OCUPADA**]")
+                    c3.write(f"👤 {row['Huésped']}")
+                    
+                    # Botón para cancelar (Usamos key única para que no se confundan los botones)
+                    clave_boton = f"btn_cancel_{row['Hab.']}_{row['Nro_Reserva']}"
+                    if c4.button("❌ Liberar/Cancelar", key=clave_boton, type="secondary"):
+                        cancelar_reserva(row['Nro_Reserva'])
+                        st.toast(f"Reserva de la Hab. {row['Hab.']} cancelada.")
+                        st.rerun() # Recargar la página para ver el cambio
+                else:
+                    c2.markdown(":green[**LIBRE**]")
+                    c3.caption("---")
+                    c4.write("") # Espacio vacío
+                
+                st.divider()
+
+    # --- SUB-PESTAÑA: HISTÓRICO (La tabla que tenías antes) ---
+    with tab_listado:
+        st.write("Historial completo de reservas:")
+        df_res = cargar_datos(FILE_RESERVAS)
+        if df_res.empty:
+            st.info("No hay reservas.")
+        else:
+            st.dataframe(
+                df_res.sort_values(by="Fecha_Entrada", ascending=False),
+                use_container_width=True, hide_index=True
+            )
 
 # --- PESTAÑA 2: REGISTRO DE RESERVAS (Réplica foto "Nro 0001254") ---
 with tab_reserva:
@@ -171,7 +327,8 @@ with tab_reserva:
         with col1:
             fecha_registro = st.date_input("Fecha (Hoy)", value=date.today())
             a_nombre_de = st.text_input("A nombre de")
-            tipo_habitacion = st.selectbox("Tipo de Habitación", ["Matrimonial", "Doble", "Triple", "Suite"])
+            habitacion_nro = st.selectbox("Número de Habitación", LISTA_HABITACIONES)
+            tipo_habitacion = st.selectbox("Tipo de Habitación", LISTA_TIPOS)
             precio = st.number_input("Precio (Gs)", step=10000)
             reservado_por = st.text_input("Reservado por (Cliente/Agencia)")
             
@@ -190,6 +347,7 @@ with tab_reserva:
                 "Fecha_Registro": fecha_registro,
                 "Estadia_Dias": estadia,
                 "A_Nombre_De": a_nombre_de,
+                "Habitacion": habitacion_nro,
                 "Tipo_Habitacion": tipo_habitacion,
                 "Precio": precio,
                 "Hora_Llegada": hora_llegada,
@@ -200,9 +358,8 @@ with tab_reserva:
                 "Estado": "Confirmada"
             }
             nro = guardar_reserva(datos_reserva)
-            st.success(f"✅ Reserva guardada correctamente con el Nro: {nro}")
+            st.success(f"✅ Reserva Nro {nro} guardada para la Habitación {habitacion_nro}.")
 
-# --- PESTAÑA 3: FICHA DE DATOS (Réplica foto "Ficha marrón") ---
 # --- PESTAÑA 3: FICHA DE DATOS (CON IA) ---
 with tab_checkin:
     st.markdown("### 👤 Ficha de Ingreso (Check-In)")
