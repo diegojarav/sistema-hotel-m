@@ -10,3 +10,15 @@ __pycache__/
 # Ignorar secretos (API Keys)
 .env
 .streamlit/secrets.toml
+
+# Ignorar backups y logs (generados localmente)
+backups/
+logs/
+hotel.db
+hotel.db-wal
+hotel.db-shm
+
+# Ignorar Entornos Virtuales (Por si acaso)
+venv/
+.venv/
+env/

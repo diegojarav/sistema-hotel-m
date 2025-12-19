@@ -1,90 +1,133 @@
-# 🏨 Sistema de Gestión - Hotel Munich (v2.0)
+# 🏨 Hotel Munich LMS (Local Management System)
 
-Sistema de gestión hotelera local desarrollado en **Python** y **Streamlit**. Moderniza la recepción manteniendo la familiaridad de los formularios en papel, con automatización por IA y control de seguridad.
+Un sistema de gestión hotelera (PMS) on-premise diseñado para alta disponibilidad local, seguridad de datos y automatización mediante IA.
 
-## 🚀 Nuevas Funcionalidades (v2.0)
+---
 
-* **🔐 Control de Acceso (Login):** Sistema de usuarios y contraseñas para administradores y recepcionistas.
-* **📅 Planillas Visuales:**
-    * **Vista Semanal:** Grilla tipo Excel para ver ocupación de 7 días de un vistazo.
-    * **Vista Diaria:** Detalle habitación por habitación con botones de acción rápida.
-* **❌ Gestión de Cancelaciones:** Registro de quién canceló la reserva y el motivo.
-* **🚗 Registro Vehicular:** Campos específicos para Marca y Chapa del vehículo en la ficha.
-* **🤖 IA Avanzada (OCR):** Lectura de Cédulas (Paraguay, Brasil, Argentina) usando **Google Gemini 2.5**.
-* **🧾 Historial de Facturación:** El sistema recuerda los datos de RUC/Razón Social de clientes recurrentes.
-* **📱 Acceso Móvil:** Diseño adaptable para acceder desde celulares dentro de la red Wi-Fi.
+## 🚀 Características Técnicas Destacadas
 
-## 🛠️ Tecnologías
+Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps** para garantizar robustez en un entorno local:
 
-* **Core:** Python 3.10+, Streamlit.
-* **Datos:** Pandas (Excel local).
-* **IA:** Google Generative AI (Gemini 2.5 Flash).
-* **Seguridad:** Python-Dotenv.
+### 🏗️ Arquitectura y Diseño
 
-## 📋 Instalación Inicial
+- **Layered Architecture:** Separación estricta entre Capa de Presentación (`app.py`), Capa de Servicios (`services.py`) y Capa de Datos (`database.py`).
+- **Modelo de Datos Relacional:** SQLite con integridad referencial.
+- **Concurrencia Optimista:** Configuración de SQLite en **WAL Mode** (Write-Ahead Logging) y gestión de `scoped_session` para soportar múltiples usuarios simultáneos sin bloqueos.
 
-1.  **Clonar el repositorio:**
-    ```bash
-    git clone [https://github.com/diegojarav/sistema-hotel-munich.git](https://github.com/diegojarav/sistema-hotel-munich.git)
-    cd sistema-hotel-munich
-    ```
+### 🛡️ Seguridad y Robustez (Hardening)
 
-2.  **Preparar entorno (Miniconda):**
-    ```bash
-    conda create -n hotel_munich python=3.10
-    conda activate hotel_munich
-    pip install -r requirements.txt
-    ```
+- **Gestión de Secretos:** Credenciales aisladas mediante variables de entorno (`.env`).
+- **Validación Estricta:** Uso de **Pydantic Schemas** para validar reglas de negocio (ej: `check_out > check_in`, precios no negativos) antes de persistir datos.
+- **Manejo de Errores UX:** Excepciones de Pydantic y ValueError capturadas con mensajes amigables al usuario.
+- **Observabilidad:** Sistema de **Logging Rotativo** (`RotatingFileHandler`) para auditoría de errores sin saturar el disco.
 
-3.  **Configurar la Llave de IA (¡Vital!):**
-    Crea un archivo llamado `.env` en la carpeta principal y pega tu API Key:
-    ```env
-    GOOGLE_API_KEY="TU_CLAVE_AIza_AQUI"
-    ```
+### 🔄 Resiliencia y Recuperación
+
+- **Hot Backups:** Sistema automatizado de copias de seguridad en caliente usando la API nativa de SQLite (sin detener el servicio).
+- **Infraestructura como Código (IaC):** Script `install_backup_task.bat` para despliegue automático de tareas programadas en Windows.
+
+---
+
+## 🛠️ Instalación y Despliegue
+
+### 1. Clonar el repositorio
+
+```bash
+git clone https://github.com/diegojarav/sistema-hotel-m.git
+cd sistema-hotel-m
+```
+
+### 2. Configurar entorno
+
+```bash
+# Crear entorno virtual (recomendado)
+python -m venv venv
+venv\Scripts\activate  # Windows
+# source venv/bin/activate  # Linux/Mac
+
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Configurar variables de entorno
+cp .env.example .env
+# Editar .env con tus credenciales reales
+```
+
+### 3. Ejecutar
+
+```bash
+streamlit run app.py
+```
+
+Para acceso desde otros dispositivos en la red:
+
+```bash
+streamlit run app.py --server.address 0.0.0.0
+```
+
+---
 
 ## 🔐 Credenciales de Acceso (Por Defecto)
 
-La primera vez que inicies el sistema, se crearán estos usuarios automáticamente en `usuarios.xlsx`:
+La primera vez que inicies el sistema, se crearán estos usuarios automáticamente:
 
-| Rol | Usuario | Contraseña |
-| :--- | :--- | :--- |
-| **Administrador** | `admin` | `1234` |
-| **Recepción** | `recepcion` | `1234` |
+| Rol              | Usuario     | Contraseña |
+|------------------|-------------|------------|
+| **Administrador** | `admin`     | `1234`     |
+| **Recepción**     | `recepcion` | `1234`     |
 
-> **Nota:** Puedes cambiar las contraseñas editando directamente el archivo `usuarios.xlsx` una vez creado.
+> ⚠️ **Nota:** Cambia las contraseñas en producción.
 
-## ▶️ Cómo Iniciar el Sistema
+---
 
-### En el Servidor (Laptop Server)
-Ejecuta este comando para iniciar el sistema visible para toda la red:
-```bash
-python -m streamlit run app.py --server.address 0.0.0.0
-````
+## 📂 Estructura del Proyecto
 
-### En Clientes (Laptop recepcion / Celulares)
+```
+hotel_munich/
+├── app.py              # Capa de Presentación (Streamlit UI)
+├── services.py         # Capa de Servicios (Lógica de negocio)
+├── database.py         # Capa de Datos (SQLAlchemy + SQLite)
+├── schemas.py          # DTOs y Validaciones (Pydantic)
+├── logging_config.py   # Configuración centralizada de logging
+├── backup_manager.py   # Sistema de backups automáticos
+├── requirements.txt    # Dependencias Python
+├── .env.example        # Template de variables de entorno
+└── logs/               # Archivos de log (auto-generado)
+```
 
-1.  Asegúrate de estar en el mismo **Wi-Fi**.
-2.  Abre Chrome o Safari.
-3.  Ingresa a: `http://IP_DEL_SERVER:8501`
-      * *Ejemplo:* `http://192.168.1.15:8501`
+---
 
-## 📂 Estructura de Datos (Archivos Excel)
+## 📱 Funcionalidades
 
-El sistema genera y administra estos archivos automáticamente. **No borrarlos** a menos que quieras reiniciar el sistema de fábrica.
+- **📅 Calendario de Ocupación:** Vistas semanal y diaria con estado de habitaciones.
+- **📞 Gestión de Reservas:** Crear, editar, cancelar con trazabilidad.
+- **👤 Fichas de Cliente:** Registro completo con datos de facturación y vehículo.
+- **🤖 OCR con IA:** Lectura automática de documentos (Cédulas, DNI, Pasaportes) usando Google Gemini.
+- **🧾 Historial de Facturación:** Autocompletado de datos de clientes recurrentes.
 
-  * `reservas.xlsx`: Base de datos de reservas, fechas y estados.
-  * `fichas_huespedes.xlsx`: Datos personales, facturación y vehículos.
-  * `usuarios.xlsx`: Credenciales de acceso y roles.
+---
 
-## ⚠️ Solución de Problemas Comunes
+## ⚠️ Solución de Problemas
 
-1.  **"No encuentro la API Key":** Verifica que el archivo `.env` no tenga extensión `.txt` oculta y esté en la misma carpeta que `app.py`.
-2.  **"Columnas faltantes en Excel":** Si actualizaste el código y el Excel es viejo, el sistema intentará arreglarlo solo. Si falla, borra los `.xlsx` (haz backup antes) y reinicia el programa para que se creen limpios.
-3.  **"No conecta desde la Acer":** Verifica que la Dell no haya entrado en suspensión y que el Firewall de Windows permita conexiones a Python.
+| Problema | Solución |
+|----------|----------|
+| "No encuentra la API Key" | Verifica que `.env` exista y no tenga extensión `.txt` oculta |
+| "Database is locked" | El sistema usa WAL mode, reiniciar si persiste |
+| "No conecta desde otro dispositivo" | Verificar firewall y usar `--server.address 0.0.0.0` |
 
------
+---
+
+## 📊 Tecnologías
+
+| Componente | Tecnología |
+|------------|------------|
+| **Backend** | Python 3.10+ |
+| **UI** | Streamlit |
+| **Base de Datos** | SQLite + SQLAlchemy |
+| **Validación** | Pydantic v2 |
+| **IA/OCR** | Google Gemini 2.5 Flash |
+| **Logging** | RotatingFileHandler |
+
+---
 
 **Desarrollado por Diego para Hotel Munich.**
-
-```
-```

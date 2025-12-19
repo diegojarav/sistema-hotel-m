@@ -4,6 +4,11 @@ from datetime import datetime, date, timedelta
 import os
 from PIL import Image
 from dotenv import load_dotenv
+from pydantic import ValidationError
+from logging_config import get_logger
+
+# Logger para este módulo
+logger = get_logger(__name__)
 
 # Importar Servicios y Esquemas
 from services import (
@@ -42,6 +47,16 @@ LISTA_TIPOS = [
 ]
 
 # --- 3. FUNCIONES AUXILIARES UI ---
+def _format_validation_error(e: ValidationError) -> str:
+    """Extrae mensajes legibles de ValidationError de Pydantic."""
+    errors = e.errors()
+    messages = []
+    for err in errors:
+        field = " -> ".join(str(loc) for loc in err['loc'])
+        msg = err['msg']
+        messages.append(f"• {field}: {msg}")
+    return "Error de validación:\n" + "\n".join(messages)
+
 def analizar_documento_con_ia(imagen_upload):
     """(Mantenida temporalmente en UI layer o mover a un AIService)"""
     try:
@@ -317,8 +332,13 @@ with tab_reserva:
                     ids = ReservationService.create_reservations(data)
                     st.success(f"Reservas creadas: {ids}")
                     
+            except ValidationError as e:
+                st.error(_format_validation_error(e))
+            except ValueError as e:
+                st.error(f"Error de datos: {e}")
             except Exception as e:
-                st.error(f"Error al guardar: {e}")
+                logger.error(f"Error inesperado al guardar reserva: {e}", exc_info=True)
+                st.error("Ocurrió un error inesperado. Contacte al soporte.")
         
         st.divider()
         st.markdown("### 📋 Listado de Reservas (Últimas)")
@@ -492,5 +512,10 @@ with tab_checkin:
                     gid = GuestService.register_checkin(checkin_data)
                     st.success(f"Check-in registrado ID: {gid}")
                     st.session_state.datos_ia = {}
+            except ValidationError as e:
+                st.error(_format_validation_error(e))
+            except ValueError as e:
+                st.error(f"Error de datos: {e}")
             except Exception as e:
-                st.error(f"Error: {e}")
+                logger.error(f"Error inesperado al guardar ficha: {e}", exc_info=True)
+                st.error("Ocurrió un error inesperado. Contacte al soporte.")

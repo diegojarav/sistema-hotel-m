@@ -1,86 +1,62 @@
-import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from database import SessionLocal, User, Room, Reservation, CheckIn
 from typing import List, Optional, Dict
 from datetime import date, datetime, timedelta
-from pydantic import BaseModel
-import streamlit as st # Only for cache resource integration if needed, but better to keep pure.
 
-# Logging configuration
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Importar logging centralizado
+from logging_config import get_logger
 
-# ==========================================
-# PYDANTIC SCHEMAS (Data Transfer Objects)
-# ==========================================
+# Importar schemas con validaciones estrictas
+from schemas import (
+    UserDTO, 
+    ReservationCreate, 
+    ReservationDTO, 
+    CheckInCreate
+)
 
-class UserDTO(BaseModel):
-    username: str
-    role: str
-    real_name: str
-
-class ReservationCreate(BaseModel):
-    check_in_date: Optional[date] = None
-    stay_days: Optional[int] = 1
-    guest_name: Optional[str] = ""
-    room_ids: List[str] 
-    room_type: Optional[str] = ""
-    price: Optional[float] = 0.0
-    arrival_time: Optional[datetime] = None
-    reserved_by: Optional[str] = ""
-    contact_phone: Optional[str] = ""
-    received_by: Optional[str] = ""
-
-class ReservationDTO(BaseModel):
-    id: str
-    room_id: str
-    guest_name: str
-    status: str
-    check_in: date
-    check_out: date
-
-class CheckInCreate(BaseModel):
-    room_id: Optional[str] = None
-    check_in_time: Optional[datetime] = None
-    last_name: Optional[str] = ""
-    first_name: Optional[str] = ""
-    nationality: Optional[str] = ""
-    birth_date: Optional[date] = None
-    origin: Optional[str] = ""
-    destination: Optional[str] = ""
-    civil_status: Optional[str] = ""
-    document_number: Optional[str] = ""
-    country: Optional[str] = ""
-    billing_name: Optional[str] = ""
-    billing_ruc: Optional[str] = ""
-    vehicle_model: Optional[str] = ""
-    vehicle_plate: Optional[str] = ""
+# Logger para este módulo
+logger = get_logger(__name__)
 
 # ==========================================
 # SERVICES
 # ==========================================
 
 def get_db():
+    """
+    Context manager para obtener sesión thread-safe.
+    Uso: with get_db() as db: ...
+    """
     db = SessionLocal()
     try:
         yield db
     finally:
-        db.close()
+        SessionLocal.remove()
+
 
 # Helper for direct usage (non-dependency injection style for Streamlit)
+# THREAD-SAFE: Usa scoped_session con remove() para limpiar
 def with_db(func):
+    """
+    Decorador que maneja el ciclo de vida de la sesión de forma segura.
+    Usa scoped_session, garantizando aislamiento por hilo.
+    """
     def wrapper(*args, **kwargs):
+        # scoped_session() retorna la sesión del hilo actual
+        # Si no existe, la crea automáticamente
         db = SessionLocal()
         try:
-            return func(db, *args, **kwargs)
+            result = func(db, *args, **kwargs)
+            return result
         except Exception as e:
             db.rollback()
             logger.error(f"Error in {func.__name__}: {e}")
             raise e
         finally:
-            db.close()
+            # CRÍTICO: Limpiar la sesión del registry del hilo
+            SessionLocal.remove()
     return wrapper
+
 
 class AuthService:
     """Service for user authentication."""

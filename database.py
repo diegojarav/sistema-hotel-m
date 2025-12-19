@@ -1,15 +1,46 @@
 import os
 import pandas as pd
-from sqlalchemy import create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime, Time
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy import create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime, Time, event
+from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from datetime import datetime
 import re
 
+# Logging centralizado
+from logging_config import get_logger
+logger = get_logger(__name__)
+
 # Base de datos
 DB_NAME = "hotel.db"
-engine = create_engine(f"sqlite:///{DB_NAME}", echo=False)
+
+# ========================================
+# CONFIGURACIÓN SEGURA PARA CONCURRENCIA
+# ========================================
+
+# 1. Crear engine con timeout y check_same_thread deshabilitado
+engine = create_engine(
+    f"sqlite:///{DB_NAME}",
+    echo=False,
+    connect_args={
+        "check_same_thread": False,  # Permitir uso multi-hilo
+        "timeout": 30  # Esperar hasta 30s si hay bloqueo
+    },
+    pool_pre_ping=True  # Verificar conexiones antes de usar
+)
+
+# 2. Habilitar WAL Mode al conectar
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")  # Balance rendimiento/seguridad
+    cursor.execute("PRAGMA busy_timeout=30000")  # 30s timeout en nivel SQLite
+    cursor.close()
+
 Base = declarative_base()
-SessionLocal = sessionmaker(bind=engine)
+
+# 3. Usar scoped_session para aislamiento por hilo
+session_factory = sessionmaker(bind=engine)
+SessionLocal = scoped_session(session_factory)
 
 # ==========================================
 # MODELOS (Tablas)
@@ -116,7 +147,7 @@ def init_db():
             )
             session.add(u)
         session.commit()
-        print("Usuarios migrados.")
+        logger.info("Usuarios migrados desde Excel")
 
     # 3. Migrar Reservas
     if session.query(Reservation).count() == 0 and os.path.exists("reservas.xlsx"):
@@ -151,7 +182,7 @@ def init_db():
             )
             session.add(r)
         session.commit()
-        print("Reservas migradas.")
+        logger.info("Reservas migradas desde Excel")
 
     # 4. Migrar Fichas/Clientes
     if session.query(CheckIn).count() == 0 and os.path.exists("fichas_huespedes.xlsx"):
@@ -187,7 +218,7 @@ def init_db():
             )
             session.add(ch)
         session.commit()
-        print("Fichas migradas.")
+        logger.info("Fichas de huéspedes migradas desde Excel")
     
     session.close()
 
