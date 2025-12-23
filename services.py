@@ -12,7 +12,9 @@ from schemas import (
     UserDTO, 
     ReservationCreate, 
     ReservationDTO, 
-    CheckInCreate
+    CheckInCreate,
+    CalendarEventDTO,
+    TodaySummaryDTO
 )
 
 # Logger para este módulo
@@ -263,6 +265,204 @@ class ReservationService:
         
         db.commit()
         return True
+
+    @staticmethod
+    @with_db
+    def get_monthly_events(db: Session, year: int, month: int) -> List[CalendarEventDTO]:
+        """
+        Obtiene eventos de calendario para un mes específico.
+        Compatible con FullCalendar y otras librerías JS.
+        
+        Args:
+            year: Año (ej: 2024)
+            month: Mes (1-12)
+            
+        Returns:
+            Lista de CalendarEventDTO con formato estándar
+        """
+        from calendar import monthrange
+        
+        # Calcular rango del mes
+        first_day = date(year, month, 1)
+        last_day = date(year, month, monthrange(year, month)[1])
+        
+        # Buscar reservas que toquen este mes
+        # Una reserva "toca" el mes si:
+        # - check_in_date <= last_day AND check_out_date >= first_day
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn"]),
+            Reservation.check_in_date <= last_day
+        ).all()
+        
+        events = []
+        for res in reservations:
+            # Calcular fecha de salida
+            check_out = res.check_in_date + timedelta(days=res.stay_days)
+            
+            # Verificar que realmente toque el mes
+            if check_out < first_day:
+                continue
+            
+            # Determinar color según estado
+            if res.status == "CheckIn":
+                color = "#4CAF50"  # Verde - ya hizo check-in
+            else:
+                color = "#2196F3"  # Azul - confirmada pero no llegó
+            
+            # Crear evento
+            event = CalendarEventDTO(
+                title=res.guest_name or "Sin nombre",
+                start=res.check_in_date.isoformat(),
+                end=check_out.isoformat(),
+                resourceId=res.room_id or "",
+                color=color,
+                extendedProps={
+                    "reservation_id": res.id,
+                    "status": res.status,
+                    "room_type": res.room_type,
+                    "phone": res.contact_phone
+                }
+            )
+            events.append(event)
+        
+        logger.info(f"get_monthly_events: {len(events)} eventos para {year}-{month:02d}")
+        return events
+
+    @staticmethod
+    @with_db
+    def get_occupancy_map(db: Session, year: int, month: int) -> Dict[str, Dict]:
+        """
+        Obtiene mapa de ocupación para calendario nativo.
+        
+        Args:
+            year: Año (ej: 2024)
+            month: Mes (1-12)
+            
+        Returns:
+            Dict con formato:
+            {
+                "2024-12-20": {"count": 3, "status": "medium", "ids": ["001", "002", "003"]},
+                ...
+            }
+        """
+        from calendar import monthrange
+        
+        # Calcular rango del mes
+        first_day = date(year, month, 1)
+        last_day = date(year, month, monthrange(year, month)[1])
+        
+        # Inicializar mapa vacío para todos los días del mes
+        occupancy_map = {}
+        current = first_day
+        while current <= last_day:
+            occupancy_map[current.strftime("%Y-%m-%d")] = {
+                "count": 0,
+                "status": "free",
+                "ids": [],
+                "guests": []
+            }
+            current += timedelta(days=1)
+        
+        # Buscar reservas activas que toquen este mes
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn"]),
+            Reservation.check_in_date <= last_day
+        ).all()
+        
+        for res in reservations:
+            # Calcular fecha de salida
+            check_out = res.check_in_date + timedelta(days=res.stay_days)
+            
+            # Verificar que la reserva toque el mes
+            if check_out < first_day:
+                continue
+            
+            # Marcar cada día ocupado
+            day = max(res.check_in_date, first_day)
+            end = min(check_out, last_day + timedelta(days=1))
+            
+            while day < end:
+                day_key = day.strftime("%Y-%m-%d")
+                if day_key in occupancy_map:
+                    occupancy_map[day_key]["count"] += 1
+                    occupancy_map[day_key]["ids"].append(res.id)
+                    occupancy_map[day_key]["guests"].append(res.guest_name)
+                day += timedelta(days=1)
+        
+        # Calcular status basado en count
+        for day_key, data in occupancy_map.items():
+            count = data["count"]
+            if count == 0:
+                data["status"] = "free"
+            elif 1 <= count <= 5:
+                data["status"] = "medium"
+            else:
+                data["status"] = "high"
+        
+        logger.info(f"get_occupancy_map: {year}-{month:02d} con {sum(1 for d in occupancy_map.values() if d['count'] > 0)} días ocupados")
+        return occupancy_map
+
+    @staticmethod
+    @with_db
+    def get_today_summary(db: Session) -> TodaySummaryDTO:
+        """
+        Obtiene resumen rápido de ocupación para vista móvil.
+        Optimizado con consultas SQL eficientes.
+        
+        Returns:
+            TodaySummaryDTO con conteos de ocupación
+        """
+        from sqlalchemy import func
+        
+        today = date.today()
+        
+        # 1. Total de habitaciones
+        total_rooms = db.query(func.count(Room.id)).scalar() or 0
+        
+        # 2. Llegadas hoy (reservas que inician hoy)
+        llegadas = db.query(func.count(Reservation.id)).filter(
+            Reservation.check_in_date == today,
+            Reservation.status.in_(["Confirmada", "CheckIn"])
+        ).scalar() or 0
+        
+        # 3. Salidas hoy (reservas que terminan hoy)
+        # check_out = check_in_date + stay_days
+        # Usamos una subconsulta para calcular
+        salidas = 0
+        reservas_activas = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn"])
+        ).all()
+        
+        for res in reservas_activas:
+            check_out = res.check_in_date + timedelta(days=res.stay_days)
+            if check_out == today:
+                salidas += 1
+        
+        # 4. Habitaciones ocupadas hoy
+        ocupadas = 0
+        for res in reservas_activas:
+            check_out = res.check_in_date + timedelta(days=res.stay_days)
+            if res.check_in_date <= today < check_out:
+                ocupadas += 1
+        
+        # 5. Habitaciones libres
+        libres = total_rooms - ocupadas
+        
+        # 6. Porcentaje de ocupación
+        porcentaje = (ocupadas / total_rooms * 100) if total_rooms > 0 else 0.0
+        
+        summary = TodaySummaryDTO(
+            llegadas_hoy=llegadas,
+            salidas_hoy=salidas,
+            ocupadas=ocupadas,
+            libres=libres,
+            total_habitaciones=total_rooms,
+            porcentaje_ocupacion=round(porcentaje, 1)
+        )
+        
+        logger.info(f"get_today_summary: {ocupadas}/{total_rooms} ocupadas ({porcentaje:.1f}%)")
+        return summary
+
 
 class GuestService:
     @staticmethod

@@ -119,6 +119,31 @@ class ReservationDTO(BaseModel):
     check_out: date
 
 
+class CalendarEventDTO(BaseModel):
+    """
+    Schema para eventos de calendario (FullCalendar compatible).
+    
+    Estructura estándar para librerías de calendario JS.
+    """
+    title: str = Field(..., description="Nombre del huésped")
+    start: str = Field(..., description="Fecha/hora inicio (ISO format)")
+    end: str = Field(..., description="Fecha/hora fin (ISO format)")
+    resourceId: str = Field(..., description="ID de habitación")
+    color: str = Field(default="#2196F3", description="Color del evento")
+    extendedProps: Optional[dict] = Field(default=None, description="Propiedades adicionales")
+
+
+class TodaySummaryDTO(BaseModel):
+    """Schema para resumen de ocupación (vista móvil)."""
+    llegadas_hoy: int = Field(default=0, description="Check-ins programados hoy")
+    salidas_hoy: int = Field(default=0, description="Check-outs programados hoy")
+    ocupadas: int = Field(default=0, description="Habitaciones ocupadas")
+    libres: int = Field(default=0, description="Habitaciones libres")
+    total_habitaciones: int = Field(default=0, description="Total de habitaciones")
+    porcentaje_ocupacion: float = Field(default=0.0, description="% de ocupación")
+
+
+
 # ==========================================
 # SCHEMAS DE CHECK-IN (FICHA DE HUÉSPED)
 # ==========================================
