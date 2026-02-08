@@ -5,9 +5,7 @@
  * Updated for RoomCategory-based schema (Los Monges MVP)
  */
 
-import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
-
-const API_URL = `${API_BASE_URL}/api/v1`;
+import { apiGet } from './api';
 
 // Types
 export interface RoomCategory {
@@ -45,36 +43,10 @@ export interface Room {
 }
 
 /**
- * Get authorization headers with Bearer token.
- */
-function getAuthHeaders(): HeadersInit {
-    const token = typeof window !== 'undefined'
-        ? localStorage.getItem(ACCESS_TOKEN_KEY)
-        : null;
-
-    return {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    };
-}
-
-/**
  * Fetch all room categories with pricing.
  */
 export async function getRoomCategories(): Promise<RoomCategory[]> {
-    const response = await fetch(`${API_URL}/rooms/categories`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('Sesión expirada. Por favor, inicie sesión nuevamente.');
-        }
-        throw new Error('Error al cargar las categorías de habitaciones');
-    }
-
-    return response.json();
+    return apiGet<RoomCategory[]>('/rooms/categories');
 }
 
 /**
@@ -82,42 +54,17 @@ export async function getRoomCategories(): Promise<RoomCategory[]> {
  * Returns real-time occupancy status for all rooms with category info.
  */
 export async function getRoomsStatus(targetDate?: string): Promise<RoomStatus[]> {
-    const url = targetDate
-        ? `${API_URL}/rooms/status?target_date=${targetDate}`
-        : `${API_URL}/rooms/status`;
-
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('Sesión expirada. Por favor, inicie sesión nuevamente.');
-        }
-        throw new Error('Error al cargar el estado de las habitaciones');
-    }
-
-    return response.json();
+    const endpoint = targetDate
+        ? `/rooms/status?target_date=${targetDate}`
+        : '/rooms/status';
+    return apiGet<RoomStatus[]>(endpoint);
 }
 
 /**
  * Fetch all rooms.
  */
 export async function getAllRooms(): Promise<Room[]> {
-    const response = await fetch(`${API_URL}/rooms`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-    });
-
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('Sesión expirada. Por favor, inicie sesión nuevamente.');
-        }
-        throw new Error('Error al cargar las habitaciones');
-    }
-
-    return response.json();
+    return apiGet<Room[]>('/rooms');
 }
 
 /**

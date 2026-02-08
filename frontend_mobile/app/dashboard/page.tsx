@@ -1,35 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getHotelConfig } from '@/services/settings';
-import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/constants/keys';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function DashboardPage() {
-    const router = useRouter();
-    const [isLoading, setIsLoading] = useState(true);
+    const { isLoading, logout } = useAuth({ required: true });
     const [hotelName, setHotelName] = useState('Mi Hotel');
 
-    // Protection: Check for token on mount and load hotel name
+    // Load hotel name on mount
     useEffect(() => {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (!token) {
-            router.replace('/login');
-        } else {
-            // Fetch hotel name from API
-            getHotelConfig().then(config => {
-                setHotelName(config.hotel_name);
-            });
-            setIsLoading(false);
-        }
-    }, [router]);
-
-    const handleLogout = () => {
-        localStorage.removeItem(ACCESS_TOKEN_KEY);
-        localStorage.removeItem(REFRESH_TOKEN_KEY);
-        router.replace('/login');
-    };
+        getHotelConfig().then(config => {
+            setHotelName(config.hotel_name);
+        });
+    }, []);
 
     // Show loading while checking auth
     if (isLoading) {
@@ -133,7 +118,7 @@ export default function DashboardPage() {
 
                 {/* Logout Button */}
                 <button
-                    onClick={handleLogout}
+                    onClick={logout}
                     className="w-full py-4 px-6 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-xl shadow-lg shadow-red-500/30 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3"
                 >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -152,4 +137,3 @@ export default function DashboardPage() {
         </div>
     );
 }
-

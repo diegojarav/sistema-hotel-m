@@ -15,14 +15,14 @@ import {
     ClientType,
     PriceCalculationResponse
 } from '@/services/pricing';
-import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
+import { createReservation } from '@/services/reservations';
+import { scanDocument } from '@/services/vision';
+import { useAuth } from '@/hooks/useAuth';
 
 import DocumentScanner from './components/DocumentScanner';
 import GuestForm from './components/GuestForm';
 import RoomSelection from './components/RoomSelection';
 import PriceSummary from './components/PriceSummary';
-
-const API_URL = `${API_BASE_URL}/api/v1`;
 
 interface ExtractedData {
     Apellidos: string | null;
@@ -39,11 +39,10 @@ interface ExtractedData {
 export default function NewReservationPage() {
     const router = useRouter();
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    // Auth state
-    const [isLoading, setIsLoading] = useState(true);
+    const { isLoading: authLoading, accessToken } = useAuth({ required: true });
 
     // Categories and rooms
+    const [isLoading, setIsLoading] = useState(true);
     const [categories, setCategories] = useState<RoomCategory[]>([]);
     const [rooms, setRooms] = useState<RoomStatus[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<RoomCategory | null>(null);
@@ -102,13 +101,9 @@ export default function NewReservationPage() {
         setFormData(prev => ({ ...prev, ...updates }));
     };
 
-    // Auth check and data loading
+    // Data loading (after auth)
     useEffect(() => {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (!token) {
-            router.replace('/login');
-            return;
-        }
+        if (authLoading) return;
 
         async function loadData() {
             try {
@@ -136,7 +131,7 @@ export default function NewReservationPage() {
         }
 
         loadData();
-    }, [router]);
+    }, [authLoading]);
 
     // Update price when category or nights change
     useEffect(() => {
@@ -176,17 +171,7 @@ export default function NewReservationPage() {
         setScanError('');
 
         try {
-            const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-            const formDataUpload = new FormData();
-            formDataUpload.append('file', file);
-
-            const response = await fetch(`${API_URL}/vision/extract-data`, {
-                method: 'POST',
-                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-                body: formDataUpload,
-            });
-
-            const result = await response.json();
+            const result = await scanDocument(file);
 
             if (result.success && result.data) {
                 const data: ExtractedData = result.data;
@@ -244,7 +229,6 @@ export default function NewReservationPage() {
         setSubmitProgress({ current: 0, total: selectedRooms.length });
         setCreatedIds([]);
 
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
         const guestName = `${formData.nombres} ${formData.apellidos}`.trim() || 'Sin nombre';
         const allCreatedIds: string[] = [];
 
@@ -272,21 +256,7 @@ export default function NewReservationPage() {
             };
 
             try {
-                const response = await fetch(`${API_URL}/reservations`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-                    },
-                    body: JSON.stringify(reservationData),
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || `Error en habitación ${selectedRooms[i]}`);
-                }
-
-                const ids = await response.json();
+                const ids = await createReservation(reservationData);
                 allCreatedIds.push(...ids);
             } catch (err) {
                 setSubmitError(err instanceof Error ? err.message : 'Error desconocido');
@@ -304,7 +274,7 @@ export default function NewReservationPage() {
         }, 2500);
     };
 
-    if (isLoading) {
+    if (authLoading || isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
                 <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full"></div>

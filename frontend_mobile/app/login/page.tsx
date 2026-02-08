@@ -3,31 +3,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getHotelConfig } from '@/services/settings';
-import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
-
-const API_URL = `${API_BASE_URL}/api/v1`;
-
-async function login(username: string, password: string) {
-    const formData = new URLSearchParams();
-    formData.append('username', username);
-    formData.append('password', password);
-
-    const response = await fetch(`${API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData.toString(),
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Login failed');
-    }
-
-    const tokens = await response.json();
-    localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token);
-    localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
-    return tokens;
-}
+import { login } from '@/services/auth';
 
 export default function LoginPage() {
     const router = useRouter();

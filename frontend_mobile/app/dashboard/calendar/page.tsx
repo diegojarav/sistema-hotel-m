@@ -1,45 +1,22 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Calendar from 'react-calendar';
 import { format, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 import 'react-calendar/dist/Calendar.css';
-import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
-
-const API_URL = `${API_BASE_URL}/api/v1`;
-
-interface Reservation {
-    id: string;
-    room_id: string;
-    guest_name: string;
-    status: string;
-    check_in: string;
-    check_out: string;
-}
-
-function getStatusBadge(status: string) {
-    const s = status.toLowerCase();
-    if (s === 'confirmada' || s === 'confirmed') {
-        return { bg: 'bg-green-500/20', text: 'text-green-400', label: 'Confirmada' };
-    }
-    if (s === 'pendiente' || s === 'pending') {
-        return { bg: 'bg-amber-500/20', text: 'text-amber-400', label: 'Pendiente' };
-    }
-    if (s === 'cancelada' || s === 'cancelled') {
-        return { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Cancelada' };
-    }
-    if (s === 'ocupada' || s === 'checked_in') {
-        return { bg: 'bg-blue-500/20', text: 'text-blue-400', label: 'Hospedado' };
-    }
-    return { bg: 'bg-slate-500/20', text: 'text-slate-400', label: status };
-}
+import { useAuth } from '@/hooks/useAuth';
+import {
+    getAllReservations,
+    getDatesWithReservations,
+    getStatusBadge,
+    Reservation,
+} from '@/services/reservations';
 
 export default function CalendarPage() {
-    const router = useRouter();
+    const { isLoading: authLoading } = useAuth({ required: true });
     const [reservations, setReservations] = useState<Reservation[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
@@ -49,41 +26,13 @@ export default function CalendarPage() {
 
     // Fetch reservations
     useEffect(() => {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (!token) {
-            router.replace('/login');
-            return;
-        }
+        if (authLoading) return;
 
         async function fetchReservations() {
             try {
-                const response = await fetch(`${API_URL}/reservations`, {
-                    headers: { 'Authorization': `Bearer ${token}` },
-                });
-
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        router.replace('/login');
-                        return;
-                    }
-                    throw new Error('Error al cargar reservas');
-                }
-
-                const data: Reservation[] = await response.json();
+                const data = await getAllReservations();
                 setReservations(data);
-
-                // Build set of dates with reservations
-                const dates = new Set<string>();
-                data.forEach(res => {
-                    const checkIn = new Date(res.check_in);
-                    const checkOut = new Date(res.check_out);
-                    const current = new Date(checkIn);
-                    while (current <= checkOut) {
-                        dates.add(current.toISOString().split('T')[0]);
-                        current.setDate(current.getDate() + 1);
-                    }
-                });
-                setDatesWithReservations(dates);
+                setDatesWithReservations(getDatesWithReservations(data));
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Error desconocido');
             } finally {
@@ -92,7 +41,7 @@ export default function CalendarPage() {
         }
 
         fetchReservations();
-    }, [router]);
+    }, [authLoading]);
 
     // Get filtered list based on selected date or upcoming
     const getDisplayedReservations = useCallback(() => {
@@ -102,7 +51,6 @@ export default function CalendarPage() {
         let filtered: Reservation[];
 
         if (selectedDate) {
-            // Filter by selected date
             filtered = reservations.filter(res => {
                 const checkIn = new Date(res.check_in);
                 const checkOut = new Date(res.check_out);
@@ -112,7 +60,6 @@ export default function CalendarPage() {
                 return selectedTime >= checkIn.getTime() && selectedTime <= checkOut.getTime();
             });
         } else {
-            // Upcoming: check_in >= today && not cancelled
             filtered = reservations.filter(res => {
                 const checkIn = new Date(res.check_in);
                 checkIn.setHours(0, 0, 0, 0);
@@ -120,7 +67,6 @@ export default function CalendarPage() {
             });
         }
 
-        // Sort by check_in ASC
         filtered.sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime());
 
         return filtered;
@@ -130,7 +76,6 @@ export default function CalendarPage() {
     const visibleReservations = displayedReservations.slice(0, showCount);
     const hasMore = displayedReservations.length > showCount;
 
-    // Calendar tile content - add dot for days with reservations
     const tileContent = ({ date, view }: { date: Date; view: string }) => {
         if (view !== 'month') return null;
         const dateStr = date.toISOString().split('T')[0];
@@ -144,15 +89,16 @@ export default function CalendarPage() {
         return null;
     };
 
-    // Handle date click
     const handleDateClick = (value: Date) => {
         if (selectedDate && isSameDay(selectedDate, value)) {
-            setSelectedDate(null); // Deselect
+            setSelectedDate(null);
         } else {
             setSelectedDate(value);
         }
-        setShowCount(5); // Reset pagination
+        setShowCount(5);
     };
+
+    const loading = authLoading || isLoading;
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
@@ -173,8 +119,7 @@ export default function CalendarPage() {
 
             {/* Main Content */}
             <main className="flex-1 p-4 overflow-x-hidden">
-                {/* Loading */}
-                {isLoading && (
+                {loading && (
                     <div className="space-y-4">
                         <div className="h-64 bg-white/5 rounded-2xl animate-pulse"></div>
                         <div className="h-24 bg-white/5 rounded-2xl animate-pulse"></div>
@@ -182,14 +127,13 @@ export default function CalendarPage() {
                     </div>
                 )}
 
-                {/* Error */}
                 {error && (
                     <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-center">
                         {error}
                     </div>
                 )}
 
-                {!isLoading && !error && (
+                {!loading && !error && (
                     <>
                         {/* Calendar Section */}
                         <div className="mb-6 calendar-container">
@@ -261,7 +205,7 @@ export default function CalendarPage() {
                                                         <p className="text-slate-400 text-sm">Hab. {res.room_id}</p>
                                                     </div>
                                                 </div>
-                                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${badge.bg} ${badge.text}`}>
+                                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${badge.bgClass} ${badge.textClass}`}>
                                                     {badge.label}
                                                 </span>
                                             </div>
@@ -269,7 +213,6 @@ export default function CalendarPage() {
                                     );
                                 })}
 
-                                {/* Ver más button */}
                                 {hasMore && (
                                     <button
                                         onClick={() => setShowCount(14)}
@@ -294,37 +237,37 @@ export default function CalendarPage() {
           padding: 0.5rem !important;
           font-family: inherit !important;
         }
-        
+
         .hotel-calendar .react-calendar__navigation {
           margin-bottom: 0.5rem;
         }
-        
+
         .hotel-calendar .react-calendar__navigation button {
           color: white !important;
           font-size: 1rem !important;
           background: transparent !important;
           border-radius: 0.5rem;
         }
-        
+
         .hotel-calendar .react-calendar__navigation button:hover {
           background: rgba(255, 255, 255, 0.1) !important;
         }
-        
+
         .hotel-calendar .react-calendar__navigation button:disabled {
           background: transparent !important;
         }
-        
+
         .hotel-calendar .react-calendar__month-view__weekdays {
           text-transform: uppercase;
           font-size: 0.7rem;
           color: rgba(148, 163, 184, 0.8);
           font-weight: 600;
         }
-        
+
         .hotel-calendar .react-calendar__month-view__weekdays abbr {
           text-decoration: none !important;
         }
-        
+
         .hotel-calendar .react-calendar__tile {
           color: white !important;
           background: transparent !important;
@@ -332,25 +275,25 @@ export default function CalendarPage() {
           border-radius: 0.5rem;
           font-size: 0.875rem;
         }
-        
+
         .hotel-calendar .react-calendar__tile:hover {
           background: rgba(255, 255, 255, 0.1) !important;
         }
-        
+
         .hotel-calendar .react-calendar__tile--now {
           background: rgba(245, 158, 11, 0.2) !important;
           border: 1px solid rgba(245, 158, 11, 0.5);
         }
-        
+
         .hotel-calendar .react-calendar__tile--active {
           background: rgba(245, 158, 11, 0.4) !important;
           border: 1px solid rgb(245, 158, 11);
         }
-        
+
         .hotel-calendar .react-calendar__tile--active:hover {
           background: rgba(245, 158, 11, 0.5) !important;
         }
-        
+
         .hotel-calendar .react-calendar__month-view__days__day--neighboringMonth {
           color: rgba(148, 163, 184, 0.4) !important;
         }

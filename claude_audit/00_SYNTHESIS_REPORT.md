@@ -3,7 +3,7 @@
 **Generated:** 2026-02-04
 **Last Updated:** 2026-02-08
 **Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
-**Total Findings:** 70 | **Resolved:** 30 | **Remaining:** 40 (mostly low-priority backlog)
+**Total Findings:** 70 | **Resolved:** 31 | **Remaining:** 39 (mostly low-priority backlog)
 
 ---
 
@@ -44,9 +44,9 @@
 | 17 | TOKEN-01 | 3 different token key names | 3.0 | ✅ DONE |
 | 18 | PERF-003 | O(n*d) occupancy calculation | 3.0 | ✅ DONE |
 | 19 | PERF-008 | No timeout on Gemini API | 3.0 | ✅ DONE |
-| 20 | STRUCT-08 | Direct fetch() bypass api.ts | 2.5 | ⬜ TODO |
+| 20 | STRUCT-08 | Direct fetch() bypass api.ts | 2.5 | ✅ DONE |
 
-**Top 20 status: 19/20 resolved.**
+**Top 20 status: 20/20 resolved.**
 
 ---
 
@@ -86,8 +86,8 @@ V8, V9, V2-V3, PERF-001, PERF-002, PERF-004, PERF-006, TOKEN-01, ZOMBIE-01, ZOMB
 
 | ID | Task | Time |
 |----|------|------|
-| STRUCT-06 | Split `reservations/new/page.tsx` | 3h |
-| STRUCT-08 | Route fetch() through api.ts | 2h |
+| STRUCT-06 | Split `reservations/new/page.tsx` | ✅ DONE |
+| STRUCT-08 | Route fetch() through api.ts | ✅ DONE |
 | STRUCT-12 | Rename page files to snake_case | 30m |
 | STRUCT-13 | Rename constants to English | 30m |
 | PERF-10 | Use requests.Session() | 15m |
@@ -128,7 +128,7 @@ V8, V9, V2-V3, PERF-001, PERF-002, PERF-004, PERF-006, TOKEN-01, ZOMBIE-01, ZOMB
 | Metric | Value |
 |--------|-------|
 | Total Findings | 70 |
-| **Resolved** | **30** |
+| **Resolved** | **31** |
 | Security Critical | 0 remaining |
 | Architecture Critical | 0 remaining |
 | Quick Wins | 0 remaining (12/12 done) |

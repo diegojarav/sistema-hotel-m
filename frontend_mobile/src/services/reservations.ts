@@ -1,12 +1,10 @@
 /**
  * Hotel Munich - Reservation Service
  * ====================================
- * Handles reservation data fetching from FastAPI backend.
+ * Handles reservation data fetching and creation.
  */
 
-import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
-
-const API_URL = `${API_BASE_URL}/api/v1`;
+import { apiGet, apiPost } from './api';
 
 // Types
 export interface Reservation {
@@ -19,42 +17,22 @@ export interface Reservation {
 }
 
 /**
- * Get authorization headers with Bearer token.
- */
-function getAuthHeaders(): HeadersInit {
-    const token = typeof window !== 'undefined'
-        ? localStorage.getItem(ACCESS_TOKEN_KEY)
-        : null;
-
-    return {
-        'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    };
-}
-
-/**
  * Fetch all reservations.
  */
 export async function getAllReservations(): Promise<Reservation[]> {
-    const response = await fetch(`${API_URL}/reservations`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-    });
+    return apiGet<Reservation[]>('/reservations');
+}
 
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error('Sesión expirada. Por favor, inicie sesión nuevamente.');
-        }
-        throw new Error('Error al cargar las reservas');
-    }
-
-    return response.json();
+/**
+ * Create a reservation for a single room.
+ */
+export async function createReservation(data: Record<string, unknown>): Promise<string[]> {
+    return apiPost<string[]>('/reservations', data);
 }
 
 /**
  * Fetch upcoming reservations (check_in >= today).
  * Sorted by check_in date ASC (nearest first).
- * Filters on frontend since backend doesn't support complex filtering.
  */
 export async function getUpcomingReservations(limit: number = 14): Promise<Reservation[]> {
     const allReservations = await getAllReservations();
@@ -62,7 +40,6 @@ export async function getUpcomingReservations(limit: number = 14): Promise<Reser
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Filter: only upcoming (check_in >= today) and active status
     const upcoming = allReservations.filter(res => {
         const checkInDate = new Date(res.check_in);
         const isUpcoming = checkInDate >= today;
@@ -70,12 +47,10 @@ export async function getUpcomingReservations(limit: number = 14): Promise<Reser
         return isUpcoming && isActive;
     });
 
-    // Sort by check_in date ASC
     upcoming.sort((a, b) => {
         return new Date(a.check_in).getTime() - new Date(b.check_in).getTime();
     });
 
-    // Limit results
     return upcoming.slice(0, limit);
 }
 
@@ -94,7 +69,6 @@ export async function getReservationsForDate(targetDate: Date): Promise<Reservat
         checkIn.setHours(0, 0, 0, 0);
         checkOut.setHours(0, 0, 0, 0);
 
-        // Reservation spans this date
         return targetTime >= checkIn.getTime() && targetTime <= checkOut.getTime();
     });
 }
@@ -109,7 +83,6 @@ export function getDatesWithReservations(reservations: Reservation[]): Set<strin
         const checkIn = new Date(res.check_in);
         const checkOut = new Date(res.check_out);
 
-        // Add all dates in the reservation range
         const current = new Date(checkIn);
         while (current <= checkOut) {
             dates.add(current.toISOString().split('T')[0]);

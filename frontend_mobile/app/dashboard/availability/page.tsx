@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
     RoomStatus,
@@ -10,20 +9,16 @@ import {
     formatPrice,
     getCategoryColor,
 } from '@/services/rooms';
-import { ACCESS_TOKEN_KEY } from '@/constants/keys';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function AvailabilityPage() {
-    const router = useRouter();
+    const { isLoading: authLoading } = useAuth({ required: true });
     const [rooms, setRooms] = useState<RoomStatus[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
 
     useEffect(() => {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (!token) {
-            router.replace('/login');
-            return;
-        }
+        if (authLoading) return;
 
         async function fetchRooms() {
             try {
@@ -37,7 +32,7 @@ export default function AvailabilityPage() {
         }
 
         fetchRooms();
-    }, [router]);
+    }, [authLoading]);
 
     // Group rooms by floor
     const roomsByFloor = rooms.reduce((acc, room) => {
@@ -56,6 +51,8 @@ export default function AvailabilityPage() {
     const freeCount = rooms.filter(r => r.status.toLowerCase() === 'libre').length;
     const occupiedCount = rooms.filter(r => r.status.toLowerCase() === 'ocupada').length;
 
+    const loading = authLoading || isLoading;
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
             {/* Header with Back Button */}
@@ -71,7 +68,7 @@ export default function AvailabilityPage() {
                     </Link>
                     <div>
                         <h1 className="text-xl font-bold text-white">Disponibilidad</h1>
-                        {!isLoading && !error && (
+                        {!loading && !error && (
                             <p className="text-xs text-slate-400">
                                 {freeCount} libres • {occupiedCount} ocupadas
                             </p>
@@ -82,14 +79,12 @@ export default function AvailabilityPage() {
 
             {/* Main Content */}
             <main className="flex-1 p-4">
-                {/* Loading State */}
-                {isLoading && (
+                {loading && (
                     <div className="flex items-center justify-center py-20">
                         <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full"></div>
                     </div>
                 )}
 
-                {/* Error State */}
                 {error && (
                     <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-center">
                         {error}
@@ -97,7 +92,7 @@ export default function AvailabilityPage() {
                 )}
 
                 {/* Legend */}
-                {!isLoading && !error && (
+                {!loading && !error && (
                     <div className="flex gap-4 mb-6 justify-center flex-wrap">
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-green-500"></div>
@@ -115,7 +110,7 @@ export default function AvailabilityPage() {
                 )}
 
                 {/* Rooms by Floor */}
-                {!isLoading && !error && sortedFloors.map((floor) => (
+                {!loading && !error && sortedFloors.map((floor) => (
                     <div key={floor} className="mb-6">
                         <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
                             <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-sm">
@@ -142,26 +137,22 @@ export default function AvailabilityPage() {
                                             </span>
                                         </div>
 
-                                        {/* Category Name */}
                                         <p className="text-slate-300 text-sm font-medium mb-1">
                                             {room.category_name}
                                         </p>
 
-                                        {/* Price */}
                                         {room.base_price && (
                                             <p className={`text-xs ${priceColor} mb-1`}>
                                                 {formatPrice(room.base_price)}/noche
                                             </p>
                                         )}
 
-                                        {/* Capacity */}
                                         {room.max_capacity && (
                                             <p className="text-xs text-slate-500">
                                                 👥 máx {room.max_capacity} pers.
                                             </p>
                                         )}
 
-                                        {/* Guest Info when Occupied */}
                                         {room.status.toLowerCase() === 'ocupada' && room.huesped && room.huesped !== '-' && (
                                             <p className="text-white text-sm font-medium truncate mt-2 pt-2 border-t border-white/10">
                                                 👤 {room.huesped}
@@ -174,15 +165,13 @@ export default function AvailabilityPage() {
                     </div>
                 ))}
 
-                {/* Empty State */}
-                {!isLoading && !error && rooms.length === 0 && (
+                {!loading && !error && rooms.length === 0 && (
                     <div className="text-center py-20">
                         <p className="text-slate-400">No hay habitaciones disponibles</p>
                     </div>
                 )}
             </main>
 
-            {/* Footer */}
             <footer className="p-4 text-center">
                 <p className="text-slate-500 text-xs">
                     Actualizado: {new Date().toLocaleTimeString('es-ES')}

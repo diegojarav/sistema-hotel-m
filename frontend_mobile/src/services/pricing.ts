@@ -1,6 +1,10 @@
-import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
+/**
+ * Hotel Munich - Pricing Service
+ * ================================
+ * Handles pricing calculations and client type data.
+ */
 
-const API_URL = `${API_BASE_URL}/api/v1`;
+import { apiGet, apiPost } from './api';
 
 export interface PriceModifier {
     name: string;
@@ -32,13 +36,7 @@ export interface ClientType {
 
 export async function getClientTypes(): Promise<ClientType[]> {
     try {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        const res = await fetch(`${API_URL}/pricing/client-types`, {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        });
-        if (!res.ok) return [];
-        return res.json();
-
+        return await apiGet<ClientType[]>('/pricing/client-types');
     } catch (error) {
         console.error("Error fetching client types", error);
         return [];
@@ -52,25 +50,11 @@ export async function calculatePrice(
     clientTypeId: string,
     roomId?: string
 ): Promise<PriceCalculationResponse> {
-    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-    const res = await fetch(`${API_URL}/pricing/calculate`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-            category_id: categoryId,
-            check_in: checkIn,
-            stay_days: stayDays,
-            client_type_id: clientTypeId,
-            room_id: roomId
-        }),
+    return apiPost<PriceCalculationResponse>('/pricing/calculate', {
+        category_id: categoryId,
+        check_in: checkIn,
+        stay_days: stayDays,
+        client_type_id: clientTypeId,
+        room_id: roomId,
     });
-
-    if (!res.ok) {
-        throw new Error('Failed to calculate price');
-    }
-
-    return res.json();
 }

@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getHotelConfig } from '@/services/settings';
-import { ACCESS_TOKEN_KEY, API_BASE_URL } from '@/constants/keys';
-
-const API_URL = `${API_BASE_URL}/api/v1`;
+import { sendMessage } from '@/services/chat';
+import { useAuth } from '@/hooks/useAuth';
+import { ApiError } from '@/services/api';
 
 interface Message {
     id: string;
@@ -15,34 +14,28 @@ interface Message {
 }
 
 export default function ChatPage() {
-    const router = useRouter();
+    const { isLoading: authLoading, isAuthenticated, logout } = useAuth({ required: true });
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [hotelName, setHotelName] = useState('Mi Hotel');
 
-    // Auth check
+    // Load welcome message once authenticated
     useEffect(() => {
-        const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-        if (!token) {
-            router.replace('/login');
-        } else {
-            setIsAuthenticated(true);
-            // Fetch hotel name then add welcome message
-            getHotelConfig().then(config => {
-                setHotelName(config.hotel_name);
-                setMessages([{
-                    id: 'welcome',
-                    role: 'assistant',
-                    content: `¡Hola! Soy el asistente del ${config.hotel_name}. ¿En qué puedo ayudarte hoy? Puedo responder sobre reservas, disponibilidad, huéspedes y más.`
-                }]);
-            });
-        }
-    }, [router]);
+        if (authLoading || !isAuthenticated) return;
+
+        getHotelConfig().then(config => {
+            setHotelName(config.hotel_name);
+            setMessages([{
+                id: 'welcome',
+                role: 'assistant',
+                content: `¡Hola! Soy el asistente del ${config.hotel_name}. ¿En qué puedo ayudarte hoy? Puedo responder sobre reservas, disponibilidad, huéspedes y más.`
+            }]);
+        });
+    }, [authLoading, isAuthenticated]);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -64,36 +57,21 @@ export default function ChatPage() {
         setIsLoading(true);
 
         try {
-            const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-
-            const response = await fetch(`${API_URL}/agent/query`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({ prompt: userMessage.content }),
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    localStorage.removeItem(ACCESS_TOKEN_KEY);
-                    router.replace('/login');
-                    return;
-                }
-                throw new Error('Error del servidor');
-            }
-
-            const data = await response.json();
+            const response = await sendMessage(userMessage.content);
 
             const assistantMessage: Message = {
                 id: `msg_${Date.now()}_ai`,
                 role: 'assistant',
-                content: data.response || 'Lo siento, no pude procesar tu solicitud.',
+                content: response || 'Lo siento, no pude procesar tu solicitud.',
             };
 
             setMessages(prev => [...prev, assistantMessage]);
         } catch (error) {
+            if (error instanceof ApiError && error.status === 401) {
+                logout();
+                return;
+            }
+
             const errorMessage: Message = {
                 id: `msg_${Date.now()}_error`,
                 role: 'assistant',
@@ -114,7 +92,7 @@ export default function ChatPage() {
         }
     };
 
-    if (!isAuthenticated) {
+    if (authLoading || !isAuthenticated) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
                 <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full"></div>

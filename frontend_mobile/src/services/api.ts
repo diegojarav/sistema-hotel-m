@@ -1,14 +1,12 @@
 /**
- * Hotel Management System - API Fetch Wrapper
- * =============================================
- * Global error handling and rate limiting for all API calls.
- *
- * NOTE: This module should be used for all API calls to ensure
- * consistent error handling. Page components currently make direct
- * fetch calls - consider refactoring to use these helpers.
+ * Hotel Management System - Centralized API Client
+ * ==================================================
+ * Single gateway for all HTTP calls to the FastAPI backend.
+ * Provides consistent error handling, auth headers, and FormData support.
  */
 
 import { API_BASE_URL } from '@/constants/keys';
+import { getAccessToken } from './auth';
 
 const API_URL = `${API_BASE_URL}/api/v1`;
 
@@ -27,25 +25,31 @@ export class ApiError extends Error {
 
 /**
  * Authenticated fetch wrapper with global error handling.
- * Intercepts common error codes and provides user-friendly messages.
- * 
- * @param endpoint - API endpoint (without base URL)
- * @param options - Fetch options
- * @param token - Optional JWT token for authentication
- * @returns Promise with JSON response
+ * Auto-reads JWT from localStorage unless token is explicitly passed.
+ * Supports JSON and FormData bodies.
+ *
+ * @param endpoint - API endpoint path (e.g. '/rooms/categories')
+ * @param options - Fetch options (method, body, headers, cache, etc.)
+ * @param token - Optional token override. Pass `null` for unauthenticated requests.
  */
 export async function apiFetch<T>(
     endpoint: string,
     options: RequestInit = {},
     token?: string | null
 ): Promise<T> {
+    // Auto-read token unless explicitly passed (null = unauthenticated)
+    const authToken = token !== undefined ? token : getAccessToken();
+
+    // Skip Content-Type for FormData (browser sets it with boundary)
+    const isFormData = options.body instanceof FormData;
+
     const headers: HeadersInit = {
-        'Content-Type': 'application/json',
+        ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...options.headers,
     };
 
-    if (token) {
-        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    if (authToken) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${authToken}`;
     }
 
     const response = await fetch(`${API_URL}${endpoint}`, {
@@ -97,19 +101,22 @@ export async function apiFetch<T>(
         throw new ApiError(errorMessage, response.status);
     }
 
-    // Return JSON response
     return response.json() as Promise<T>;
 }
 
 /**
  * GET request helper.
  */
-export async function apiGet<T>(endpoint: string, token?: string | null): Promise<T> {
-    return apiFetch<T>(endpoint, { method: 'GET' }, token);
+export async function apiGet<T>(
+    endpoint: string,
+    token?: string | null,
+    options?: RequestInit
+): Promise<T> {
+    return apiFetch<T>(endpoint, { method: 'GET', ...options }, token);
 }
 
 /**
- * POST request helper.
+ * POST request helper (JSON body).
  */
 export async function apiPost<T>(
     endpoint: string,
@@ -121,6 +128,24 @@ export async function apiPost<T>(
         {
             method: 'POST',
             body: JSON.stringify(body),
+        },
+        token
+    );
+}
+
+/**
+ * POST request helper (FormData body — for file uploads).
+ */
+export async function apiPostFormData<T>(
+    endpoint: string,
+    formData: FormData,
+    token?: string | null
+): Promise<T> {
+    return apiFetch<T>(
+        endpoint,
+        {
+            method: 'POST',
+            body: formData,
         },
         token
     );

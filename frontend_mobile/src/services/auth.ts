@@ -167,12 +167,3 @@ export async function refreshTokens(): Promise<AuthTokens | null> {
         return null;
     }
 }
-
-/**
- * Create authenticated fetch headers.
- */
-export function getAuthHeaders(): HeadersInit {
-    const token = getAccessToken();
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
-}
-
