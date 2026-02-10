@@ -48,10 +48,15 @@ class PricingService:
         if base_price == 0.0:
             cat = db.query(RoomCategory).filter(RoomCategory.id == category_id).first()
             if not cat:
-                # Fallback if category not found
                 return {
                     "final_price": 0.0,
-                    "breakdown": {}
+                    "currency": "PYG",
+                    "breakdown": {
+                        "base_unit_price": 0.0,
+                        "base_total": 0.0,
+                        "nights": stay_days,
+                        "modifiers": []
+                    }
                 }
             base_price = cat.base_price
 
@@ -110,6 +115,7 @@ class PricingService:
 
         return {
             "final_price": final_price,
+            "currency": "PYG",
             "breakdown": breakdown
         }
 

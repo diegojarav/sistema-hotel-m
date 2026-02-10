@@ -1,13 +1,12 @@
 'use client';
 
-import { RoomCategory, formatPrice } from '@/services/rooms';
-import { PriceCalculationResponse } from '@/services/pricing';
+import { formatPrice } from '@/services/rooms';
+import { CategoryPricingResult } from '../page';
 
 interface PriceSummaryProps {
     formData: { precio: number };
     onFormChange: (updates: { precio: number }) => void;
-    pricingResponse: PriceCalculationResponse | null;
-    selectedCategory: RoomCategory | null;
+    pricingResults: CategoryPricingResult[];
     selectedRooms: string[];
     nights: number;
     isSubmitting: boolean;
@@ -18,36 +17,53 @@ interface PriceSummaryProps {
 
 export default function PriceSummary({
     formData, onFormChange,
-    pricingResponse, selectedCategory, selectedRooms,
+    pricingResults, selectedRooms,
     nights, isSubmitting, submitSuccess, submitProgress, submitError
 }: PriceSummaryProps) {
     return (
         <>
             {/* Price Summary */}
             <div className="mt-6 p-4 bg-white/5 border border-white/10 rounded-xl">
-                {pricingResponse ? (
-                    <div className="mb-4 space-y-2 border-b border-white/10 pb-4">
-                        <div className="flex justify-between text-sm text-slate-300">
-                            <span>Base ({nights} noches):</span>
-                            <span>{formatPrice(pricingResponse.breakdown.base_total)}</span>
-                        </div>
-                        {pricingResponse.breakdown.modifiers.map((mod, idx) => (
-                            <div key={idx} className="flex justify-between text-sm" style={{ color: mod.amount < 0 ? '#4ade80' : '#f87171' }}>
-                                <span>{mod.name} ({mod.percent > 0 ? '+' : ''}{mod.percent}%):</span>
-                                <span>{mod.amount > 0 ? '+' : ''}{formatPrice(mod.amount)}</span>
+                {pricingResults.length > 0 ? (
+                    <div className="mb-4 space-y-3 border-b border-white/10 pb-4">
+                        {pricingResults.map((result) => (
+                            <div key={result.catId} className="space-y-1">
+                                <div className="flex justify-between text-sm text-white font-medium">
+                                    <span>{result.catName} ({result.roomCount} hab.)</span>
+                                    <span>{formatPrice(result.response.final_price * result.roomCount)}</span>
+                                </div>
+                                <div className="flex justify-between text-xs text-slate-400 pl-3">
+                                    <span>Base ({nights} noches):</span>
+                                    <span>{formatPrice(result.response.breakdown.base_total)}</span>
+                                </div>
+                                {result.response.breakdown.modifiers.map((mod, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="flex justify-between text-xs pl-3"
+                                        style={{ color: mod.amount < 0 ? '#4ade80' : '#f87171' }}
+                                    >
+                                        <span>{mod.name} ({mod.percent > 0 ? '+' : ''}{mod.percent.toFixed(0)}%):</span>
+                                        <span>{mod.amount > 0 ? '+' : ''}{formatPrice(mod.amount)}</span>
+                                    </div>
+                                ))}
+                                {result.roomCount > 1 && (
+                                    <div className="flex justify-between text-xs text-slate-400 pl-3">
+                                        <span>{formatPrice(result.response.final_price)} x {result.roomCount} hab.</span>
+                                        <span>{formatPrice(result.response.final_price * result.roomCount)}</span>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
                 ) : (
                     <div className="flex justify-between items-center mb-2">
-                        <span className="text-slate-400">Precio por noche:</span>
-                        <span className="text-white">{formatPrice(selectedCategory?.base_price || 0)}</span>
+                        <span className="text-slate-400">Seleccione habitaciones para ver precios</span>
                     </div>
                 )}
 
                 <div className="flex justify-between items-center mb-2">
                     <span className="text-slate-400">Habitaciones:</span>
-                    <span className="text-white">{Math.max(1, selectedRooms.length)}</span>
+                    <span className="text-white">{selectedRooms.length}</span>
                 </div>
 
                 <div className="border-t border-white/10 pt-2 mt-2 flex justify-between items-center">

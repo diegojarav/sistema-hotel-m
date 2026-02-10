@@ -6,8 +6,6 @@ interface RoomSelectionProps {
     formData: { checkIn: string; checkOut: string };
     onFormChange: (updates: { checkIn?: string; checkOut?: string }) => void;
     categories: RoomCategory[];
-    selectedCategory: RoomCategory | null;
-    onCategoryChange: (cat: RoomCategory) => void;
     availableRooms: RoomStatus[];
     selectedRooms: string[];
     onToggleRoom: (roomId: string) => void;
@@ -16,8 +14,7 @@ interface RoomSelectionProps {
 
 export default function RoomSelection({
     formData, onFormChange,
-    categories, selectedCategory, onCategoryChange,
-    availableRooms, selectedRooms, onToggleRoom,
+    categories, availableRooms, selectedRooms, onToggleRoom,
     nights
 }: RoomSelectionProps) {
     return (
@@ -61,62 +58,58 @@ export default function RoomSelection({
                 <span className="text-white font-bold text-lg">{nights}</span>
             </div>
 
-            {/* Category Selection */}
-            <h3 className="text-lg font-semibold text-white mb-2 mt-6">Categoría de Habitación</h3>
+            {/* Room Selection grouped by category */}
+            <h3 className="text-lg font-semibold text-white mb-2 mt-6">
+                Selección de Habitaciones
+                {selectedRooms.length > 0 && (
+                    <span className="text-sm font-normal text-amber-400 ml-2">
+                        ({selectedRooms.length} seleccionada{selectedRooms.length !== 1 ? 's' : ''})
+                    </span>
+                )}
+            </h3>
 
-            <div className="grid grid-cols-1 gap-2">
-                {categories.map(cat => {
-                    const priceColor = getCategoryColor(cat.base_price);
-                    const isSelected = selectedCategory?.id === cat.id;
+            {categories.map(cat => {
+                const catRooms = availableRooms.filter(r => r.category_id === cat.id);
+                const selectedInCat = catRooms.filter(r => selectedRooms.includes(r.room_id)).length;
+                const priceColor = getCategoryColor(cat.base_price);
 
-                    return (
-                        <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => onCategoryChange(cat)}
-                            className={`p-4 rounded-xl border-2 transition-all text-left ${isSelected
-                                ? 'bg-amber-500/20 border-amber-500 shadow-lg shadow-amber-500/20'
-                                : 'bg-white/5 border-white/10 hover:bg-white/10'
-                                }`}
-                        >
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <p className="text-white font-semibold">{cat.name}</p>
-                                    <p className="text-slate-400 text-xs">👥 máx {cat.max_capacity} personas</p>
-                                </div>
-                                <div className="text-right">
-                                    <p className={`font-bold ${priceColor}`}>
-                                        {formatPrice(cat.base_price)}
-                                    </p>
-                                    <p className="text-slate-500 text-xs">/noche</p>
-                                </div>
+                if (catRooms.length === 0) return null;
+
+                return (
+                    <div key={cat.id} className="mb-4">
+                        {/* Category header */}
+                        <div className="flex justify-between items-center mb-2 p-3 bg-white/5 rounded-xl border border-white/10">
+                            <div>
+                                <p className="text-white font-semibold">{cat.name}</p>
+                                <p className="text-slate-400 text-xs">
+                                    👥 máx {cat.max_capacity} pers. — {catRooms.length} disponibles
+                                </p>
                             </div>
-                        </button>
-                    );
-                })}
-            </div>
+                            <div className="text-right">
+                                <p className={`font-bold ${priceColor}`}>
+                                    {formatPrice(cat.base_price)}
+                                </p>
+                                <p className="text-slate-500 text-xs">/noche</p>
+                                {selectedInCat > 0 && (
+                                    <span className="text-xs bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded-full">
+                                        {selectedInCat} sel.
+                                    </span>
+                                )}
+                            </div>
+                        </div>
 
-            {/* Room Selection */}
-            {selectedCategory && (
-                <>
-                    <h3 className="text-lg font-semibold text-white mb-2 mt-6">
-                        Habitaciones Disponibles
-                        <span className="text-sm font-normal text-slate-400 ml-2">
-                            ({selectedRooms.length} seleccionada{selectedRooms.length !== 1 ? 's' : ''})
-                        </span>
-                    </h3>
-
-                    {availableRooms.length > 0 ? (
+                        {/* Room buttons */}
                         <div className="grid grid-cols-3 gap-2">
-                            {availableRooms.map(room => (
+                            {catRooms.map(room => (
                                 <button
                                     key={room.room_id}
                                     type="button"
                                     onClick={() => onToggleRoom(room.room_id)}
-                                    className={`py-4 px-2 rounded-xl font-bold text-sm transition-all ${selectedRooms.includes(room.room_id)
-                                        ? 'bg-amber-500 text-white border-2 border-amber-400 shadow-lg shadow-amber-500/30'
-                                        : 'bg-white/5 text-slate-300 border-2 border-white/10 hover:bg-white/10'
-                                        }`}
+                                    className={`py-4 px-2 rounded-xl font-bold text-sm transition-all ${
+                                        selectedRooms.includes(room.room_id)
+                                            ? 'bg-amber-500 text-white border-2 border-amber-400 shadow-lg shadow-amber-500/30'
+                                            : 'bg-white/5 text-slate-300 border-2 border-white/10 hover:bg-white/10'
+                                    }`}
                                 >
                                     <div className="text-lg">{room.internal_code || room.room_id}</div>
                                     {room.floor && (
@@ -125,12 +118,14 @@ export default function RoomSelection({
                                 </button>
                             ))}
                         </div>
-                    ) : (
-                        <div className="p-4 rounded-xl bg-slate-500/20 border border-slate-500/30 text-slate-400 text-center">
-                            No hay habitaciones disponibles de esta categoría
-                        </div>
-                    )}
-                </>
+                    </div>
+                );
+            })}
+
+            {availableRooms.length === 0 && (
+                <div className="p-4 rounded-xl bg-slate-500/20 border border-slate-500/30 text-slate-400 text-center">
+                    No hay habitaciones disponibles para estas fechas
+                </div>
             )}
         </>
     );

@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 # Import from ROOT - Single Source of Truth
-from database import SessionLocal, User, SessionLog
+from database import session_factory, User, SessionLog
 
 # Import security utilities
 from api.core.security import decode_token
@@ -36,12 +36,15 @@ def get_db() -> Generator[Session, None, None]:
         def create_item(db: Session = Depends(get_db)):
             return SomeService.some_method(db=db, ...)
     """
-    db = SessionLocal()
+    # Use session_factory() directly — NOT SessionLocal (scoped_session).
+    # scoped_session uses thread-local storage which causes concurrency bugs
+    # when FastAPI's threadpool reuses threads across requests.
+    # session_factory() creates a fresh, independent session per request.
+    db = session_factory()
     try:
         yield db
     finally:
         db.close()
-        SessionLocal.remove()
 
 
 # ==========================================

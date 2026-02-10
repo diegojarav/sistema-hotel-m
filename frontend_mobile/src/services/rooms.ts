@@ -50,14 +50,24 @@ export async function getRoomCategories(): Promise<RoomCategory[]> {
 }
 
 /**
- * Fetch room status for today (or specific date).
- * Returns real-time occupancy status for all rooms with category info.
+ * Fetch room status for today, a specific date, or a date range.
+ * When checkIn+checkOut are provided, rooms occupied on ANY day in the range
+ * are marked as "OCUPADA" (prevents overbooking).
  */
-export async function getRoomsStatus(targetDate?: string): Promise<RoomStatus[]> {
-    const endpoint = targetDate
-        ? `/rooms/status?target_date=${targetDate}`
-        : '/rooms/status';
-    return apiGet<RoomStatus[]>(endpoint);
+export async function getRoomsStatus(
+    targetDate?: string,
+    checkIn?: string,
+    checkOut?: string
+): Promise<RoomStatus[]> {
+    const params = new URLSearchParams();
+    if (checkIn && checkOut) {
+        params.set('check_in', checkIn);
+        params.set('check_out', checkOut);
+    } else if (targetDate) {
+        params.set('target_date', targetDate);
+    }
+    const qs = params.toString();
+    return apiGet<RoomStatus[]>(`/rooms/status${qs ? `?${qs}` : ''}`);
 }
 
 /**

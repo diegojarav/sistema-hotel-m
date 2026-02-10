@@ -127,6 +127,7 @@ class ReservationDTO(BaseModel):
     """Schema de salida para listar reservas."""
     id: str
     room_id: str
+    room_internal_code: str = ""
     guest_name: str
     status: str
     check_in: date

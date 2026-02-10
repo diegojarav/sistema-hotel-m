@@ -36,6 +36,13 @@ interface ExtractedData {
     Procedencia: string | null;
 }
 
+export interface CategoryPricingResult {
+    catId: string;
+    catName: string;
+    response: PriceCalculationResponse;
+    roomCount: number;
+}
+
 export default function NewReservationPage() {
     const router = useRouter();
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,12 +52,11 @@ export default function NewReservationPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [categories, setCategories] = useState<RoomCategory[]>([]);
     const [rooms, setRooms] = useState<RoomStatus[]>([]);
-    const [selectedCategory, setSelectedCategory] = useState<RoomCategory | null>(null);
 
     // Pricing state
     const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
     const [selectedClientType, setSelectedClientType] = useState<ClientType | null>(null);
-    const [pricingResponse, setPricingResponse] = useState<PriceCalculationResponse | null>(null);
+    const [pricingResults, setPricingResults] = useState<CategoryPricingResult[]>([]);
     const [priceBreakdown, setPriceBreakdown] = useState<string>('{}');
 
     // Scanning state
@@ -79,7 +85,7 @@ export default function NewReservationPage() {
         source: 'Direct',
     });
 
-    // Multi-room selection
+    // Multi-room selection (across categories)
     const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
 
     // Submission state
@@ -101,67 +107,107 @@ export default function NewReservationPage() {
         setFormData(prev => ({ ...prev, ...updates }));
     };
 
-    // Data loading (after auth)
+    // Load categories + client types once on mount
     useEffect(() => {
         if (authLoading) return;
 
-        async function loadData() {
+        async function loadStaticData() {
             try {
-                const [categoriesData, roomsData, clientTypesData] = await Promise.all([
+                const [categoriesData, clientTypesData] = await Promise.all([
                     getRoomCategories(),
-                    getRoomsStatus(),
                     getClientTypes(),
                 ]);
                 setCategories(categoriesData);
-                setRooms(roomsData);
                 setClientTypes(clientTypesData);
 
                 if (clientTypesData.length > 0) {
                     const defaultCT = clientTypesData.find(ct => ct.name.toLowerCase().includes('particular')) || clientTypesData[0];
                     setSelectedClientType(defaultCT);
                 }
-                if (categoriesData.length > 0) {
-                    setSelectedCategory(categoriesData[0]);
-                }
             } catch (err) {
-                console.error('Error loading data:', err);
+                console.error('Error loading static data:', err);
             } finally {
                 setIsLoading(false);
             }
         }
 
-        loadData();
+        loadStaticData();
     }, [authLoading]);
 
-    // Update price when category or nights change
+    // Re-fetch room availability when dates change (prevents overbooking)
     useEffect(() => {
-        async function fetchPrice() {
-            if (selectedCategory && selectedClientType) {
-                const nights = calculateNights();
-                try {
-                    const res = await calculatePrice(
-                        selectedCategory.id,
-                        formData.checkIn,
-                        nights,
-                        selectedClientType.id
-                    );
-                    setPricingResponse(res);
-                    setPriceBreakdown(JSON.stringify(res.breakdown));
+        if (authLoading || !formData.checkIn || !formData.checkOut) return;
 
-                    const roomCount = Math.max(1, selectedRooms.length);
-                    setFormData(prev => ({ ...prev, precio: res.final_price * roomCount }));
-                } catch (err) {
-                    console.error("Pricing error:", err);
-                }
+        async function loadRooms() {
+            try {
+                const roomsData = await getRoomsStatus(undefined, formData.checkIn, formData.checkOut);
+                setRooms(roomsData);
+                setSelectedRooms([]); // Clear selection — availability changed
+            } catch (err) {
+                console.error('Error loading room availability:', err);
             }
         }
-        fetchPrice();
-    }, [selectedCategory, selectedClientType, selectedRooms.length, formData.checkIn, formData.checkOut]);
 
-    const availableRooms = rooms.filter(room => {
-        if (selectedCategory && room.category_id !== selectedCategory.id) return false;
-        return room.status.toLowerCase() === 'libre';
-    });
+        loadRooms();
+    }, [authLoading, formData.checkIn, formData.checkOut]);
+
+    // ALL free rooms (no category filter)
+    const availableRooms = rooms.filter(room => room.status.toLowerCase() === 'libre');
+
+    // Update price per category when rooms, dates, or client type change
+    useEffect(() => {
+        async function fetchPrices() {
+            if (!selectedClientType || selectedRooms.length === 0) {
+                setPricingResults([]);
+                setFormData(prev => ({ ...prev, precio: 0 }));
+                return;
+            }
+
+            const nights = calculateNights();
+
+            // Group selected rooms by category
+            const roomsByCategory = new Map<string, string[]>();
+            for (const roomId of selectedRooms) {
+                const room = rooms.find(r => r.room_id === roomId);
+                const catId = room?.category_id || '';
+                if (!roomsByCategory.has(catId)) roomsByCategory.set(catId, []);
+                roomsByCategory.get(catId)!.push(roomId);
+            }
+
+            try {
+                // Calculate price for each unique category in parallel
+                const promises = Array.from(roomsByCategory.entries()).map(
+                    ([catId, catRoomIds]) =>
+                        calculatePrice(catId, formData.checkIn, nights, selectedClientType.id)
+                            .then(res => {
+                                const cat = categories.find(c => c.id === catId);
+                                return {
+                                    catId,
+                                    catName: cat?.name || catId,
+                                    response: res,
+                                    roomCount: catRoomIds.length,
+                                } as CategoryPricingResult;
+                            })
+                );
+
+                const results = await Promise.all(promises);
+                setPricingResults(results);
+
+                const total = results.reduce(
+                    (sum, r) => sum + r.response.final_price * r.roomCount, 0
+                );
+                setPriceBreakdown(JSON.stringify(
+                    Object.fromEntries(results.map(r => [r.catId, r.response.breakdown]))
+                ));
+                setFormData(prev => ({ ...prev, precio: total }));
+            } catch (err) {
+                console.error("Pricing error:", err);
+            }
+        }
+
+        fetchPrices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedClientType, selectedRooms, formData.checkIn, formData.checkOut]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -205,11 +251,6 @@ export default function NewReservationPage() {
         );
     };
 
-    const handleCategoryChange = (cat: RoomCategory) => {
-        setSelectedCategory(cat);
-        setSelectedRooms([]);
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -235,18 +276,23 @@ export default function NewReservationPage() {
         for (let i = 0; i < selectedRooms.length; i++) {
             setSubmitProgress({ current: i + 1, total: selectedRooms.length });
 
+            // Resolve this room's category
+            const room = rooms.find(r => r.room_id === selectedRooms[i]);
+            const roomCatId = room?.category_id || '';
+            const roomCat = categories.find(c => c.id === roomCatId);
+
             const reservationData = {
                 check_in_date: formData.checkIn,
                 stay_days: nights,
                 guest_name: guestName,
                 room_ids: [selectedRooms[i]],
-                room_type: selectedCategory?.name || 'Standard',
+                room_type: roomCat?.name || 'Standard',
                 price: formData.precio / selectedRooms.length,
                 arrival_time: null,
                 reserved_by: 'App Móvil',
                 contact_phone: formData.telefono,
                 received_by: 'mobile_user',
-                category_id: selectedCategory?.id,
+                category_id: roomCatId,
                 client_type_id: selectedClientType?.id,
                 price_breakdown: priceBreakdown,
                 parking_needed: formData.parkingNeeded,
@@ -331,8 +377,6 @@ export default function NewReservationPage() {
                         formData={formData}
                         onFormChange={handleFormChange}
                         categories={categories}
-                        selectedCategory={selectedCategory}
-                        onCategoryChange={handleCategoryChange}
                         availableRooms={availableRooms}
                         selectedRooms={selectedRooms}
                         onToggleRoom={toggleRoom}
@@ -342,8 +386,7 @@ export default function NewReservationPage() {
                     <PriceSummary
                         formData={formData}
                         onFormChange={handleFormChange}
-                        pricingResponse={pricingResponse}
-                        selectedCategory={selectedCategory}
+                        pricingResults={pricingResults}
                         selectedRooms={selectedRooms}
                         nights={nights}
                         isSubmitting={isSubmitting}

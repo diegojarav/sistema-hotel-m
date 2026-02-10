@@ -171,13 +171,17 @@ def list_categories(db: Session = Depends(get_db)):
 )
 def get_rooms_status(
     target_date: date = Query(default=None, description="Date to check (defaults to today)"),
+    check_in: date = Query(default=None, description="Start of date range for availability check"),
+    check_out: date = Query(default=None, description="End of date range for availability check"),
     db: Session = Depends(get_db)
 ):
-    """Get status of all rooms for a specific date with full category information."""
-    check_date = target_date or date.today()
-
-    # Get daily status from service (already has category name in 'type' field)
-    status_list = ReservationService.get_daily_status(db, check_date)
+    """Get status of all rooms for a specific date or date range with full category information."""
+    if check_in and check_out:
+        # Date range mode: mark rooms occupied if ANY reservation overlaps
+        status_list = ReservationService.get_range_status(db, check_in, check_out)
+    else:
+        check_date = target_date or date.today()
+        status_list = ReservationService.get_daily_status(db, check_date)
 
     # Get all rooms with category info for additional details
     rooms = db.query(Room).filter(Room.active == 1).all()

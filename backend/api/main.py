@@ -91,15 +91,26 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     Safety net: catch unhandled exceptions and return a generic 500.
     Prevents internal details from leaking to the client.
+
+    CRITICAL: Must include CORS headers directly because BaseHTTPMiddleware
+    (security_headers) can re-raise exceptions, bypassing CORSMiddleware.
+    Without these headers, browsers report "TypeError: Failed to fetch"
+    instead of showing the actual 500 error.
     """
     _main_logger.error(
         f"Unhandled exception on {request.method} {request.url.path}: {exc}",
         exc_info=True
     )
-    return JSONResponse(
+    response = JSONResponse(
         status_code=500,
         content={"detail": "Error interno del servidor."}
     )
+    # Inject CORS headers so the browser can read the error response
+    origin = request.headers.get("origin")
+    if origin and origin in CORS_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 
 # ==========================================
@@ -115,13 +126,14 @@ def close_stale_sessions():
     (from crashes, restarts, or unclean shutdowns) are properly closed.
     """
     from datetime import datetime
-    from database import SessionLocal, SessionLog
+    from database import session_factory, SessionLog
     from logging_config import get_logger
-    
+
     logger = get_logger(__name__)
-    db = SessionLocal()
+    # Use session_factory() directly — not SessionLocal (scoped_session)
+    # to avoid poisoning the thread-local registry
+    db = session_factory()
     try:
-        # Find and close all active sessions
         updated = db.query(SessionLog).filter(
             SessionLog.status == "active"
         ).update({
@@ -145,14 +157,9 @@ def close_stale_sessions():
 # MIDDLEWARE
 # ==========================================
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# ORDER MATTERS: Starlette builds middleware last-added = outermost.
+# security_headers is added first (inner), then CORS wraps it (outer).
+# This ensures CORS headers are present even on error responses.
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
@@ -164,6 +171,15 @@ async def security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return response
+
+# CORS must be added AFTER security_headers so it wraps outermost
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ==========================================

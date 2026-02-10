@@ -71,7 +71,7 @@ def render_tab_calendario():
             df_reservas = pd.DataFrame([{
                 "ID": r.id,
                 "Huésped": r.guest_name or "Sin nombre",
-                "Habitación": r.room_id or "-",
+                "Habitación": r.room_internal_code or r.room_id or "-",
                 "Check-in": r.check_in.strftime("%Y-%m-%d") if r.check_in else "-",
                 "Check-out": r.check_out.strftime("%Y-%m-%d") if r.check_out else "-",
                 "Noches": (r.check_out - r.check_in).days if r.check_in and r.check_out else 0,
@@ -154,7 +154,7 @@ def render_tab_calendario():
         for info in status_list:
             with st.container():
                 c1, c2, c3, c4 = st.columns([1, 2, 4, 2])
-                c1.subheader(f"🚪{info['room_id']}")
+                c1.subheader(f"🚪{info.get('internal_code', info['room_id'])}")
                 if info['status'] == "OCUPADA":
                     c2.markdown(":red[**OCUPADA**]")
                     c3.write(f"👤 {info['huesped']}")

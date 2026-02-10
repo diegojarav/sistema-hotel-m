@@ -202,7 +202,7 @@ export default function CalendarPage() {
                                                     </div>
                                                     <div className="border-l border-white/10 pl-3">
                                                         <p className="text-white font-medium">{res.guest_name}</p>
-                                                        <p className="text-slate-400 text-sm">Hab. {res.room_id}</p>
+                                                        <p className="text-slate-400 text-sm">Hab. {res.room_internal_code || res.room_id}</p>
                                                     </div>
                                                 </div>
                                                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${badge.bgClass} ${badge.textClass}`}>

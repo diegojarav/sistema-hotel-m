@@ -166,9 +166,14 @@ class ReservationService:
     @with_db
     def get_weekly_view(db: Session, start_date: date) -> Dict[str, Dict[str, str]]:
         """
-        Returns a matrix {room_id: {date_str: guest_name}} for the week.
+        Returns a matrix {room_display_code: {date_str: guest_name}} for the week.
+        Keys use internal_code (e.g. "DF-01") so the UI can match them directly.
         """
         end_date = start_date + timedelta(days=7)
+
+        # Build room_id -> internal_code lookup
+        rooms = db.query(Room).filter(Room.active == 1).all()
+        code_map = {r.id: r.internal_code or r.id for r in rooms}
 
         # Fetch active reservations overlapping this week
         reservations = db.query(Reservation).filter(
@@ -188,12 +193,13 @@ class ReservationService:
             if res_end < start_date or res.check_in_date > end_date:
                 continue
 
-            if res.room_id not in matrix:
-                matrix[res.room_id] = {}
+            display_code = code_map.get(res.room_id, res.room_id)
+            if display_code not in matrix:
+                matrix[display_code] = {}
 
             for d in dates:
                 if res.check_in_date <= d <= res_end:
-                    matrix[res.room_id][d.strftime("%Y-%m-%d")] = res.guest_name
+                    matrix[display_code][d.strftime("%Y-%m-%d")] = res.guest_name
 
         return matrix
 
@@ -214,7 +220,10 @@ class ReservationService:
         for r in rooms:
             # Get type from category or use internal_code
             room_type = cat_map.get(r.category_id, r.internal_code or "Sin Categoría")
-            room_map[r.id] = {"status": "Libre", "huesped": "-", "type": room_type, "res_id": None}
+            room_map[r.id] = {
+                "status": "Libre", "huesped": "-", "type": room_type, "res_id": None,
+                "internal_code": r.internal_code or r.id
+            }
 
         # Get reservations active on that day
         # PERF-002 FIX: Add lower bound (max realistic stay = 365 days)
@@ -244,12 +253,60 @@ class ReservationService:
 
     @staticmethod
     @with_db
+    def get_range_status(db: Session, check_in: date, check_out: date) -> List[Dict]:
+        """
+        Returns status of all rooms considering the full date range.
+        A room is marked OCUPADA if ANY confirmed reservation overlaps [check_in, check_out).
+        """
+        rooms = db.query(Room).filter(Room.active == 1).all()
+        categories = db.query(RoomCategory).all()
+        cat_map = {c.id: c.name for c in categories}
+
+        room_map = {}
+        for r in rooms:
+            room_type = cat_map.get(r.category_id, r.internal_code or "Sin Categoría")
+            room_map[r.id] = {"status": "Libre", "huesped": "-", "type": room_type, "res_id": None}
+
+        # Find reservations that overlap with [check_in, check_out)
+        # Overlap: res_start < check_out AND res_end >= check_in
+        max_stay_days = 365
+        earliest_checkin = check_in - timedelta(days=max_stay_days)
+        reservations = db.query(Reservation).filter(
+            Reservation.status == "Confirmada",
+            Reservation.check_in_date >= earliest_checkin,
+            Reservation.check_in_date < check_out,
+        ).all()
+
+        for res in reservations:
+            res_end = res.check_in_date + timedelta(days=res.stay_days - 1)
+            if res.check_in_date < check_out and res_end >= check_in:
+                if res.room_id in room_map:
+                    room_map[res.room_id]["status"] = "OCUPADA"
+                    room_map[res.room_id]["huesped"] = res.guest_name
+                    room_map[res.room_id]["res_id"] = res.id
+
+        result = []
+        for rid, info in room_map.items():
+            info["room_id"] = rid
+            result.append(info)
+
+        return sorted(result, key=lambda x: x["room_id"])
+
+    @staticmethod
+    @with_db
     def get_all_reservations(db: Session) -> List[ReservationDTO]:
         res = db.query(Reservation).order_by(Reservation.created_at.desc()).all()
+
+        # Build room lookup for internal codes
+        room_ids = list({r.room_id for r in res})
+        rooms_list = db.query(Room).filter(Room.id.in_(room_ids)).all() if room_ids else []
+        room_code_map = {r.id: r.internal_code or r.id for r in rooms_list}
+
         return [
             ReservationDTO(
                 id=r.id,
                 room_id=r.room_id,
+                room_internal_code=room_code_map.get(r.room_id, r.room_id),
                 guest_name=r.guest_name,
                 status=r.status,
                 check_in=r.check_in_date,

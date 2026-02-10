@@ -16,15 +16,7 @@ def get_client_types_list(db: Session = Depends(get_db)):
     Get list of active client types for selection.
     """
     try:
-        # PricingService.get_client_types is a cached list, 
-        # but the service method might not accept db if it uses its own?
-        # Check PricingService.get_client_types signature.
-        # It is: @st.cache_data ... def get_client_types(). 
-        # Wait, get_client_types in service calls database.
-        # But app.py calls it without arguments.
-        # Services use @with_db.
-        # So I can call it without arguments.
-        return PricingService.get_client_types()
+        return PricingService.get_client_types(db)
     except Exception as e:
         logger.error(f"Error fetching client types: {e}")
         raise HTTPException(status_code=500, detail="Error fetching client types")

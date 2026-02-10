@@ -10,6 +10,7 @@ import { apiGet, apiPost } from './api';
 export interface Reservation {
     id: string;
     room_id: string;
+    room_internal_code?: string;  // Friendly code (e.g. "DF-01")
     guest_name: string;
     status: string;
     check_in: string;  // ISO date string
