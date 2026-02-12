@@ -3,7 +3,7 @@
 **Generated:** 2026-02-04
 **Last Updated:** 2026-02-10
 **Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
-**Total Findings:** 77 | **Resolved:** 38 | **Remaining:** 39 (mostly low-priority backlog)
+**Total Findings:** 78 | **Resolved:** 39 | **Remaining:** 39 (mostly low-priority backlog)
 
 ---
 
@@ -102,11 +102,11 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | BUG-OVERBOOKING-01 | Rooms already reserved for selected dates still show as "Libre" | **HIGH** | Frontend loaded room status ONCE on mount for TODAY only. Never re-fetched when dates changed. No date-range overlap check in backend. | ✅ FIXED |
 | BUG-ROOMNAME-01 | PC interface shows `los-monges-room-001` instead of `DF-01` in all views | **MEDIUM** | PC views (weekly, daily, reservation lists) displayed `room_id` (DB key) instead of `internal_code` (friendly label). Weekly view keyed matrix by `room_id` but UI looked up by `internal_code` → empty grid. | ✅ FIXED |
 
-### Pending — Next Session
+### AI Agent Tool Fixes (2026-02-12)
 
 | ID | Finding | Severity | Root Cause | Status |
 |----|---------|----------|------------|--------|
-| BUG-ROOMNAME-02 | AI agent tools display `los-monges-room-001` instead of `DF-01` in all 4 tool responses | **MEDIUM** | `ai_tools.py` formats `room_id` directly in: `check_availability()` (L58,68-72), `search_guest()` (L186-190), `search_reservation()` (L234-237), `get_reservations_report()` (L299-303). Need to build `code_map` from Room table and map before display. Also audit `search_reservations()` in reservation_service.py (L390-398) which returns raw `room_id` in dicts. | PENDING |
+| BUG-ROOMNAME-02 | AI agent tools display `los-monges-room-001` instead of `DF-01` in all 4 tool responses | **MEDIUM** | `ai_tools.py` formats `room_id` directly in all 4 tools. Service methods `search_reservations()` and `get_reservations_in_range()` returned raw `room_id`. Also fixed `search_checkins()` which returned incomplete dicts (missing fields the tool expected). | ✅ FIXED |
 
 **Related tasks affected:**
 - **V2-V3** (ai_tools session fix): BUG-PRICING-02 was the same anti-pattern. Lesson: audit ALL endpoints calling services without `db`, not just ai_tools.
@@ -153,6 +153,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 - [x] CORS middleware outermost + global handler includes CORS headers (BUG-CORS-01)
 - [x] Date-range overbooking prevention (BUG-OVERBOOKING-01)
 - [x] All UIs display `internal_code` not `room_id` (BUG-ROOMNAME-01)
+- [x] AI agent tools display `internal_code` not `room_id` (BUG-ROOMNAME-02)
 
 ### Performance
 - [x] Database indexes on frequently queried columns
@@ -188,7 +189,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 6. ~~**Day 6:** STRUCT-08 (centralized api.ts)~~ ✅
 7. ~~**Day 7:** BUG-PRICING-01/02, BUG-PC-FORM-01, FEAT-MULTICATEGORY~~ ✅
 8. ~~**Day 8:** BUG-SESSION-01, BUG-CORS-01, BUG-OVERBOOKING-01, BUG-ROOMNAME-01~~ ✅
-9. **Next session:** BUG-ROOMNAME-02 (AI agent tools still show raw room_id)
+9. ~~**Day 9:** BUG-ROOMNAME-02 (AI agent tools room naming)~~ ✅
 10. **Backlog:** PERF-10, PERF-12, TEST-01
 10. **Review:** Re-run audits after all structural refactoring
 

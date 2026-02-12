@@ -144,6 +144,8 @@ class GuestService:
     @with_db
     def search_checkins(db: Session, query: str) -> List[Dict]:
         """Search checkins by name or document."""
+        from database import Room
+
         q = f"%{query}%"
         results = db.query(CheckIn).filter(
             or_(
@@ -154,7 +156,20 @@ class GuestService:
             )
         ).order_by(CheckIn.created_at.desc()).limit(20).all()
 
+        # Build room_id -> internal_code lookup
+        room_ids = list({c.room_id for c in results if c.room_id})
+        rooms_list = db.query(Room).filter(Room.id.in_(room_ids)).all() if room_ids else []
+        code_map = {r.id: r.internal_code or r.id for r in rooms_list}
+
         return [
-            {"id": c.id, "label": f"{c.last_name}, {c.first_name} ({c.document_number}) - {c.created_at}"}
+            {
+                "id": c.id,
+                "last_name": c.last_name or "",
+                "first_name": c.first_name or "",
+                "document_number": c.document_number or "",
+                "room_id": c.room_id or "",
+                "room_code": code_map.get(c.room_id, c.room_id or ""),
+                "label": f"{c.last_name}, {c.first_name} ({c.document_number}) - {c.created_at}"
+            }
             for c in results
         ]

@@ -55,16 +55,16 @@ def check_availability(check_date: str, stay_days: int = 1) -> str:
     for day_offset in range(stay_days):
         current_day = target_date + timedelta(days=day_offset)
         daily_status = ReservationService.get_daily_status(current_day)
-        free_rooms_today = {s["room_id"] for s in daily_status if s["status"] == "Libre"}
-        
+        free_rooms_today = {s.get("internal_code", s["room_id"]) for s in daily_status if s["status"] == "Libre"}
+
         if all_free_rooms is None:
             all_free_rooms = free_rooms_today
         else:
             all_free_rooms = all_free_rooms.intersection(free_rooms_today)
-    
+
     if not all_free_rooms:
         return f"No hay habitaciones disponibles del {check_date} por {stay_days} noche(s). Hotel completo."
-    
+
     room_list = sorted(all_free_rooms)
     return (
         f"Disponibilidad para {check_date} ({stay_days} noche(s)): "
@@ -185,8 +185,8 @@ def search_guest(query: str) -> str:
     lines = []
     for r in results[:5]:
         lines.append(
-            f"  - {r.last_name}, {r.first_name} | "
-            f"Doc: {r.document_number} | Hab: {r.room_id}"
+            f"  - {r['last_name']}, {r['first_name']} | "
+            f"Doc: {r['document_number']} | Hab: {r['room_code']}"
         )
     
     result_str = "\n".join(lines)
@@ -232,7 +232,7 @@ def search_reservation(query: str) -> str:
         check_out_str = check_out.strftime('%d/%m/%Y') if check_out else "N/A"
 
         lines.append(
-            f"  - ID: {r['id']} | {r['guest_name']} | Hab: {r['room_id']} | "
+            f"  - ID: {r['id']} | {r['guest_name']} | Hab: {r['room_code']} | "
             f"Llegada: {check_in_str} | Salida: {check_out_str} | Estado: {r['status']}"
         )
 
@@ -298,7 +298,7 @@ def get_reservations_report(start_date: str, end_date: str, room_number: Optiona
 
         lines.append(
             f"{i}. **{r['guest_name'] or 'Sin nombre'}**\n"
-            f"   - Hab: {r['room_id']} | {check_in_str} -> {check_out_str} ({nights} noche{'s' if nights > 1 else ''})\n"
+            f"   - Hab: {r['room_code']} | {check_in_str} -> {check_out_str} ({nights} noche{'s' if nights > 1 else ''})\n"
             f"   - Estado: {r['status']} | Total: {price_str}"
         )
 

@@ -396,10 +396,16 @@ class ReservationService:
         # Sort by check-in date and convert to dict
         results = sorted(results, key=lambda x: x.check_in_date if x.check_in_date else date.max)[:5]
 
+        # Build room_id -> internal_code lookup
+        room_ids = list({r.room_id for r in results})
+        rooms_list = db.query(Room).filter(Room.id.in_(room_ids)).all() if room_ids else []
+        code_map = {r.id: r.internal_code or r.id for r in rooms_list}
+
         return [{
             "id": r.id,
             "guest_name": r.guest_name,
             "room_id": r.room_id,
+            "room_code": code_map.get(r.room_id, r.room_id),
             "check_in_date": r.check_in_date,
             "stay_days": r.stay_days,
             "status": r.status,
@@ -430,18 +436,24 @@ class ReservationService:
 
             # Check if reservation overlaps with the range
             if check_in <= end_date and check_out >= start_date:
-                results.append({
-                    "id": r.id,
-                    "guest_name": r.guest_name,
-                    "room_id": r.room_id,
-                    "check_in_date": check_in,
-                    "check_out_date": check_out,
-                    "stay_days": r.stay_days,
-                    "status": r.status,
-                    "price": r.price
-                })
+                results.append(r)
 
-        return results
+        # Build room_id -> internal_code lookup
+        room_ids = list({r.room_id for r in results})
+        rooms_list = db.query(Room).filter(Room.id.in_(room_ids)).all() if room_ids else []
+        code_map = {r.id: r.internal_code or r.id for r in rooms_list}
+
+        return [{
+            "id": r.id,
+            "guest_name": r.guest_name,
+            "room_id": r.room_id,
+            "room_code": code_map.get(r.room_id, r.room_id),
+            "check_in_date": r.check_in_date,
+            "check_out_date": r.check_in_date + timedelta(days=r.stay_days),
+            "stay_days": r.stay_days,
+            "status": r.status,
+            "price": r.price
+        } for r in results]
 
     @staticmethod
     @with_db
