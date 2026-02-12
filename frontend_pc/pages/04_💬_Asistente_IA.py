@@ -10,8 +10,11 @@ import streamlit as st
 import requests
 from datetime import datetime
 
-# Import logging
+# Import logging and shared session (PERF-10)
 from logging_config import get_logger
+from api_client import get_session
+
+_s = get_session()
 
 logger = get_logger(__name__)
 
@@ -81,7 +84,7 @@ def refresh_token():
 def check_api_status() -> dict:
     """Check if the AI agent API is available."""
     try:
-        response = requests.get(AGENT_STATUS_URL, timeout=5)
+        response = _s.get(AGENT_STATUS_URL, timeout=5)
         if response.status_code == 200:
             return response.json()
         return {"status": "error", "error": f"HTTP {response.status_code}"}
@@ -100,7 +103,7 @@ def send_query(prompt: str, token: str) -> dict:
         return {"success": False, "error": "auth_error", "message": "No hay token de autenticación"}
     
     try:
-        response = requests.post(
+        response = _s.post(
             AGENT_QUERY_URL,
             json={"prompt": prompt},
             headers={"Authorization": f"Bearer {token}"},

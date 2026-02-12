@@ -17,8 +17,11 @@ import streamlit as st
 import requests
 from datetime import datetime, timedelta
 
-# Import logging
+# Import logging and shared session (PERF-10)
 from logging_config import get_logger
+from api_client import get_session
+
+_s = get_session()
 
 logger = get_logger(__name__)
 
@@ -76,7 +79,7 @@ def get_auth_headers():
 def get_all_users():
     """Fetch all users via API."""
     try:
-        response = requests.get(
+        response = _s.get(
             f"{API_BASE_URL}/users",
             headers=get_auth_headers(),
             timeout=10
@@ -101,7 +104,7 @@ def get_all_users():
 def create_user(username: str, password: str, role: str, real_name: str) -> tuple:
     """Create a new user via API."""
     try:
-        response = requests.post(
+        response = _s.post(
             f"{API_BASE_URL}/users",
             json={
                 "username": username,
@@ -126,7 +129,7 @@ def create_user(username: str, password: str, role: str, real_name: str) -> tupl
 def reset_user_password(user_id: int, new_password: str) -> tuple:
     """Reset a user's password via API."""
     try:
-        response = requests.patch(
+        response = _s.patch(
             f"{API_BASE_URL}/users/{user_id}/password",
             json={"new_password": new_password},
             headers=get_auth_headers(),
@@ -147,7 +150,7 @@ def reset_user_password(user_id: int, new_password: str) -> tuple:
 def delete_user(user_id: int) -> tuple:
     """Delete a user via API."""
     try:
-        response = requests.delete(
+        response = _s.delete(
             f"{API_BASE_URL}/users/{user_id}",
             headers=get_auth_headers(),
             timeout=10
@@ -171,7 +174,7 @@ def get_session_logs(filter_user: str = None):
         if filter_user and filter_user != "Todos":
             params["username"] = filter_user
 
-        response = requests.get(
+        response = _s.get(
             f"{API_BASE_URL}/users/sessions",
             params=params,
             headers=get_auth_headers(),

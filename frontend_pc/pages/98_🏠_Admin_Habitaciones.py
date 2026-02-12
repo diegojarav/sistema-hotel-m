@@ -19,8 +19,11 @@ import requests
 from datetime import datetime
 import pandas as pd
 
-# Import logging
+# Import logging and shared session (PERF-10)
 from logging_config import get_logger
+from api_client import get_session
+
+_s = get_session()
 
 logger = get_logger(__name__)
 
@@ -98,7 +101,7 @@ def get_auth_headers():
 def get_all_categories():
     """Fetch all room categories via API."""
     try:
-        response = requests.get(f"{API_BASE_URL}/rooms/categories", timeout=10)
+        response = _s.get(f"{API_BASE_URL}/rooms/categories", timeout=10)
         if response.ok:
             return response.json()
         return []
@@ -110,7 +113,7 @@ def get_all_categories():
 def get_all_rooms():
     """Fetch all rooms with category information via API."""
     try:
-        response = requests.get(f"{API_BASE_URL}/rooms", timeout=10)
+        response = _s.get(f"{API_BASE_URL}/rooms", timeout=10)
         if response.ok:
             rooms = response.json()
             # Map API response to expected format
@@ -134,7 +137,7 @@ def get_all_rooms():
 def get_room_count_by_category(category_id: str) -> int:
     """Get current room count for a category via API."""
     try:
-        response = requests.get(
+        response = _s.get(
             f"{API_BASE_URL}/rooms/count/{category_id}",
             timeout=10
         )
@@ -149,7 +152,7 @@ def get_room_count_by_category(category_id: str) -> int:
 def create_rooms(category_id: str, quantity: int, floor: int, category_name: str) -> tuple:
     """Create new rooms for a category via API."""
     try:
-        response = requests.post(
+        response = _s.post(
             f"{API_BASE_URL}/rooms",
             json={
                 "category_id": category_id,
@@ -174,7 +177,7 @@ def create_rooms(category_id: str, quantity: int, floor: int, category_name: str
 def update_room_status(room_id: str, new_status: str, reason: str = None) -> tuple:
     """Update room status via API."""
     try:
-        response = requests.patch(
+        response = _s.patch(
             f"{API_BASE_URL}/rooms/{room_id}/status",
             json={
                 "status": new_status,
@@ -197,7 +200,7 @@ def update_room_status(room_id: str, new_status: str, reason: str = None) -> tup
 def toggle_room_active(room_id: str, active: bool) -> tuple:
     """Activate or deactivate a room via API."""
     try:
-        response = requests.patch(
+        response = _s.patch(
             f"{API_BASE_URL}/rooms/{room_id}/active",
             params={"active": active},
             headers=get_auth_headers(),
@@ -218,7 +221,7 @@ def toggle_room_active(room_id: str, active: bool) -> tuple:
 def delete_room(room_id: str) -> tuple:
     """Delete a room via API."""
     try:
-        response = requests.delete(
+        response = _s.delete(
             f"{API_BASE_URL}/rooms/{room_id}",
             headers=get_auth_headers(),
             timeout=10
@@ -237,7 +240,7 @@ def delete_room(room_id: str) -> tuple:
 def get_room_statistics():
     """Get room count statistics by category and status via API."""
     try:
-        response = requests.get(
+        response = _s.get(
             f"{API_BASE_URL}/rooms/statistics/by-category",
             timeout=10
         )

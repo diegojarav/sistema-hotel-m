@@ -125,7 +125,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | STRUCT-08 | Route fetch() through api.ts | ✅ DONE |
 | STRUCT-12 | Rename page files to snake_case | 30m |
 | STRUCT-13 | Rename constants to English | 30m |
-| PERF-10 | Use requests.Session() | 15m |
+| PERF-10 | Use requests.Session() | ✅ DONE |
 | PERF-12 | Add Redis caching layer | 8h |
 | TEST-01 | Increase test coverage to 80% | 16h |
 
@@ -162,6 +162,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 - [x] No N+1 query patterns
 - [x] Occupancy map uses SQL lower bound filter
 - [x] No time.sleep() in UI flows
+- [x] Shared requests.Session() for PC admin pages (PERF-10)
 
 ---
 
@@ -190,7 +191,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 7. ~~**Day 7:** BUG-PRICING-01/02, BUG-PC-FORM-01, FEAT-MULTICATEGORY~~ ✅
 8. ~~**Day 8:** BUG-SESSION-01, BUG-CORS-01, BUG-OVERBOOKING-01, BUG-ROOMNAME-01~~ ✅
 9. ~~**Day 9:** BUG-ROOMNAME-02 (AI agent tools room naming)~~ ✅
-10. **Backlog:** PERF-10, PERF-12, TEST-01
+10. **Backlog:** ~~PERF-10~~ ✅, PERF-12, TEST-01
 10. **Review:** Re-run audits after all structural refactoring
 
 ---
