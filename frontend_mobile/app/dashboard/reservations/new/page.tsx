@@ -18,6 +18,7 @@ import {
 import { createReservation } from '@/services/reservations';
 import { scanDocument } from '@/services/vision';
 import { useAuth } from '@/hooks/useAuth';
+import { getPropertySettings, PropertySettings } from '@/services/settings';
 
 import DocumentScanner from './components/DocumentScanner';
 import GuestForm from './components/GuestForm';
@@ -76,6 +77,7 @@ export default function NewReservationPage() {
         pais: '',
         fechaNacimiento: '',
         telefono: '',
+        arrivalTime: '',
         checkIn: today,
         checkOut: tomorrow,
         precio: 0,
@@ -94,6 +96,7 @@ export default function NewReservationPage() {
     const [submitError, setSubmitError] = useState('');
     const [submitSuccess, setSubmitSuccess] = useState(false);
     const [createdIds, setCreatedIds] = useState<string[]>([]);
+    const [propertySettings, setPropertySettings] = useState<PropertySettings | null>(null);
 
     const calculateNights = (): number => {
         const checkIn = new Date(formData.checkIn);
@@ -113,12 +116,14 @@ export default function NewReservationPage() {
 
         async function loadStaticData() {
             try {
-                const [categoriesData, clientTypesData] = await Promise.all([
+                const [categoriesData, clientTypesData, settingsData] = await Promise.all([
                     getRoomCategories(),
                     getClientTypes(),
+                    getPropertySettings(),
                 ]);
                 setCategories(categoriesData);
                 setClientTypes(clientTypesData);
+                setPropertySettings(settingsData);
 
                 if (clientTypesData.length > 0) {
                     const defaultCT = clientTypesData.find(ct => ct.name.toLowerCase().includes('particular')) || clientTypesData[0];
@@ -288,7 +293,7 @@ export default function NewReservationPage() {
                 room_ids: [selectedRooms[i]],
                 room_type: roomCat?.name || 'Standard',
                 price: formData.precio / selectedRooms.length,
-                arrival_time: null,
+                arrival_time: formData.arrivalTime || null,
                 reserved_by: 'App Móvil',
                 contact_phone: formData.telefono,
                 received_by: 'mobile_user',
@@ -348,11 +353,18 @@ export default function NewReservationPage() {
 
             <main className="flex-1 p-4 overflow-y-auto pb-24">
                 {submitSuccess && (
-                    <div className="mb-6 p-4 rounded-xl bg-green-500/20 border border-green-500/30 text-green-300">
-                        <div className="flex items-center gap-2 mb-2">
+                    <div className="mb-6 p-4 rounded-xl bg-green-500/20 border border-green-500/30 text-green-300 space-y-2">
+                        <div className="flex items-center gap-2">
                             <span className="text-xl">✅</span>
                             <span className="font-semibold">¡{createdIds.length} reserva(s) creada(s)!</span>
                         </div>
+                        {propertySettings && (
+                            <div className="text-sm text-green-400/80 space-y-1 pt-2 border-t border-green-500/20">
+                                <p>🕐 Check-in: {propertySettings.check_in_start} - {propertySettings.check_in_end} hs</p>
+                                <p>🕐 Check-out: {propertySettings.check_out_time} hs</p>
+                                <p>🍳 {propertySettings.breakfast_included ? 'Desayuno incluido' : 'Desayuno no incluido'}</p>
+                            </div>
+                        )}
                         <p className="text-sm text-green-400/80">Redirigiendo al calendario...</p>
                     </div>
                 )}

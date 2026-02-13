@@ -36,15 +36,15 @@ The hotel operates based on specific categories rather than room numbers.
 ## 3. Operational Policies
 
 * 
-**Check-in:** 07:00 AM to 10:00 PM.
+**Check-in:** 07:00 AM to 10:00 PM. [✅ DONE - Stored in properties table, displayed on reservation confirmation]
 
 
-* 
-**Check-out:** 10:00 AM.
+*
+**Check-out:** 10:00 AM. [✅ DONE - Stored in properties table, displayed on reservation confirmation]
 
 
-* 
-**Breakfast:** Not included (Sin desayuno).
+*
+**Breakfast:** Not included (Sin desayuno). [✅ DONE - Stored in properties table, displayed on reservation confirmation]
 
 
 * 
@@ -60,7 +60,7 @@ The hotel operates based on specific categories rather than room numbers.
 
 
 * 
-**Guest Details:** Must capture the **Estimated Arrival Time**.
+**Guest Details:** Must capture the **Estimated Arrival Time**. [✅ DONE - Time picker in mobile form, stored in DB]
 
 
 * 

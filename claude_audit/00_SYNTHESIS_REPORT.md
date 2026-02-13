@@ -115,6 +115,14 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 - **STRUCT-06** (mobile page split → 4 components): Component split made multi-category implementation clean — only 3 of 4 files touched.
 - **Risk Register**: "Category pricing bugs: LOW probability" → actually materialized. Updated mitigation below.
 
+### REQUIREMENTS.md Gap Closure (2026-02-12)
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| FEAT-REQ-01 | `Property` SQLAlchemy model out of sync with actual DB schema | **MEDIUM** | Model had `settings` JSON column; actual table has 22 individual columns (check_in_start, check_in_end, etc.). No code was using the model, so it was invisible. | ✅ FIXED |
+| FEAT-REQ-02 | Mobile form sends `arrival_time: null` — never collects estimated arrival | **MEDIUM** | Backend had the field (`Column(Time)`), schema had wrong type (`datetime` instead of `time`), mobile form hardcoded `null`. | ✅ FIXED |
+| FEAT-REQ-03 | Check-in/out times and breakfast policy never displayed to users | **MEDIUM** | Data stored in `properties` table but no endpoint to fetch it, no UI to display it. | ✅ FIXED |
+
 ---
 
 ## BACKLOG — Nice to Have

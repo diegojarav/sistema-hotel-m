@@ -285,14 +285,30 @@ class PriceCalculation(Base):
 
 
 class Property(Base):
-    """Properties (Hotels)."""
+    """Properties (Hotels) with check-in/check-out configuration."""
     __tablename__ = "properties"
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
+    slug = Column(String, nullable=True)
+    display_mode = Column(String, default="category")
+    theme_background = Column(String, default="#FFFFFF")
+    theme_text = Column(String, default="#000000")
+    theme_primary = Column(String, default="#1E3A5F")
+    check_in_start = Column(String, default="07:00")
+    check_in_end = Column(String, default="22:00")
+    check_out_time = Column(String, default="10:00")
+    breakfast_included = Column(Integer, default=0)
+    parking_available = Column(Integer, default=1)
+    timezone = Column(String, default="America/Asuncion")
+    currency = Column(String, default="PYG")
     address = Column(String, nullable=True)
-    settings = Column(String, nullable=True) # JSON
-    active = Column(Integer, default=1)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    facebook_url = Column(String, nullable=True)
+    instagram_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now)
+    active = Column(Integer, default=1)
 
 
 class AIAgentPermission(Base):

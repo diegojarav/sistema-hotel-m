@@ -14,7 +14,7 @@ Validaciones implementadas:
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, time
 import re
 
 
@@ -72,7 +72,7 @@ class ReservationCreate(BaseModel):
     room_ids: List[str] = Field(..., min_length=1, description="Lista de habitaciones")
     room_type: str = Field(default="", description="Tipo de habitación")
     price: float = Field(default=0.0, ge=0, description="Precio total (>= 0)")
-    arrival_time: Optional[datetime] = Field(default=None, description="Hora estimada de llegada")
+    arrival_time: Optional[time] = Field(default=None, description="Hora estimada de llegada")
     contact_phone: str = Field(default="", description="Teléfono de contacto")
     reserved_by: str = Field(default="", description="Quién solicitó la reserva")
     received_by: str = Field(default="", description="Recepcionista que tomó la reserva")

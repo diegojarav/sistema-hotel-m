@@ -82,3 +82,23 @@ class SettingsService:
         db.commit()
         logger.info(f"Hotel name updated to: {name}")
         return True
+
+    @staticmethod
+    @with_db
+    def get_property_settings(db: Session, property_id: str = "los-monges") -> dict:
+        """Get property settings: check-in/out times and breakfast policy."""
+        from database import Property
+        prop = db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            return {
+                "check_in_start": "07:00",
+                "check_in_end": "22:00",
+                "check_out_time": "10:00",
+                "breakfast_included": False
+            }
+        return {
+            "check_in_start": prop.check_in_start or "07:00",
+            "check_in_end": prop.check_in_end or "22:00",
+            "check_out_time": prop.check_out_time or "10:00",
+            "breakfast_included": bool(prop.breakfast_included)
+        }

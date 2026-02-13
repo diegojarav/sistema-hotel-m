@@ -104,3 +104,26 @@ def set_parking_capacity(
     """Update parking capacity. Requires admin role."""
     SettingsService.set_parking_capacity(db=db, capacity=request.capacity)
     return ParkingCapacityResponse(parking_capacity=request.capacity)
+
+
+# ==========================================
+# PROPERTY SETTINGS (Check-in/out, Breakfast)
+# ==========================================
+
+class PropertySettingsResponse(BaseModel):
+    check_in_start: str
+    check_in_end: str
+    check_out_time: str
+    breakfast_included: bool
+
+
+@router.get(
+    "/property-settings",
+    response_model=PropertySettingsResponse,
+    summary="Get Property Settings",
+    description="Check-in/check-out times and breakfast policy. Public endpoint."
+)
+def get_property_settings(db: Session = Depends(get_db)):
+    """Get property configuration (check-in/out times, breakfast policy)."""
+    settings = SettingsService.get_property_settings(db=db)
+    return PropertySettingsResponse(**settings)

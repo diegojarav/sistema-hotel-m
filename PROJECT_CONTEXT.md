@@ -126,6 +126,7 @@ graph TB
 | **Multi-category reservations** | Both frontends show all available rooms grouped by category. Users select rooms from any/multiple categories. Pricing calculates per-category and sums. Backend `create_reservations()` resolves each room's category from DB. |
 | **Room ID vs internal_code** | `Room.id` = DB primary key (e.g. `los-monges-room-001`). `Room.internal_code` = human-friendly label (e.g. `DF-01`). All UIs display `internal_code`. Reservations store `room_id` but DTOs include `room_internal_code` for display. |
 | **Date-range availability** | `/rooms/status?check_in=&check_out=` checks overlap across full range (prevents overbooking). Mobile re-fetches rooms when dates change. |
+| **Property settings endpoint** | `GET /settings/property-settings` returns check-in/out times and breakfast policy from `properties` table. Public endpoint, fetched on reservation form mount. |
 
 ---
 
@@ -227,6 +228,9 @@ graph TB
 | All UIs display `internal_code` not `room_id` (BUG-ROOMNAME-01) | Done |
 | Multi-category room selection (FEAT-MULTICATEGORY) | Done |
 | Pydantic response schemas validated (BUG-PRICING-01) | Done |
+| Property model synced with DB schema (FEAT-REQ-01) | Done |
+| Arrival time picker in mobile form (FEAT-REQ-02) | Done |
+| Property settings endpoint + confirmation display (FEAT-REQ-03) | Done |
 
 ---
 
@@ -261,6 +265,9 @@ graph TB
 | 2026-02-10 | **BUG-ROOMNAME-01**: All UIs now display `internal_code` (e.g. `DF-01`) instead of `room_id` (e.g. `los-monges-room-001`). Fixed in: weekly view, daily view, reservation lists (PC + mobile), calendar. | Claude Opus 4.6 |
 | 2026-02-12 | **BUG-ROOMNAME-02**: AI agent tools now display `internal_code` in all 4 tool responses. Fixed `search_reservations()`, `get_reservations_in_range()`, `search_checkins()` to include `room_code`. | Claude Opus 4.6 |
 | 2026-02-12 | **PERF-10**: Shared `requests.Session()` in `api_client.py` for TCP connection reuse across all PC admin pages (Admin Habitaciones, Admin Users, Asistente IA). | Claude Opus 4.6 |
+| 2026-02-12 | **FEAT-REQ-01**: Fixed `Property` model — synced with actual DB schema (22 columns). Was out of sync (had JSON `settings` column). | Claude Opus 4.6 |
+| 2026-02-12 | **FEAT-REQ-02**: Added arrival time picker to mobile reservation form. Fixed `arrival_time` schema type (`datetime` → `time`). | Claude Opus 4.6 |
+| 2026-02-12 | **FEAT-REQ-03**: Added `/settings/property-settings` endpoint. Reservation confirmation now shows check-in/out times + breakfast policy. | Claude Opus 4.6 |
 
 ---
 

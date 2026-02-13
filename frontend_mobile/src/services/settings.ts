@@ -33,3 +33,27 @@ export async function setHotelName(name: string, token?: string): Promise<boolea
         return false;
     }
 }
+
+export interface PropertySettings {
+    check_in_start: string;
+    check_in_end: string;
+    check_out_time: string;
+    breakfast_included: boolean;
+}
+
+/**
+ * Fetch property settings (check-in/out times, breakfast policy).
+ */
+export async function getPropertySettings(): Promise<PropertySettings> {
+    try {
+        return await apiGet<PropertySettings>('/settings/property-settings');
+    } catch (error) {
+        console.error('Failed to fetch property settings:', error);
+        return {
+            check_in_start: '07:00',
+            check_in_end: '22:00',
+            check_out_time: '10:00',
+            breakfast_included: false
+        };
+    }
+}

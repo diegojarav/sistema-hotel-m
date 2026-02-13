@@ -10,6 +10,7 @@ interface FormData {
     pais: string;
     fechaNacimiento: string;
     telefono: string;
+    arrivalTime: string;
     checkIn: string;
     checkOut: string;
     precio: number;
@@ -78,15 +79,26 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                 </div>
             </div>
 
-            <div>
-                <label className="text-slate-400 text-xs mb-1 block">Teléfono</label>
-                <input
-                    type="tel"
-                    value={formData.telefono}
-                    onChange={(e) => onFormChange({ telefono: e.target.value })}
-                    className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                    placeholder="0981..."
-                />
+            <div className="grid grid-cols-2 gap-3">
+                <div>
+                    <label className="text-slate-400 text-xs mb-1 block">Teléfono</label>
+                    <input
+                        type="tel"
+                        value={formData.telefono}
+                        onChange={(e) => onFormChange({ telefono: e.target.value })}
+                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        placeholder="0981..."
+                    />
+                </div>
+                <div>
+                    <label className="text-slate-400 text-xs mb-1 block">Hora de Llegada</label>
+                    <input
+                        type="time"
+                        value={formData.arrivalTime}
+                        onChange={(e) => onFormChange({ arrivalTime: e.target.value })}
+                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                    />
+                </div>
             </div>
 
             {/* Parking Section */}
