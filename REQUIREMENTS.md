@@ -76,11 +76,11 @@ The hotel operates based on specific categories rather than room numbers.
 
 The database and reservation visualization must coordinate and show data from multiple sources:
 
-* Booking.com
-* Airbnb
-* WhatsApp
-* Facebook
-* Instagram
-* Google
+* Booking.com [✅ DONE - iCal import/export sync]
+* Airbnb [✅ DONE - iCal import/export sync]
+* WhatsApp [✅ DONE - Source label in reservation form]
+* Facebook [✅ DONE - Source label in reservation form]
+* Instagram [✅ DONE - Source label in reservation form]
+* Google [✅ DONE - Source label in reservation form]
 
-**Automation Requirement:** The system should automatically save/sync reservations made specifically on Booking and Airbnb. [❌ PENDING strategy]
+**Automation Requirement:** The system should automatically save/sync reservations made specifically on Booking and Airbnb. [✅ DONE - iCal sync: import from OTA feeds every 15 min, export .ics for OTAs to pull. Admin UI in Configuración page.]

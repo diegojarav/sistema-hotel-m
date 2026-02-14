@@ -311,6 +311,18 @@ class Property(Base):
     active = Column(Integer, default=1)
 
 
+class ICalFeed(Base):
+    """iCal feed URLs for Booking.com/Airbnb sync per room."""
+    __tablename__ = "ical_feeds"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    room_id = Column(String, ForeignKey("rooms.id"), nullable=False)
+    source = Column(String, nullable=False)  # "Booking.com" or "Airbnb"
+    ical_url = Column(String, nullable=False)
+    last_synced_at = Column(DateTime, nullable=True)
+    sync_enabled = Column(Integer, default=1)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class AIAgentPermission(Base):
     """Permissions for AI Agents."""
     __tablename__ = "ai_agent_permissions"

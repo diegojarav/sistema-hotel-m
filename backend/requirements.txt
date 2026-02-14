@@ -24,6 +24,9 @@ requests>=2.32.5
 # Logging
 colorama>=0.4.6
 
+# iCal Sync (Booking.com / Airbnb)
+icalendar>=6.0.0
+
 # AI (Google Gemini + Reliability)
 google-genai>=1.0.0
 tenacity>=8.2.0

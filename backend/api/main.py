@@ -15,6 +15,9 @@ SECURITY HARDENED:
 Run with: python -m uvicorn api.main:app --reload --port 8000
 """
 
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,8 +34,12 @@ load_dotenv()
 # Initialize rate limiter (used by endpoint decorators)
 limiter = Limiter(key_func=get_remote_address)
 
+# Logging (used by lifespan, exception handler, and background tasks)
+from logging_config import get_logger
+_main_logger = get_logger("api.main")
+
 # Import routers
-from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users
+from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical
 
 # ==========================================
 # APP CONFIGURATION
@@ -49,8 +56,18 @@ CORS_ORIGINS = [
     # "https://your-production-domain.com",
 ]
 
+@asynccontextmanager
+async def lifespan(app):
+    """App lifespan: startup cleanup + background iCal sync."""
+    _close_stale_sessions()
+    sync_task = asyncio.create_task(_periodic_ical_sync())
+    _main_logger.info("iCal background sync started (every 15 minutes)")
+    yield
+    sync_task.cancel()
+
 # Create FastAPI app
 app = FastAPI(
+    lifespan=lifespan,
     title="Hotel PMS API",
     version="1.0.0",
     description="""
@@ -82,10 +99,6 @@ A production-ready REST API for hotel management.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Import logging for global error handler
-from logging_config import get_logger
-_main_logger = get_logger("api.main")
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """
@@ -114,24 +127,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # ==========================================
-# STARTUP EVENTS
+# STARTUP / BACKGROUND TASKS
 # ==========================================
 
-@app.on_event("startup")
-def close_stale_sessions():
-    """
-    Mark all 'active' sessions as closed on server restart.
-    
-    This ensures that every time the backend starts, any zombie sessions
-    (from crashes, restarts, or unclean shutdowns) are properly closed.
-    """
+def _close_stale_sessions():
+    """Mark all 'active' sessions as closed on server restart."""
     from datetime import datetime
     from database import session_factory, SessionLog
-    from logging_config import get_logger
 
-    logger = get_logger(__name__)
-    # Use session_factory() directly — not SessionLocal (scoped_session)
-    # to avoid poisoning the thread-local registry
     db = session_factory()
     try:
         updated = db.query(SessionLog).filter(
@@ -143,14 +146,25 @@ def close_stale_sessions():
         })
         db.commit()
         if updated > 0:
-            logger.info(f"Startup cleanup: Closed {updated} stale session(s)")
+            _main_logger.info(f"Startup cleanup: Closed {updated} stale session(s)")
         else:
-            logger.info("Startup cleanup: No stale sessions found")
+            _main_logger.info("Startup cleanup: No stale sessions found")
     except Exception as e:
         db.rollback()
-        logger.error(f"Startup cleanup failed: {e}")
+        _main_logger.error(f"Startup cleanup failed: {e}")
     finally:
         db.close()
+
+
+async def _periodic_ical_sync():
+    """Background task: sync all iCal feeds every 15 minutes."""
+    while True:
+        await asyncio.sleep(900)  # 15 minutes
+        try:
+            from services import ICalService
+            await asyncio.to_thread(ICalService.sync_all_feeds_standalone)
+        except Exception as e:
+            _main_logger.error(f"iCal auto-sync error: {e}")
 
 
 # ==========================================
@@ -196,6 +210,7 @@ app.include_router(vision.router, prefix="/api/v1/vision", tags=["Vision AI"])
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
 app.include_router(pricing.router, prefix="/api/v1/pricing", tags=["Pricing"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(ical.router, prefix="/api/v1/ical", tags=["iCal Sync"])
 
 
 # ==========================================

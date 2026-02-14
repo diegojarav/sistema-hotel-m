@@ -138,6 +138,17 @@ CREATE TABLE IF NOT EXISTS properties (
     active INTEGER DEFAULT 1
 );
 
+-- iCal feeds for Booking.com/Airbnb sync per room
+CREATE TABLE IF NOT EXISTS ical_feeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    ical_url TEXT NOT NULL,
+    last_synced_at TIMESTAMP,
+    sync_enabled INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Buildings within a property
 CREATE TABLE IF NOT EXISTS buildings (
     id TEXT PRIMARY KEY,

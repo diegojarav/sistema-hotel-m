@@ -351,7 +351,7 @@ def render_tab_reserva():
             hora = st.time_input("🕐 Hora Llegada", value=d_hora)
 
             st.markdown("##### 🚗 Estacionamiento y Origen")
-            source_options = ["Direct", "Booking.com", "Airbnb", "Walk-in", "Whatsapp", "Telefónica"]
+            source_options = ["Direct", "Booking.com", "Airbnb", "Walk-in", "Whatsapp", "Facebook", "Instagram", "Google", "Telefónica"]
             source_index = 0
             if d_source in source_options:
                 source_index = source_options.index(d_source)
