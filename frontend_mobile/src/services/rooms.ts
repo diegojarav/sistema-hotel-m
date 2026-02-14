@@ -92,7 +92,7 @@ export function getStatusDisplay(status: string): {
         return {
             bgClass: 'bg-green-500/20',
             borderClass: 'border-green-500',
-            textClass: 'text-green-400',
+            textClass: 'text-green-600',
             label: 'Libre',
         };
     }
@@ -101,7 +101,7 @@ export function getStatusDisplay(status: string): {
         return {
             bgClass: 'bg-red-500/20',
             borderClass: 'border-red-500',
-            textClass: 'text-red-400',
+            textClass: 'text-red-600',
             label: 'Ocupada',
         };
     }
@@ -110,7 +110,7 @@ export function getStatusDisplay(status: string): {
         return {
             bgClass: 'bg-amber-500/20',
             borderClass: 'border-amber-500',
-            textClass: 'text-amber-400',
+            textClass: 'text-amber-600',
             label: 'Limpieza',
         };
     }
@@ -119,7 +119,7 @@ export function getStatusDisplay(status: string): {
         return {
             bgClass: 'bg-blue-500/20',
             borderClass: 'border-blue-500',
-            textClass: 'text-blue-400',
+            textClass: 'text-blue-600',
             label: 'Mantenimiento',
         };
     }
@@ -127,7 +127,7 @@ export function getStatusDisplay(status: string): {
     return {
         bgClass: 'bg-slate-500/20',
         borderClass: 'border-slate-500',
-        textClass: 'text-slate-400',
+        textClass: 'text-gray-500',
         label: status,
     };
 }
@@ -147,8 +147,8 @@ export function formatPrice(price: number): string {
  * Get category color based on price tier.
  */
 export function getCategoryColor(basePrice: number): string {
-    if (basePrice >= 350000) return 'text-purple-400';
-    if (basePrice >= 250000) return 'text-blue-400';
-    if (basePrice >= 200000) return 'text-green-400';
-    return 'text-slate-400';
+    if (basePrice >= 350000) return 'text-purple-600';
+    if (basePrice >= 250000) return 'text-blue-600';
+    if (basePrice >= 200000) return 'text-green-600';
+    return 'text-gray-500';
 }

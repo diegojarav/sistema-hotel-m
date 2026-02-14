@@ -23,16 +23,16 @@ export default function PriceSummary({
     return (
         <>
             {/* Price Summary */}
-            <div className="mt-6 p-4 bg-white/5 border border-white/10 rounded-xl">
+            <div className="mt-6 p-4 bg-white border border-gray-200 rounded-xl">
                 {pricingResults.length > 0 ? (
-                    <div className="mb-4 space-y-3 border-b border-white/10 pb-4">
+                    <div className="mb-4 space-y-3 border-b border-gray-200 pb-4">
                         {pricingResults.map((result) => (
                             <div key={result.catId} className="space-y-1">
-                                <div className="flex justify-between text-sm text-white font-medium">
+                                <div className="flex justify-between text-sm text-gray-900 font-medium">
                                     <span>{result.catName} ({result.roomCount} hab.)</span>
                                     <span>{formatPrice(result.response.final_price * result.roomCount)}</span>
                                 </div>
-                                <div className="flex justify-between text-xs text-slate-400 pl-3">
+                                <div className="flex justify-between text-xs text-gray-500 pl-3">
                                     <span>Base ({nights} noches):</span>
                                     <span>{formatPrice(result.response.breakdown.base_total)}</span>
                                 </div>
@@ -47,7 +47,7 @@ export default function PriceSummary({
                                     </div>
                                 ))}
                                 {result.roomCount > 1 && (
-                                    <div className="flex justify-between text-xs text-slate-400 pl-3">
+                                    <div className="flex justify-between text-xs text-gray-500 pl-3">
                                         <span>{formatPrice(result.response.final_price)} x {result.roomCount} hab.</span>
                                         <span>{formatPrice(result.response.final_price * result.roomCount)}</span>
                                     </div>
@@ -57,37 +57,37 @@ export default function PriceSummary({
                     </div>
                 ) : (
                     <div className="flex justify-between items-center mb-2">
-                        <span className="text-slate-400">Seleccione habitaciones para ver precios</span>
+                        <span className="text-gray-500">Seleccione habitaciones para ver precios</span>
                     </div>
                 )}
 
                 <div className="flex justify-between items-center mb-2">
-                    <span className="text-slate-400">Habitaciones:</span>
-                    <span className="text-white">{selectedRooms.length}</span>
+                    <span className="text-gray-500">Habitaciones:</span>
+                    <span className="text-gray-900">{selectedRooms.length}</span>
                 </div>
 
-                <div className="border-t border-white/10 pt-2 mt-2 flex justify-between items-center">
-                    <span className="text-white font-semibold">💰 Total:</span>
-                    <span className="text-2xl font-bold text-amber-400">
+                <div className="border-t border-gray-200 pt-2 mt-2 flex justify-between items-center">
+                    <span className="text-gray-900 font-semibold">💰 Total:</span>
+                    <span className="text-2xl font-bold text-amber-600">
                         {formatPrice(formData.precio)}
                     </span>
                 </div>
 
                 <div className="mt-3">
-                    <label className="text-slate-400 text-xs mb-1 block">Ajustar precio manualmente (Gs)</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Ajustar precio manualmente (Gs)</label>
                     <input
                         type="number"
                         min={0}
                         step={10000}
                         value={formData.precio}
                         onChange={(e) => onFormChange({ precio: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     />
                 </div>
             </div>
 
             {submitError && (
-                <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-sm">
+                <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
                     {submitError}
                 </div>
             )}
@@ -96,7 +96,7 @@ export default function PriceSummary({
             <button
                 type="submit"
                 disabled={isSubmitting || submitSuccess || selectedRooms.length === 0}
-                className="w-full py-4 px-6 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-xl shadow-lg shadow-amber-500/30 transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 mt-6"
+                className="w-full py-4 px-6 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold rounded-xl shadow-lg shadow-amber-500/20 transition-all duration-200 flex items-center justify-center gap-3 disabled:opacity-50 mt-6"
             >
                 {isSubmitting ? (
                     <>

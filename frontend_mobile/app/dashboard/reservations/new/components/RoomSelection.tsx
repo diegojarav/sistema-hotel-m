@@ -20,11 +20,11 @@ export default function RoomSelection({
     return (
         <>
             {/* Date Range Section */}
-            <h3 className="text-lg font-semibold text-white mb-2 mt-6">Fechas de Estadía</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2 mt-6">Fechas de Estadía</h3>
 
             <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">📅 Check-in</label>
+                    <label className="text-gray-600 text-xs mb-1 block">📅 Check-in</label>
                     <input
                         type="date"
                         value={formData.checkIn}
@@ -37,32 +37,32 @@ export default function RoomSelection({
                                     : undefined
                             });
                         }}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     />
                 </div>
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">📅 Check-out</label>
+                    <label className="text-gray-600 text-xs mb-1 block">📅 Check-out</label>
                     <input
                         type="date"
                         value={formData.checkOut}
                         min={formData.checkIn}
                         onChange={(e) => onFormChange({ checkOut: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     />
                 </div>
             </div>
 
             {/* Nights Summary */}
-            <div className="p-3 bg-amber-500/20 border border-amber-500/30 rounded-xl flex items-center justify-between">
-                <span className="text-amber-300 text-sm">🌙 Total de Noches:</span>
-                <span className="text-white font-bold text-lg">{nights}</span>
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                <span className="text-amber-700 text-sm">🌙 Total de Noches:</span>
+                <span className="text-gray-900 font-bold text-lg">{nights}</span>
             </div>
 
             {/* Room Selection grouped by category */}
-            <h3 className="text-lg font-semibold text-white mb-2 mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2 mt-6">
                 Selección de Habitaciones
                 {selectedRooms.length > 0 && (
-                    <span className="text-sm font-normal text-amber-400 ml-2">
+                    <span className="text-sm font-normal text-amber-600 ml-2">
                         ({selectedRooms.length} seleccionada{selectedRooms.length !== 1 ? 's' : ''})
                     </span>
                 )}
@@ -78,10 +78,10 @@ export default function RoomSelection({
                 return (
                     <div key={cat.id} className="mb-4">
                         {/* Category header */}
-                        <div className="flex justify-between items-center mb-2 p-3 bg-white/5 rounded-xl border border-white/10">
+                        <div className="flex justify-between items-center mb-2 p-3 bg-white rounded-xl border border-gray-200">
                             <div>
-                                <p className="text-white font-semibold">{cat.name}</p>
-                                <p className="text-slate-400 text-xs">
+                                <p className="text-gray-900 font-semibold">{cat.name}</p>
+                                <p className="text-gray-500 text-xs">
                                     👥 máx {cat.max_capacity} pers. — {catRooms.length} disponibles
                                 </p>
                             </div>
@@ -89,9 +89,9 @@ export default function RoomSelection({
                                 <p className={`font-bold ${priceColor}`}>
                                     {formatPrice(cat.base_price)}
                                 </p>
-                                <p className="text-slate-500 text-xs">/noche</p>
+                                <p className="text-gray-400 text-xs">/noche</p>
                                 {selectedInCat > 0 && (
-                                    <span className="text-xs bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded-full">
+                                    <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
                                         {selectedInCat} sel.
                                     </span>
                                 )}
@@ -107,8 +107,8 @@ export default function RoomSelection({
                                     onClick={() => onToggleRoom(room.room_id)}
                                     className={`py-4 px-2 rounded-xl font-bold text-sm transition-all ${
                                         selectedRooms.includes(room.room_id)
-                                            ? 'bg-amber-500 text-white border-2 border-amber-400 shadow-lg shadow-amber-500/30'
-                                            : 'bg-white/5 text-slate-300 border-2 border-white/10 hover:bg-white/10'
+                                            ? 'bg-amber-500 text-white border-2 border-amber-400 shadow-lg shadow-amber-500/20'
+                                            : 'bg-gray-50 text-gray-700 border-2 border-gray-200 hover:bg-gray-100'
                                     }`}
                                 >
                                     <div className="text-lg">{room.internal_code || room.room_id}</div>
@@ -123,7 +123,7 @@ export default function RoomSelection({
             })}
 
             {availableRooms.length === 0 && (
-                <div className="p-4 rounded-xl bg-slate-500/20 border border-slate-500/30 text-slate-400 text-center">
+                <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-500 text-center">
                     No hay habitaciones disponibles para estas fechas
                 </div>
             )}

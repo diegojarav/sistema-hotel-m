@@ -9,13 +9,14 @@ def inject_custom_css():
     .calendar-header {
         display: flex;
         justify-content: space-around;
-        background: linear-gradient(135deg, #1e3a5f, #2d5a87);
+        background: #f3f4f6;
         padding: 8px;
         border-radius: 8px 8px 0 0;
         margin-bottom: 2px;
+        border: 1px solid #e5e7eb;
     }
     .calendar-header span {
-        color: white;
+        color: #374151;
         font-weight: bold;
         font-size: 12px;
         width: 14%;
@@ -45,8 +46,8 @@ def inject_custom_css():
     }
     .status-free {
         background: transparent;
-        color: #aaa;
-        border: 1px dashed #555;
+        color: #9ca3af;
+        border: 1px dashed #d1d5db;
     }
     .status-medium {
         background: rgba(76, 175, 80, 0.3);
@@ -82,14 +83,14 @@ def inject_custom_css():
         align-items: center;
         gap: 6px;
         font-size: 12px;
-        color: #888;
+        color: #6b7280;
     }
     .legend-dot {
         width: 12px;
         height: 12px;
         border-radius: 50%;
     }
-    .legend-dot.free { background: transparent; border: 1px dashed #555; }
+    .legend-dot.free { background: transparent; border: 1px dashed #d1d5db; }
     .legend-dot.medium { background: rgba(76, 175, 80, 0.3); border: 2px solid #4CAF50; }
     .legend-dot.high { background: rgba(244, 67, 54, 0.3); border: 2px solid #F44336; }
     </style>

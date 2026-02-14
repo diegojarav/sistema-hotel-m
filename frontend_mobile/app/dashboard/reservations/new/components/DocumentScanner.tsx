@@ -11,12 +11,12 @@ interface DocumentScannerProps {
 
 export default function DocumentScanner({ fileInputRef, isScanning, scanError, onFileChange }: DocumentScannerProps) {
     return (
-        <div className="mb-6 bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30 rounded-2xl p-4">
+        <div className="mb-6 bg-purple-50 border border-purple-200 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
                 <span className="text-2xl">✨</span>
-                <h2 className="text-lg font-semibold text-white">Escanear Documento</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Escanear Documento</h2>
             </div>
-            <p className="text-slate-400 text-sm mb-4">
+            <p className="text-gray-600 text-sm mb-4">
                 Usa Gemini 2.5 para extraer datos automáticamente
             </p>
 
@@ -55,7 +55,7 @@ export default function DocumentScanner({ fileInputRef, isScanning, scanError, o
             </button>
 
             {scanError && (
-                <div className="mt-3 p-3 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-sm">
+                <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
                     {scanError}
                 </div>
             )}

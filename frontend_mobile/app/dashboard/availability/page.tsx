@@ -54,22 +54,22 @@ export default function AvailabilityPage() {
     const loading = authLoading || isLoading;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
+        <div className="min-h-screen bg-gray-50 flex flex-col">
             {/* Header with Back Button */}
-            <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-4 py-4 sticky top-0 z-10">
+            <header className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                     <Link
                         href="/dashboard"
-                        className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+                        className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
                     >
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
                     <div>
-                        <h1 className="text-xl font-bold text-white">Disponibilidad</h1>
+                        <h1 className="text-xl font-bold text-gray-900">Disponibilidad</h1>
                         {!loading && !error && (
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-gray-500">
                                 {freeCount} libres • {occupiedCount} ocupadas
                             </p>
                         )}
@@ -86,7 +86,7 @@ export default function AvailabilityPage() {
                 )}
 
                 {error && (
-                    <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-center">
+                    <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-center">
                         {error}
                     </div>
                 )}
@@ -96,15 +96,15 @@ export default function AvailabilityPage() {
                     <div className="flex gap-4 mb-6 justify-center flex-wrap">
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                            <span className="text-slate-400 text-xs">Libre</span>
+                            <span className="text-gray-600 text-xs">Libre</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                            <span className="text-slate-400 text-xs">Ocupada</span>
+                            <span className="text-gray-600 text-xs">Ocupada</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                            <span className="text-slate-400 text-xs">Limpieza</span>
+                            <span className="text-gray-600 text-xs">Limpieza</span>
                         </div>
                     </div>
                 )}
@@ -112,8 +112,8 @@ export default function AvailabilityPage() {
                 {/* Rooms by Floor */}
                 {!loading && !error && sortedFloors.map((floor) => (
                     <div key={floor} className="mb-6">
-                        <h2 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-                            <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-sm">
+                        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-sm text-gray-700">
                                 {floor}
                             </span>
                             Piso {floor}
@@ -129,7 +129,7 @@ export default function AvailabilityPage() {
                                         className={`${statusInfo.bgClass} border-2 ${statusInfo.borderClass} rounded-2xl p-4 transition-all duration-200`}
                                     >
                                         <div className="flex justify-between items-start mb-2">
-                                            <span className="text-2xl font-bold text-white">
+                                            <span className="text-2xl font-bold text-gray-900">
                                                 {room.internal_code || room.room_id}
                                             </span>
                                             <span className={`text-xs font-medium px-2 py-1 rounded-full ${statusInfo.bgClass} ${statusInfo.textClass}`}>
@@ -137,7 +137,7 @@ export default function AvailabilityPage() {
                                             </span>
                                         </div>
 
-                                        <p className="text-slate-300 text-sm font-medium mb-1">
+                                        <p className="text-gray-600 text-sm font-medium mb-1">
                                             {room.category_name}
                                         </p>
 
@@ -148,13 +148,13 @@ export default function AvailabilityPage() {
                                         )}
 
                                         {room.max_capacity && (
-                                            <p className="text-xs text-slate-500">
+                                            <p className="text-xs text-gray-400">
                                                 👥 máx {room.max_capacity} pers.
                                             </p>
                                         )}
 
                                         {room.status.toLowerCase() === 'ocupada' && room.huesped && room.huesped !== '-' && (
-                                            <p className="text-white text-sm font-medium truncate mt-2 pt-2 border-t border-white/10">
+                                            <p className="text-gray-900 text-sm font-medium truncate mt-2 pt-2 border-t border-gray-200">
                                                 👤 {room.huesped}
                                             </p>
                                         )}
@@ -167,13 +167,13 @@ export default function AvailabilityPage() {
 
                 {!loading && !error && rooms.length === 0 && (
                     <div className="text-center py-20">
-                        <p className="text-slate-400">No hay habitaciones disponibles</p>
+                        <p className="text-gray-500">No hay habitaciones disponibles</p>
                     </div>
                 )}
             </main>
 
             <footer className="p-4 text-center">
-                <p className="text-slate-500 text-xs">
+                <p className="text-gray-400 text-xs">
                     Actualizado: {new Date().toLocaleTimeString('es-ES')}
                 </p>
             </footer>

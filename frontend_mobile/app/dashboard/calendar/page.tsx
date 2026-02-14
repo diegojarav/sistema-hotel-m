@@ -101,19 +101,19 @@ export default function CalendarPage() {
     const loading = authLoading || isLoading;
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
+        <div className="min-h-screen bg-gray-50 flex flex-col">
             {/* Header */}
-            <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-4 py-4 sticky top-0 z-10">
+            <header className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                     <Link
                         href="/dashboard"
-                        className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+                        className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
                     >
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
-                    <h1 className="text-xl font-bold text-white">Calendario</h1>
+                    <h1 className="text-xl font-bold text-gray-900">Calendario</h1>
                 </div>
             </header>
 
@@ -121,14 +121,14 @@ export default function CalendarPage() {
             <main className="flex-1 p-4 overflow-x-hidden">
                 {loading && (
                     <div className="space-y-4">
-                        <div className="h-64 bg-white/5 rounded-2xl animate-pulse"></div>
-                        <div className="h-24 bg-white/5 rounded-2xl animate-pulse"></div>
-                        <div className="h-24 bg-white/5 rounded-2xl animate-pulse"></div>
+                        <div className="h-64 bg-gray-200 rounded-2xl animate-pulse"></div>
+                        <div className="h-24 bg-gray-200 rounded-2xl animate-pulse"></div>
+                        <div className="h-24 bg-gray-200 rounded-2xl animate-pulse"></div>
                     </div>
                 )}
 
                 {error && (
-                    <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30 text-red-300 text-center">
+                    <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-600 text-center">
                         {error}
                     </div>
                 )}
@@ -148,7 +148,7 @@ export default function CalendarPage() {
 
                         {/* Selected Date Header */}
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold text-white">
+                            <h2 className="text-lg font-semibold text-gray-900">
                                 {selectedDate
                                     ? format(selectedDate, "EEEE d 'de' MMMM", { locale: es })
                                     : 'Próximas Reservas'
@@ -157,7 +157,7 @@ export default function CalendarPage() {
                             {selectedDate && (
                                 <button
                                     onClick={() => setSelectedDate(null)}
-                                    className="text-sm text-amber-400 hover:text-amber-300"
+                                    className="text-sm text-amber-600 hover:text-amber-500"
                                 >
                                     Ver todas
                                 </button>
@@ -166,10 +166,10 @@ export default function CalendarPage() {
 
                         {/* Reservations List */}
                         {displayedReservations.length === 0 ? (
-                            <div className="text-center py-16 bg-white/5 rounded-2xl border border-white/10">
+                            <div className="text-center py-16 bg-white rounded-2xl border border-gray-200">
                                 <div className="text-4xl mb-4">🏨</div>
-                                <p className="text-white font-medium mb-2">Hotel tranquilo...</p>
-                                <p className="text-slate-400 text-sm">
+                                <p className="text-gray-900 font-medium mb-2">Hotel tranquilo...</p>
+                                <p className="text-gray-500 text-sm">
                                     {selectedDate
                                         ? 'No hay reservas para este día'
                                         : 'No hay reservas próximas'
@@ -185,24 +185,24 @@ export default function CalendarPage() {
                                     return (
                                         <div
                                             key={res.id}
-                                            className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-4 hover:bg-white/10 transition-all"
+                                            className="bg-white border border-gray-200 rounded-2xl p-4 hover:bg-gray-50 transition-all shadow-sm"
                                         >
                                             <div className="flex justify-between items-start mb-2">
                                                 <div className="flex items-center gap-3">
                                                     <div className="text-center">
-                                                        <div className="text-xs text-slate-400 uppercase">
+                                                        <div className="text-xs text-gray-500 uppercase">
                                                             {format(checkIn, 'EEE', { locale: es })}
                                                         </div>
-                                                        <div className="text-2xl font-bold text-white">
+                                                        <div className="text-2xl font-bold text-gray-900">
                                                             {format(checkIn, 'd')}
                                                         </div>
-                                                        <div className="text-xs text-slate-400">
+                                                        <div className="text-xs text-gray-400">
                                                             {format(checkIn, 'MMM', { locale: es })}
                                                         </div>
                                                     </div>
-                                                    <div className="border-l border-white/10 pl-3">
-                                                        <p className="text-white font-medium">{res.guest_name}</p>
-                                                        <p className="text-slate-400 text-sm">Hab. {res.room_internal_code || res.room_id}</p>
+                                                    <div className="border-l border-gray-200 pl-3">
+                                                        <p className="text-gray-900 font-medium">{res.guest_name}</p>
+                                                        <p className="text-gray-500 text-sm">Hab. {res.room_internal_code || res.room_id}</p>
                                                     </div>
                                                 </div>
                                                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${badge.bgClass} ${badge.textClass}`}>
@@ -216,7 +216,7 @@ export default function CalendarPage() {
                                 {hasMore && (
                                     <button
                                         onClick={() => setShowCount(14)}
-                                        className="w-full py-3 text-amber-400 hover:text-amber-300 text-sm font-medium border border-white/10 rounded-xl hover:bg-white/5 transition-all"
+                                        className="w-full py-3 text-amber-600 hover:text-amber-500 text-sm font-medium border border-gray-200 rounded-xl hover:bg-gray-50 transition-all"
                                     >
                                         Ver más ({displayedReservations.length - showCount} restantes)
                                     </button>
@@ -231,8 +231,8 @@ export default function CalendarPage() {
             <style jsx global>{`
         .hotel-calendar {
           width: 100% !important;
-          background: rgba(255, 255, 255, 0.05) !important;
-          border: 1px solid rgba(255, 255, 255, 0.1) !important;
+          background: white !important;
+          border: 1px solid #e5e7eb !important;
           border-radius: 1rem !important;
           padding: 0.5rem !important;
           font-family: inherit !important;
@@ -243,14 +243,14 @@ export default function CalendarPage() {
         }
 
         .hotel-calendar .react-calendar__navigation button {
-          color: white !important;
+          color: #111827 !important;
           font-size: 1rem !important;
           background: transparent !important;
           border-radius: 0.5rem;
         }
 
         .hotel-calendar .react-calendar__navigation button:hover {
-          background: rgba(255, 255, 255, 0.1) !important;
+          background: #f3f4f6 !important;
         }
 
         .hotel-calendar .react-calendar__navigation button:disabled {
@@ -260,7 +260,7 @@ export default function CalendarPage() {
         .hotel-calendar .react-calendar__month-view__weekdays {
           text-transform: uppercase;
           font-size: 0.7rem;
-          color: rgba(148, 163, 184, 0.8);
+          color: #6b7280;
           font-weight: 600;
         }
 
@@ -269,7 +269,7 @@ export default function CalendarPage() {
         }
 
         .hotel-calendar .react-calendar__tile {
-          color: white !important;
+          color: #111827 !important;
           background: transparent !important;
           padding: 0.75rem 0.5rem !important;
           border-radius: 0.5rem;
@@ -277,25 +277,25 @@ export default function CalendarPage() {
         }
 
         .hotel-calendar .react-calendar__tile:hover {
-          background: rgba(255, 255, 255, 0.1) !important;
+          background: #f3f4f6 !important;
         }
 
         .hotel-calendar .react-calendar__tile--now {
-          background: rgba(245, 158, 11, 0.2) !important;
+          background: rgba(245, 158, 11, 0.15) !important;
           border: 1px solid rgba(245, 158, 11, 0.5);
         }
 
         .hotel-calendar .react-calendar__tile--active {
-          background: rgba(245, 158, 11, 0.4) !important;
+          background: rgba(245, 158, 11, 0.3) !important;
           border: 1px solid rgb(245, 158, 11);
         }
 
         .hotel-calendar .react-calendar__tile--active:hover {
-          background: rgba(245, 158, 11, 0.5) !important;
+          background: rgba(245, 158, 11, 0.4) !important;
         }
 
         .hotel-calendar .react-calendar__month-view__days__day--neighboringMonth {
-          color: rgba(148, 163, 184, 0.4) !important;
+          color: #d1d5db !important;
         }
       `}</style>
         </div>

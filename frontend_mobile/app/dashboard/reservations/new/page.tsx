@@ -327,7 +327,7 @@ export default function NewReservationPage() {
 
     if (authLoading || isLoading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full"></div>
             </div>
         );
@@ -336,36 +336,36 @@ export default function NewReservationPage() {
     const nights = calculateNights();
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
-            <header className="bg-white/5 backdrop-blur-lg border-b border-white/10 px-4 py-4 sticky top-0 z-10">
+        <div className="min-h-screen bg-gray-50 flex flex-col">
+            <header className="bg-white border-b border-gray-200 px-4 py-4 sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                     <Link
                         href="/dashboard"
-                        className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+                        className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
                     >
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                         </svg>
                     </Link>
-                    <h1 className="text-xl font-bold text-white">Nueva Reserva</h1>
+                    <h1 className="text-xl font-bold text-gray-900">Nueva Reserva</h1>
                 </div>
             </header>
 
             <main className="flex-1 p-4 overflow-y-auto pb-24">
                 {submitSuccess && (
-                    <div className="mb-6 p-4 rounded-xl bg-green-500/20 border border-green-500/30 text-green-300 space-y-2">
+                    <div className="mb-6 p-4 rounded-xl bg-green-50 border border-green-200 text-green-700 space-y-2">
                         <div className="flex items-center gap-2">
                             <span className="text-xl">✅</span>
                             <span className="font-semibold">¡{createdIds.length} reserva(s) creada(s)!</span>
                         </div>
                         {propertySettings && (
-                            <div className="text-sm text-green-400/80 space-y-1 pt-2 border-t border-green-500/20">
+                            <div className="text-sm text-green-600 space-y-1 pt-2 border-t border-green-200">
                                 <p>🕐 Check-in: {propertySettings.check_in_start} - {propertySettings.check_in_end} hs</p>
                                 <p>🕐 Check-out: {propertySettings.check_out_time} hs</p>
                                 <p>🍳 {propertySettings.breakfast_included ? 'Desayuno incluido' : 'Desayuno no incluido'}</p>
                             </div>
                         )}
-                        <p className="text-sm text-green-400/80">Redirigiendo al calendario...</p>
+                        <p className="text-sm text-green-600">Redirigiendo al calendario...</p>
                     </div>
                 )}
 

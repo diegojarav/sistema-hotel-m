@@ -31,26 +31,26 @@ interface GuestFormProps {
 export default function GuestForm({ formData, onFormChange, clientTypes, selectedClientType, onClientTypeChange }: GuestFormProps) {
     return (
         <>
-            <h3 className="text-lg font-semibold text-white mb-2">Datos del Cliente</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Datos del Cliente</h3>
 
             <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">Apellidos</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Apellidos</label>
                     <input
                         type="text"
                         value={formData.apellidos}
                         onChange={(e) => onFormChange({ apellidos: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                         placeholder="García"
                     />
                 </div>
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">Nombres</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Nombres</label>
                     <input
                         type="text"
                         value={formData.nombres}
                         onChange={(e) => onFormChange({ nombres: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                         placeholder="Juan"
                     />
                 </div>
@@ -58,22 +58,22 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
 
             <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">Nro. Documento</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Nro. Documento</label>
                     <input
                         type="text"
                         value={formData.documento}
                         onChange={(e) => onFormChange({ documento: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                         placeholder="12345678"
                     />
                 </div>
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">Nacionalidad</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Nacionalidad</label>
                     <input
                         type="text"
                         value={formData.nacionalidad}
                         onChange={(e) => onFormChange({ nacionalidad: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                         placeholder="Paraguaya"
                     />
                 </div>
@@ -81,34 +81,34 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
 
             <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">Teléfono</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Teléfono</label>
                     <input
                         type="tel"
                         value={formData.telefono}
                         onChange={(e) => onFormChange({ telefono: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                         placeholder="0981..."
                     />
                 </div>
                 <div>
-                    <label className="text-slate-400 text-xs mb-1 block">Hora de Llegada</label>
+                    <label className="text-gray-600 text-xs mb-1 block">Hora de Llegada</label>
                     <input
                         type="time"
                         value={formData.arrivalTime}
                         onChange={(e) => onFormChange({ arrivalTime: e.target.value })}
-                        className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     />
                 </div>
             </div>
 
             {/* Parking Section */}
-            <div className="mt-4 p-4 bg-white/5 border border-white/10 rounded-xl space-y-4">
-                <h3 className="text-white font-semibold flex items-center gap-2">
+            <div className="mt-4 p-4 bg-white border border-gray-200 rounded-xl space-y-4">
+                <h3 className="text-gray-900 font-semibold flex items-center gap-2">
                     <span>🚗</span> Estacionamiento
                 </h3>
 
                 <label className="flex items-center gap-3 cursor-pointer group">
-                    <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${formData.parkingNeeded ? 'bg-amber-500 border-amber-500' : 'border-slate-500 bg-white/5'}`}>
+                    <div className={`w-6 h-6 rounded border flex items-center justify-center transition-colors ${formData.parkingNeeded ? 'bg-amber-500 border-amber-500' : 'border-gray-300 bg-gray-50'}`}>
                         {formData.parkingNeeded && (
                             <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -121,7 +121,7 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                         checked={formData.parkingNeeded}
                         onChange={(e) => onFormChange({ parkingNeeded: e.target.checked })}
                     />
-                    <span className="text-slate-300 text-sm font-medium group-hover:text-white transition-colors">
+                    <span className="text-gray-700 text-sm font-medium group-hover:text-gray-900 transition-colors">
                         Requiere Estacionamiento
                     </span>
                 </label>
@@ -129,22 +129,22 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                 {formData.parkingNeeded && (
                     <div className="grid grid-cols-2 gap-3 mt-3">
                         <div>
-                            <label className="text-slate-400 text-xs mb-1 block">Modelo</label>
+                            <label className="text-gray-600 text-xs mb-1 block">Modelo</label>
                             <input
                                 type="text"
                                 value={formData.vehicleModel}
                                 onChange={(e) => onFormChange({ vehicleModel: e.target.value })}
-                                className="w-full px-3 py-2 bg-slate-900/50 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                                 placeholder="Toyota Corolla"
                             />
                         </div>
                         <div>
-                            <label className="text-slate-400 text-xs mb-1 block">Chapa</label>
+                            <label className="text-gray-600 text-xs mb-1 block">Chapa</label>
                             <input
                                 type="text"
                                 value={formData.vehiclePlate}
                                 onChange={(e) => onFormChange({ vehiclePlate: e.target.value })}
-                                className="w-full px-3 py-2 bg-slate-900/50 border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                                 placeholder="ABC 123"
                             />
                         </div>
@@ -154,23 +154,26 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
 
             {/* Source Section */}
             <div className="mt-4">
-                <label className="text-slate-400 text-xs mb-2 block">🌍 Origen de Reserva</label>
+                <label className="text-gray-600 text-xs mb-2 block">🌍 Origen de Reserva</label>
                 <select
                     value={formData.source}
                     onChange={(e) => onFormChange({ source: e.target.value })}
-                    className="w-full px-3 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 [&>option]:text-black"
+                    className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                 >
                     <option value="Direct">Directo (Recepción/Teléfono)</option>
                     <option value="Booking.com">Booking.com</option>
                     <option value="Airbnb">Airbnb</option>
                     <option value="Whatsapp">Whatsapp</option>
+                    <option value="Facebook">Facebook</option>
+                    <option value="Instagram">Instagram</option>
+                    <option value="Google">Google</option>
                     <option value="App Móvil">App Móvil</option>
                 </select>
             </div>
 
             {/* Client Type Selection */}
             <div className="mt-4">
-                <label className="text-slate-400 text-xs mb-2 block">🏷️ Tipo de Cliente</label>
+                <label className="text-gray-600 text-xs mb-2 block">🏷️ Tipo de Cliente</label>
                 <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                     {clientTypes.map(ct => (
                         <button
@@ -179,7 +182,7 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                             onClick={() => onClientTypeChange(ct)}
                             className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all ${selectedClientType?.id === ct.id
                                 ? 'bg-amber-500 text-white font-semibold shadow-lg shadow-amber-500/20'
-                                : 'bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10'
+                                : 'bg-gray-50 text-gray-700 border border-gray-300 hover:bg-gray-100'
                                 }`}
                         >
                             {ct.name}
