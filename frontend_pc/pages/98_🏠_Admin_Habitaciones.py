@@ -92,7 +92,7 @@ def check_admin_access():
 
 def get_auth_headers():
     """Get authorization headers from session."""
-    token = st.session_state.get('access_token')
+    token = st.session_state.get('api_token')
     if token:
         return {"Authorization": f"Bearer {token}"}
     return {}

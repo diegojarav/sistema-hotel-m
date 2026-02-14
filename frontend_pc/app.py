@@ -69,13 +69,17 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.user = user_dto
 
+                st.session_state.session_id = log_login(user_dto.username)
+
                 from api.core.security import create_access_token
                 access_token = create_access_token(
-                    data={"sub": user_dto.username}
+                    data={
+                        "sub": user_dto.username,
+                        "role": user_dto.role,
+                        "sid": st.session_state.session_id,
+                    }
                 )
                 st.session_state.api_token = access_token
-
-                st.session_state.session_id = log_login(user_dto.username)
                 st.rerun()
             else:
                 st.error("Credenciales incorrectas")
