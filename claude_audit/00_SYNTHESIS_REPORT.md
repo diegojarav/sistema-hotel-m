@@ -1,7 +1,7 @@
 # SYNTHESIS REPORT: Hotel PMS Audit
 
 **Generated:** 2026-02-04
-**Last Updated:** 2026-02-10
+**Last Updated:** 2026-02-13
 **Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
 **Total Findings:** 78 | **Resolved:** 39 | **Remaining:** 39 (mostly low-priority backlog)
 
@@ -123,6 +123,24 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | FEAT-REQ-02 | Mobile form sends `arrival_time: null` — never collects estimated arrival | **MEDIUM** | Backend had the field (`Column(Time)`), schema had wrong type (`datetime` instead of `time`), mobile form hardcoded `null`. | ✅ FIXED |
 | FEAT-REQ-03 | Check-in/out times and breakfast policy never displayed to users | **MEDIUM** | Data stored in `properties` table but no endpoint to fetch it, no UI to display it. | ✅ FIXED |
 
+### Admin Auth & Design Theme Fixes (2026-02-13)
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-TOKEN-PC-01 | PC Admin Users/Habitaciones pages can't see data — always empty | **HIGH** | `app.py` stores JWT as `st.session_state.api_token` but admin pages read `access_token`. No auth header sent → 401 → empty response displayed as "no data". | ✅ FIXED |
+| BUG-TOKEN-PC-02 | PC login JWT missing `role` and `sid` in payload | **MEDIUM** | Token created with only `{"sub": username}`. Missing `sid` meant session revocation check was bypassed. Missing `role` was cosmetic (RBAC checks DB). Fixed by adding both + reordering `log_login()` before token creation. | ✅ FIXED |
+| FEAT-THEME-01 | Light theme migration — both frontends | **Feature** | REQUIREMENTS.md said "White background with black text" (marked DONE) but both frontends used dark glassmorphism themes. Migrated 13 mobile files (pages, components, services) + 2 PC files (config.toml, styles.py) to clean light theme. | ✅ DONE |
+
+### iCal Integration — Booking.com/Airbnb Sync (2026-02-13)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| FEAT-ICAL-01 | iCal import — pull reservations from OTA feeds | **Feature** | `ICalService.sync_feed()` fetches .ics URLs, parses VEVENTs, upserts reservations with `source`/`external_id`. New `ICalFeed` model + `ical_feeds` table. | ✅ DONE |
+| FEAT-ICAL-02 | iCal export — serve .ics for OTAs | **Feature** | `GET /ical/export/{room_id}.ics` and `/ical/export/all.ics` generate calendars from reservations. Public endpoints (no auth — OTAs need direct access). | ✅ DONE |
+| FEAT-ICAL-03 | Background auto-sync every 15 min | **Feature** | FastAPI lifespan pattern with `asyncio.create_task()` + `asyncio.to_thread()`. Replaces deprecated `@app.on_event("startup")`. | ✅ DONE |
+| FEAT-ICAL-04 | Admin iCal UI in Configuración page | **Feature** | Feed CRUD, per-feed/bulk sync buttons, export URL display. Uses `api_client.get_session()` for connection reuse. | ✅ DONE |
+| FEAT-ICAL-05 | Source dropdown: Facebook, Instagram, Google | **Feature** | Added to both mobile (`GuestForm.tsx`) and PC (`tab_reserva.py`) frontends. | ✅ DONE |
+
 ---
 
 ## BACKLOG — Nice to Have
@@ -162,6 +180,13 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 - [x] Date-range overbooking prevention (BUG-OVERBOOKING-01)
 - [x] All UIs display `internal_code` not `room_id` (BUG-ROOMNAME-01)
 - [x] AI agent tools display `internal_code` not `room_id` (BUG-ROOMNAME-02)
+- [x] iCal import/export sync for Booking.com/Airbnb (FEAT-ICAL-01/02)
+- [x] Background auto-sync every 15 min via lifespan (FEAT-ICAL-03)
+- [x] Admin iCal configuration UI (FEAT-ICAL-04)
+- [x] Source dropdown: Facebook, Instagram, Google (FEAT-ICAL-05)
+- [x] PC admin pages use correct token key `api_token` (BUG-TOKEN-PC-01)
+- [x] PC login JWT includes `role` + `sid` (BUG-TOKEN-PC-02)
+- [x] Light theme — white bg + black text on both frontends (FEAT-THEME-01)
 
 ### Performance
 - [x] Database indexes on frequently queried columns
@@ -199,8 +224,9 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 7. ~~**Day 7:** BUG-PRICING-01/02, BUG-PC-FORM-01, FEAT-MULTICATEGORY~~ ✅
 8. ~~**Day 8:** BUG-SESSION-01, BUG-CORS-01, BUG-OVERBOOKING-01, BUG-ROOMNAME-01~~ ✅
 9. ~~**Day 9:** BUG-ROOMNAME-02 (AI agent tools room naming)~~ ✅
-10. **Backlog:** ~~PERF-10~~ ✅, PERF-12, TEST-01
-10. **Review:** Re-run audits after all structural refactoring
+10. ~~**Day 10:** FEAT-ICAL-01 to 05 (iCal import/export, auto-sync, admin UI, source dropdowns)~~ ✅
+11. **Backlog:** PERF-12, TEST-01, STRUCT-12, STRUCT-13
+12. **Review:** Re-run audits after all structural refactoring
 
 ---
 
@@ -217,6 +243,9 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | FEAT-MULTICATEGORY | Feature request (2026-02-09) |
 | BUG-SESSION-01, BUG-CORS-01 | Mobile 500 errors live testing (2026-02-10) |
 | BUG-OVERBOOKING-01, BUG-ROOMNAME-01 | Functional testing (2026-02-10) |
+| FEAT-ICAL-01 to FEAT-ICAL-05 | REQUIREMENTS.md Section 5 implementation (2026-02-13) |
+| BUG-TOKEN-PC-01/02 | PC admin auth testing (2026-02-13) |
+| FEAT-THEME-01 | REQUIREMENTS.md Design Theme (2026-02-13) |
 
 ---
 

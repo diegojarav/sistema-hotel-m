@@ -1,6 +1,6 @@
 # PROJECT_CONTEXT.md
 # Hotel Management System - Single Source of Truth
-**Last Updated:** 2026-02-12
+**Last Updated:** 2026-02-13
 **Phase:** Los Monges MVP Deployment
 
 ---
@@ -36,13 +36,14 @@ hotel_munich/
 │   │   ├── guest_service.py     # GuestService (160 LOC)
 │   │   ├── settings_service.py  # SettingsService (84 LOC)
 │   │   ├── pricing_service.py   # PricingService (136 LOC)
-│   │   └── room_service.py      # RoomService (202 LOC)
+│   │   ├── room_service.py      # RoomService (202 LOC)
+│   │   └── ical_service.py      # ICalService (331 LOC) — iCal import/export/sync
 │   └── api/                     # FastAPI routes
 │       ├── core/                # security.py, config.py
 │       ├── deps.py              # Auth dependencies + RBAC
-│       ├── main.py              # App + CORS + security headers middleware
+│       ├── main.py              # App + CORS + lifespan (iCal auto-sync every 15min)
 │       └── v1/endpoints/        # auth, reservations, guests, rooms, calendar,
-│                                # agent, vision, settings, pricing, users
+│                                # agent, vision, settings, pricing, users, ical
 │
 ├── frontend_pc/                 # Streamlit PC app (MODULARIZED 2026-02-08)
 │   ├── app.py                   # Orchestrator (116 LOC) — login, sidebar, tabs
@@ -127,6 +128,7 @@ graph TB
 | **Room ID vs internal_code** | `Room.id` = DB primary key (e.g. `los-monges-room-001`). `Room.internal_code` = human-friendly label (e.g. `DF-01`). All UIs display `internal_code`. Reservations store `room_id` but DTOs include `room_internal_code` for display. |
 | **Date-range availability** | `/rooms/status?check_in=&check_out=` checks overlap across full range (prevents overbooking). Mobile re-fetches rooms when dates change. |
 | **Property settings endpoint** | `GET /settings/property-settings` returns check-in/out times and breakfast policy from `properties` table. Public endpoint, fetched on reservation form mount. |
+| **iCal sync (Booking.com/Airbnb)** | `ICalService` handles import (pull .ics from OTA URLs, upsert reservations with `source`/`external_id`) and export (serve .ics at `/ical/export/{room_id}.ics`). Background auto-sync every 15min via FastAPI lifespan. `ICalFeed` model stores per-room feed URLs. Admin UI in `09_Configuracion.py`. |
 
 ---
 
@@ -231,6 +233,14 @@ graph TB
 | Property model synced with DB schema (FEAT-REQ-01) | Done |
 | Arrival time picker in mobile form (FEAT-REQ-02) | Done |
 | Property settings endpoint + confirmation display (FEAT-REQ-03) | Done |
+| iCal import from Booking.com/Airbnb feeds (FEAT-ICAL-01) | Done |
+| iCal export .ics for OTAs to pull (FEAT-ICAL-02) | Done |
+| Background auto-sync every 15 min (FEAT-ICAL-03) | Done |
+| iCal admin UI in Configuracion page (FEAT-ICAL-04) | Done |
+| Source dropdown: Facebook, Instagram, Google added (FEAT-ICAL-05) | Done |
+| PC admin token key fix — `api_token` consistent (BUG-TOKEN-PC-01) | Done |
+| PC login JWT includes `role` + `sid` (BUG-TOKEN-PC-02) | Done |
+| Light theme — both frontends white bg + black text (FEAT-THEME-01) | Done |
 
 ---
 
@@ -268,6 +278,14 @@ graph TB
 | 2026-02-12 | **FEAT-REQ-01**: Fixed `Property` model — synced with actual DB schema (22 columns). Was out of sync (had JSON `settings` column). | Claude Opus 4.6 |
 | 2026-02-12 | **FEAT-REQ-02**: Added arrival time picker to mobile reservation form. Fixed `arrival_time` schema type (`datetime` → `time`). | Claude Opus 4.6 |
 | 2026-02-12 | **FEAT-REQ-03**: Added `/settings/property-settings` endpoint. Reservation confirmation now shows check-in/out times + breakfast policy. | Claude Opus 4.6 |
+| 2026-02-13 | **FEAT-ICAL-01**: iCal import — `ICalService.sync_feed()` pulls .ics from Booking.com/Airbnb URLs, upserts reservations with `source`/`external_id`. New `ICalFeed` model + `ical_feeds` table. | Claude Opus 4.6 |
+| 2026-02-13 | **FEAT-ICAL-02**: iCal export — `GET /ical/export/{room_id}.ics` and `/ical/export/all.ics` serve .ics calendars for OTAs to pull. | Claude Opus 4.6 |
+| 2026-02-13 | **FEAT-ICAL-03**: Background auto-sync every 15 min via FastAPI lifespan + `asyncio.to_thread()`. Replaces deprecated `@app.on_event("startup")`. | Claude Opus 4.6 |
+| 2026-02-13 | **FEAT-ICAL-04**: Admin iCal UI in `09_Configuracion.py` — feed CRUD, per-feed/bulk sync, export URL display. | Claude Opus 4.6 |
+| 2026-02-13 | **FEAT-ICAL-05**: Source dropdowns updated — Facebook, Instagram, Google added to both mobile and PC frontends. | Claude Opus 4.6 |
+| 2026-02-13 | **BUG-TOKEN-PC-01**: Fixed PC admin pages (Users, Habitaciones) — token key mismatch `access_token` → `api_token`. Pages now send auth header correctly. | Claude Opus 4.6 |
+| 2026-02-13 | **BUG-TOKEN-PC-02**: Fixed PC login JWT payload — added `role` and `sid` for proper RBAC + session revocation. Reordered `log_login()` before token creation. | Claude Opus 4.6 |
+| 2026-02-13 | **FEAT-THEME-01**: Light theme migration — 13 mobile files + 2 PC files. Dark glassmorphism → clean white/gray backgrounds, black text, colored accents preserved. Streamlit config.toml added. | Claude Opus 4.6 |
 
 ---
 
