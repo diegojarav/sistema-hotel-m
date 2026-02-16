@@ -128,7 +128,7 @@ class ReservationService:
                 client_type_id=client_type_use,
                 contract_id=data.contract_id,
 
-                arrival_time=data.arrival_time.time() if data.arrival_time else None,
+                arrival_time=data.arrival_time if data.arrival_time else None,
                 reserved_by=data.reserved_by,
                 contact_phone=data.contact_phone,
                 received_by=data.received_by,
