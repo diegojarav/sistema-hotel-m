@@ -1,6 +1,6 @@
 # PROJECT_CONTEXT.md
 # Hotel Management System - Single Source of Truth
-**Last Updated:** 2026-02-13
+**Last Updated:** 2026-02-15
 **Phase:** Los Monges MVP Deployment
 
 ---
@@ -32,7 +32,7 @@ hotel_munich/
 │   │   ├── __init__.py          # Re-exports all classes for backward compat
 │   │   ├── _base.py             # get_db(), @with_db hybrid decorator
 │   │   ├── auth_service.py      # AuthService (115 LOC)
-│   │   ├── reservation_service.py # ReservationService (595 LOC)
+│   │   ├── reservation_service.py # ReservationService (905 LOC)
 │   │   ├── guest_service.py     # GuestService (160 LOC)
 │   │   ├── settings_service.py  # SettingsService (84 LOC)
 │   │   ├── pricing_service.py   # PricingService (136 LOC)
@@ -49,7 +49,7 @@ hotel_munich/
 │   ├── app.py                   # Orchestrator (116 LOC) — login, sidebar, tabs
 │   ├── components/              # UI rendering modules
 │   │   ├── styles.py            # inject_custom_css() (96 LOC)
-│   │   ├── calendar_render.py   # render_native_calendar() (205 LOC)
+│   │   ├── calendar_render.py   # render_native_calendar() + render_monthly_room_grid() (370 LOC)
 │   │   ├── tab_calendario.py    # Monthly/weekly/daily views (171 LOC)
 │   │   ├── tab_reserva.py       # Reservation form — multi-category (restructured 2026-02-09)
 │   │   └── tab_checkin.py       # Guest check-in form (176 LOC)
@@ -63,6 +63,7 @@ hotel_munich/
 │   └── pages/                   # Streamlit multipage
 │       ├── 04_Asistente_IA.py   # AI chat assistant
 │       ├── 09_Configuracion.py  # Hotel settings
+│       ├── 98_Admin_Habitaciones.py  # Room inventory + Ficha Mensual + revenue heatmap
 │       └── 99_Admin_Users.py    # User administration
 │
 ├── frontend_mobile/             # Next.js 16 + React 19 + TypeScript
@@ -241,6 +242,12 @@ graph TB
 | PC admin token key fix — `api_token` consistent (BUG-TOKEN-PC-01) | Done |
 | PC login JWT includes `role` + `sid` (BUG-TOKEN-PC-02) | Done |
 | Light theme — both frontends white bg + black text (FEAT-THEME-01) | Done |
+| Monthly room sheet — Gantt-style room×day grid (FEAT-FICHA-01) | Done |
+| Source distribution bar chart by booking channel (FEAT-FICHA-02) | Done |
+| Occupancy trend area chart — daily % (FEAT-FICHA-03) | Done |
+| Parking utilization progress bars (FEAT-FICHA-04) | Done |
+| Revenue heatmap by room×month in Resumen tab (FEAT-FICHA-05) | Done |
+| Smart Reservation ↔ Check-in linking (FEAT-LINK-01) | Done |
 
 ---
 
@@ -286,6 +293,10 @@ graph TB
 | 2026-02-13 | **BUG-TOKEN-PC-01**: Fixed PC admin pages (Users, Habitaciones) — token key mismatch `access_token` → `api_token`. Pages now send auth header correctly. | Claude Opus 4.6 |
 | 2026-02-13 | **BUG-TOKEN-PC-02**: Fixed PC login JWT payload — added `role` and `sid` for proper RBAC + session revocation. Reordered `log_login()` before token creation. | Claude Opus 4.6 |
 | 2026-02-13 | **FEAT-THEME-01**: Light theme migration — 13 mobile files + 2 PC files. Dark glassmorphism → clean white/gray backgrounds, black text, colored accents preserved. Streamlit config.toml added. | Claude Opus 4.6 |
+| 2026-02-15 | **FEAT-FICHA-01**: Monthly room sheet — Gantt-style room×day matrix in Admin Habitaciones "Ficha Mensual" tab. 5 new backend service methods + 5 new API endpoints. HTML/CSS renderer with sticky columns, color-coded cells, today highlight. | Claude Opus 4.6 |
+| 2026-02-15 | **FEAT-FICHA-02/03/04**: Visualization tools — source distribution bar chart, occupancy trend area chart, parking utilization progress bars. All below the monthly grid in Ficha Mensual tab. | Claude Opus 4.6 |
+| 2026-02-15 | **FEAT-FICHA-05**: Revenue heatmap — room×month HTML table with green gradient intensity in Resumen tab. Annual totals per room. | Claude Opus 4.6 |
+| 2026-02-16 | **FEAT-LINK-01**: Smart Reservation ↔ Check-in linking — document scan in "Nueva Reserva" auto-creates linked CheckIn, "Vincular a Reserva" dropdown in "Ficha de Cliente", duplicate prevention by document_number, mobile includes identity fields. Added `reservation_id` FK to CheckIn table. 6 identity fields in ReservationCreate schema. Both frontends upgraded. | Claude Sonnet 4.5 |
 
 ---
 

@@ -8,7 +8,7 @@ from logging_config import get_logger
 from services import ReservationService, GuestService, PricingService, ReservationCreate
 from helpers.constants import LISTA_TIPOS_LEGACY, LISTA_HABITACIONES_LEGACY
 from helpers.data_fetchers import get_room_categories, get_available_rooms_for_dates, get_all_rooms_list, get_client_types
-from helpers.ui_helpers import _format_validation_error
+from helpers.ui_helpers import _format_validation_error, analizar_documento_con_ia
 from frontend_services.cache_service import force_refresh
 
 logger = get_logger(__name__)
@@ -38,6 +38,26 @@ def render_tab_reserva():
                 res_data = found_res
             else:
                 st.error("No encontrada")
+
+    # === DOCUMENT SCANNER (FEAT-LINK-01) ===
+    st.markdown("---")
+    st.markdown("#### ✨ Escanear Documento (Opcional)")
+    st.caption("Usa Gemini 2.5 para extraer datos automáticamente y crear ficha de cliente vinculada")
+
+    if 'reserva_datos_ia' not in st.session_state:
+        st.session_state.reserva_datos_ia = {}
+
+    uploaded_doc = st.file_uploader("Documento (IA)", type=['jpg', 'jpeg'], key="reserva_doc_upload")
+    if uploaded_doc and st.button("Leer con IA", key="reserva_scan_btn"):
+        with st.spinner("Leyendo documento con Gemini 2.5..."):
+            extracted = analizar_documento_con_ia(uploaded_doc)
+            if extracted:
+                st.session_state.reserva_datos_ia = extracted
+                st.success(f"✓ Datos extraídos: {extracted.get('Nombres', '')} {extracted.get('Apellidos', '')}")
+            else:
+                st.error("No se pudieron extraer datos del documento")
+
+    ia_data = st.session_state.reserva_datos_ia
 
     # Valores por defecto
     d_checkin = date.today()
@@ -73,6 +93,13 @@ def render_tab_reserva():
         d_vehicle_plate = res_data.vehicle_plate or ""
         d_source = res_data.source or "Direct"
         d_external_id = res_data.external_id or ""
+
+    # === AUTO-FILL FROM SCANNED DOCUMENT (FEAT-LINK-01) ===
+    if ia_data and (ia_data.get("Apellidos") or ia_data.get("Nombres")):
+        apellidos = ia_data.get("Apellidos", "").strip()
+        nombres = ia_data.get("Nombres", "").strip()
+        if apellidos or nombres:
+            d_nomb = f"{apellidos}, {nombres}".strip(", ")
 
     # === INICIALIZAR SESSION STATE PARA FECHAS ===
     if 'res_checkin' not in st.session_state:
@@ -409,6 +436,14 @@ def render_tab_reserva():
                         first_cat_id = next(iter(habs_by_category), None) if habs_by_category else None
                         first_cat_name = cat_lookup.get(first_cat_id, {}).get("name", "") if first_cat_id else ""
 
+                        # FEAT-LINK-01: Prepare identity fields from scanned document
+                        birth_date_parsed = None
+                        if ia_data.get("Fecha_Nacimiento"):
+                            try:
+                                birth_date_parsed = datetime.strptime(ia_data.get("Fecha_Nacimiento"), "%Y-%m-%d").date()
+                            except:
+                                pass
+
                         data = ReservationCreate(
                             check_in_date=check_in,
                             stay_days=estadia,
@@ -426,7 +461,14 @@ def render_tab_reserva():
                             parking_needed=parking,
                             vehicle_model=v_model,
                             vehicle_plate=v_plate,
-                            source=source
+                            source=source,
+                            # Identity fields from document scan (FEAT-LINK-01)
+                            document_number=ia_data.get("Nro_Documento", ""),
+                            guest_last_name=ia_data.get("Apellidos", ""),
+                            guest_first_name=ia_data.get("Nombres", ""),
+                            nationality=ia_data.get("Nacionalidad", ""),
+                            birth_date=birth_date_parsed,
+                            country=ia_data.get("Pais", "")
                         )
                         if ReservationService.update_reservation(res_id_load, data):
                             force_refresh()
@@ -440,6 +482,14 @@ def render_tab_reserva():
                         progress_bar = st.progress(0)
                         created_ids = []
                         errors = []
+
+                        # FEAT-LINK-01: Prepare identity fields from scanned document
+                        birth_date_parsed = None
+                        if ia_data.get("Fecha_Nacimiento"):
+                            try:
+                                birth_date_parsed = datetime.strptime(ia_data.get("Fecha_Nacimiento"), "%Y-%m-%d").date()
+                            except:
+                                pass
 
                         for i, room_id in enumerate(habs):
                             try:
@@ -469,7 +519,14 @@ def render_tab_reserva():
                                     parking_needed=parking,
                                     vehicle_model=v_model,
                                     vehicle_plate=v_plate,
-                                    source=source
+                                    source=source,
+                                    # Identity fields from document scan (FEAT-LINK-01)
+                                    document_number=ia_data.get("Nro_Documento", ""),
+                                    guest_last_name=ia_data.get("Apellidos", ""),
+                                    guest_first_name=ia_data.get("Nombres", ""),
+                                    nationality=ia_data.get("Nacionalidad", ""),
+                                    birth_date=birth_date_parsed,
+                                    country=ia_data.get("Pais", "")
                                 )
 
                                 ids = ReservationService.create_reservations(data)

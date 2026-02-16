@@ -159,8 +159,9 @@ class CheckIn(Base):
     __tablename__ = "checkins"
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(Date) # Fecha_Ingreso
-    
+
     room_id = Column(String, ForeignKey("rooms.id"))
+    reservation_id = Column(String, ForeignKey("reservations.id"), nullable=True, index=True)
     check_in_time = Column(Time) # Hora
     
     last_name = Column(String)

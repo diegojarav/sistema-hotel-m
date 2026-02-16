@@ -131,6 +131,23 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | BUG-TOKEN-PC-02 | PC login JWT missing `role` and `sid` in payload | **MEDIUM** | Token created with only `{"sub": username}`. Missing `sid` meant session revocation check was bypassed. Missing `role` was cosmetic (RBAC checks DB). Fixed by adding both + reordering `log_login()` before token creation. | ✅ FIXED |
 | FEAT-THEME-01 | Light theme migration — both frontends | **Feature** | REQUIREMENTS.md said "White background with black text" (marked DONE) but both frontends used dark glassmorphism themes. Migrated 13 mobile files (pages, components, services) + 2 PC files (config.toml, styles.py) to clean light theme. | ✅ DONE |
 
+### Monthly Room Sheet & Visualization Tools (2026-02-15)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| FEAT-FICHA-01 | Monthly room sheet (Ficha de habitación por mes) | **Feature** | Gantt-style room×day matrix in Admin Habitaciones "📅 Ficha Mensual" tab. Rows=rooms, columns=days 1-28/31. Color-coded by status (Confirmada/CheckIn/CheckOut/Cancelada). Sticky room columns, today highlight, check-in/out border markers. | ✅ DONE |
+| FEAT-FICHA-02 | Booking source distribution chart | **Feature** | Bar chart showing reservation count by channel (Direct, Booking.com, Airbnb, WhatsApp, etc.) + revenue metrics. Uses `GET /reservations/source-stats`. | ✅ DONE |
+| FEAT-FICHA-03 | Occupancy trend chart | **Feature** | Area chart showing daily occupancy percentage for selected month. Average and max KPIs. Uses `GET /calendar/occupancy-trend`. | ✅ DONE |
+| FEAT-FICHA-04 | Parking utilization display | **Feature** | Progress bars showing daily parking usage vs capacity with color coding (green/orange/red). Uses `GET /reservations/parking-usage`. | ✅ DONE |
+| FEAT-FICHA-05 | Revenue heatmap by room×month | **Feature** | HTML table in Resumen tab: rows=rooms, columns=Jan-Dec. Green gradient intensity by revenue. Yearly totals per room. Uses `GET /reservations/revenue-matrix`. | ✅ DONE |
+
+### Smart Reservation ↔ Check-in Linking (2026-02-16)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| BUG-GUEST-DUP-01 | No duplicate prevention on guest/check-in records | **MEDIUM** | No unique constraint on `document_number`, no master guest table, allows unlimited duplicate clients. | ✅ FIXED (via FEAT-LINK-01) |
+| FEAT-LINK-01 | Smart two-step reservation-to-checkin flow | **Feature** | Added `reservation_id` FK to CheckIn table. Extended ReservationCreate with 6 identity fields (document_number, guest_last_name, guest_first_name, nationality, birth_date, country). PC "Nueva Reserva" has document scanner (Gemini 2.5) that auto-fills + auto-creates linked CheckIn. PC "Ficha de Cliente" has "Vincular a Reserva" dropdown showing unlinked reservations. Mobile sends identity fields → backend auto-creates CheckIn. Duplicate prevention: if document_number exists, updates existing record instead of creating duplicate. | ✅ DONE |
+
 ### iCal Integration — Booking.com/Airbnb Sync (2026-02-13)
 
 | ID | Finding | Severity | Detail | Status |
@@ -187,6 +204,11 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 - [x] PC admin pages use correct token key `api_token` (BUG-TOKEN-PC-01)
 - [x] PC login JWT includes `role` + `sid` (BUG-TOKEN-PC-02)
 - [x] Light theme — white bg + black text on both frontends (FEAT-THEME-01)
+- [x] Monthly room sheet — Gantt-style room×day grid (FEAT-FICHA-01)
+- [x] Source distribution + occupancy trend + parking usage charts (FEAT-FICHA-02/03/04)
+- [x] Revenue heatmap by room×month (FEAT-FICHA-05)
+- [x] Smart Reservation ↔ Check-in linking (FEAT-LINK-01)
+- [x] Duplicate guest/check-in prevention by document_number (BUG-GUEST-DUP-01)
 
 ### Performance
 - [x] Database indexes on frequently queried columns
@@ -225,8 +247,9 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 8. ~~**Day 8:** BUG-SESSION-01, BUG-CORS-01, BUG-OVERBOOKING-01, BUG-ROOMNAME-01~~ ✅
 9. ~~**Day 9:** BUG-ROOMNAME-02 (AI agent tools room naming)~~ ✅
 10. ~~**Day 10:** FEAT-ICAL-01 to 05 (iCal import/export, auto-sync, admin UI, source dropdowns)~~ ✅
-11. **Backlog:** PERF-12, TEST-01, STRUCT-12, STRUCT-13
-12. **Review:** Re-run audits after all structural refactoring
+11. ~~**Day 11:** FEAT-FICHA-01 to 05 (Monthly room sheet, source distribution, occupancy trend, parking usage, revenue heatmap)~~ ✅
+12. **Backlog:** PERF-12, TEST-01, STRUCT-12, STRUCT-13
+13. **Review:** Re-run audits after all structural refactoring
 
 ---
 
@@ -246,6 +269,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | FEAT-ICAL-01 to FEAT-ICAL-05 | REQUIREMENTS.md Section 5 implementation (2026-02-13) |
 | BUG-TOKEN-PC-01/02 | PC admin auth testing (2026-02-13) |
 | FEAT-THEME-01 | REQUIREMENTS.md Design Theme (2026-02-13) |
+| FEAT-FICHA-01 to FEAT-FICHA-05 | REQUIREMENTS.md Room Management + visualization tools (2026-02-15) |
 
 ---
 

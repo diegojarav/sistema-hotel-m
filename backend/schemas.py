@@ -91,6 +91,14 @@ class ReservationCreate(BaseModel):
     source: Optional[str] = Field(default="Direct", description="Origen de la reserva (ej. Direct, Booking.com)")
     external_id: Optional[str] = Field(default=None, description="ID externo de la reserva (ej. de OTA)")
 
+    # Identity fields (from document scan) - used to auto-create CheckIn
+    document_number: Optional[str] = Field(default="", description="Número de documento del huésped")
+    guest_last_name: Optional[str] = Field(default="", description="Apellidos del huésped")
+    guest_first_name: Optional[str] = Field(default="", description="Nombres del huésped")
+    nationality: Optional[str] = Field(default="", description="Nacionalidad del huésped")
+    birth_date: Optional[date] = Field(default=None, description="Fecha de nacimiento del huésped")
+    country: Optional[str] = Field(default="", description="País del huésped")
+
     @field_validator('guest_name')
     @classmethod
     def validate_guest_name(cls, v: str) -> str:
@@ -174,8 +182,9 @@ class CheckInCreate(BaseModel):
     - Campos críticos tienen defaults vacíos pero válidos
     """
     room_id: Optional[str] = Field(default=None, description="Habitación asignada")
+    reservation_id: Optional[str] = Field(default=None, description="Reserva vinculada")
     check_in_time: Optional[datetime] = Field(default=None, description="Hora de ingreso")
-    
+
     # Datos personales
     last_name: str = Field(default="", description="Apellidos")
     first_name: str = Field(default="", description="Nombres")

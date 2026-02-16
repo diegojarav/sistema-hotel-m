@@ -303,7 +303,14 @@ export default function NewReservationPage() {
                 parking_needed: formData.parkingNeeded,
                 vehicle_model: formData.vehicleModel || null,
                 vehicle_plate: formData.vehiclePlate || null,
-                source: formData.source
+                source: formData.source,
+                // FEAT-LINK-01: Identity fields from document scan (auto-creates CheckIn)
+                document_number: formData.documento || '',
+                guest_last_name: formData.apellidos || '',
+                guest_first_name: formData.nombres || '',
+                nationality: formData.nacionalidad || '',
+                birth_date: formData.fechaNacimiento || null,
+                country: formData.pais || ''
             };
 
             try {

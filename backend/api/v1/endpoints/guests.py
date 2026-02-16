@@ -145,6 +145,20 @@ def get_billing_profiles(
 
 
 @router.get(
+    "/unlinked-reservations",
+    response_model=List[dict],
+    summary="Get Unlinked Reservations",
+    description="Get reservations without a linked check-in. Used for linking in check-in form."
+)
+def get_unlinked_reservations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get reservations that can be linked to a check-in."""
+    return GuestService.get_unlinked_reservations(db)
+
+
+@router.get(
     "/billing-history/{document_number}",
     response_model=List[dict],
     summary="Get Billing History",

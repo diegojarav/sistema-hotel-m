@@ -15,11 +15,45 @@ class GuestService:
     @staticmethod
     @with_db
     def register_checkin(db: Session, data: CheckInCreate) -> int:
-        """Registers a new guest check-in (Ficha)."""
+        """
+        Registers a new guest check-in (Ficha).
 
+        FEAT-LINK-01: Prevents duplicates - if a CheckIn with the same
+        document_number exists, updates it instead of creating a new one.
+        """
+        # Check for duplicate by document_number
+        if data.document_number and data.document_number.strip():
+            existing = db.query(CheckIn).filter(
+                CheckIn.document_number == data.document_number.strip()
+            ).first()
+
+            if existing:
+                # Update existing instead of creating duplicate
+                logger.info(f"Updating existing CheckIn #{existing.id} for doc {data.document_number[:5]}...")
+                existing.room_id = data.room_id or existing.room_id
+                existing.reservation_id = data.reservation_id or existing.reservation_id
+                if data.check_in_time:
+                    existing.check_in_time = data.check_in_time.time()
+                existing.last_name = data.last_name or existing.last_name
+                existing.first_name = data.first_name or existing.first_name
+                existing.nationality = data.nationality or existing.nationality
+                existing.birth_date = data.birth_date or existing.birth_date
+                existing.origin = data.origin or existing.origin
+                existing.destination = data.destination or existing.destination
+                existing.civil_status = data.civil_status or existing.civil_status
+                existing.country = data.country or existing.country
+                existing.billing_name = data.billing_name or existing.billing_name
+                existing.billing_ruc = data.billing_ruc or existing.billing_ruc
+                existing.vehicle_model = data.vehicle_model or existing.vehicle_model
+                existing.vehicle_plate = data.vehicle_plate or existing.vehicle_plate
+                db.commit()
+                return existing.id
+
+        # Create new CheckIn
         new_checkin = CheckIn(
             created_at=datetime.now().date(),
             room_id=data.room_id,
+            reservation_id=data.reservation_id,
             check_in_time=data.check_in_time.time() if data.check_in_time else None,
             last_name=data.last_name,
             first_name=data.first_name,
@@ -39,6 +73,7 @@ class GuestService:
         db.add(new_checkin)
         db.commit()
         db.refresh(new_checkin)
+        logger.info(f"Created new CheckIn #{new_checkin.id}")
         return new_checkin.id
 
     @staticmethod
@@ -172,4 +207,37 @@ class GuestService:
                 "label": f"{c.last_name}, {c.first_name} ({c.document_number}) - {c.created_at}"
             }
             for c in results
+        ]
+
+    @staticmethod
+    @with_db
+    def get_unlinked_reservations(db: Session) -> List[Dict]:
+        """
+        Returns reservations that have no linked check-in.
+
+        FEAT-LINK-01: Used in check-in form to show dropdown of reservations
+        that can be linked to the current guest.
+        """
+        from database import Reservation
+
+        # Find reservation IDs that already have a linked checkin
+        linked_ids_subq = db.query(CheckIn.reservation_id).filter(
+            CheckIn.reservation_id.isnot(None)
+        ).subquery()
+
+        # Query unlinked reservations
+        unlinked = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn"]),
+            ~Reservation.id.in_(linked_ids_subq)
+        ).order_by(Reservation.check_in_date.desc()).limit(50).all()
+
+        return [
+            {
+                "id": r.id,
+                "guest_name": r.guest_name,
+                "check_in_date": r.check_in_date.isoformat(),
+                "room_id": r.room_id,
+                "label": f"{r.guest_name} | {r.check_in_date.strftime('%d/%m/%Y')} | Hab. {r.room_id}"
+            }
+            for r in unlinked
         ]

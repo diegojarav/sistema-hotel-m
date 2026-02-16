@@ -147,6 +147,47 @@ class ReservationService:
 
 
         db.commit()
+
+        # FEAT-LINK-01: Auto-create CheckIn if document was scanned
+        if data.document_number and data.document_number.strip():
+            from database import CheckIn
+
+            # Check if checkin already exists for this document
+            existing = db.query(CheckIn).filter(
+                CheckIn.document_number == data.document_number.strip()
+            ).first()
+
+            if not existing:
+                # Create new CheckIn linked to first reservation
+                new_checkin = CheckIn(
+                    created_at=date.today(),
+                    reservation_id=created_ids[0],
+                    room_id=data.room_ids[0] if data.room_ids else None,
+                    last_name=data.guest_last_name or "",
+                    first_name=data.guest_first_name or "",
+                    document_number=data.document_number.strip(),
+                    nationality=data.nationality or "",
+                    birth_date=data.birth_date,
+                    country=data.country or "",
+                    vehicle_model=data.vehicle_model or "",
+                    vehicle_plate=data.vehicle_plate or "",
+                    origin="",
+                    destination="",
+                    civil_status="",
+                    billing_name="",
+                    billing_ruc="",
+                    digital_signature="Pendiente"
+                )
+                db.add(new_checkin)
+                db.commit()
+                logger.info(f"Auto-created CheckIn for doc {data.document_number[:5]}... linked to reservation {created_ids[0]}")
+            else:
+                # Link existing checkin to this reservation
+                if not existing.reservation_id:
+                    existing.reservation_id = created_ids[0]
+                    db.commit()
+                    logger.info(f"Linked existing CheckIn #{existing.id} to reservation {created_ids[0]}")
+
         return created_ids
 
     @staticmethod
@@ -662,3 +703,244 @@ class ReservationService:
 
         logger.info(f"get_today_summary: {ocupadas}/{total_rooms} ocupadas ({porcentaje:.1f}%)")
         return summary
+
+    # ─── Monthly Room View (Ficha Mensual) ───────────────────────────
+
+    @staticmethod
+    @with_db
+    def get_monthly_room_view(db: Session, year: int, month: int) -> Dict[str, Any]:
+        """
+        Returns a room × day matrix for the full month.
+        Each cell contains guest info, status, and check-in/check-out flags.
+        """
+        from calendar import monthrange
+
+        _, num_days = monthrange(year, month)
+        first_day = date(year, month, 1)
+        last_day = date(year, month, num_days)
+
+        # Get all active rooms sorted by floor, internal_code
+        rooms = (
+            db.query(Room, RoomCategory.name.label("cat_name"))
+            .join(RoomCategory, Room.category_id == RoomCategory.id)
+            .filter(Room.active == 1)
+            .order_by(Room.floor, Room.internal_code)
+            .all()
+        )
+
+        rooms_list = []
+        code_map = {}  # room_id -> internal_code
+        for room, cat_name in rooms:
+            code = room.internal_code or room.id
+            code_map[room.id] = code
+            rooms_list.append({
+                "id": room.id,
+                "code": code,
+                "category": cat_name,
+                "floor": room.floor or 1,
+            })
+
+        # Fetch reservations overlapping this month (bounded filter)
+        max_stay_days = 365
+        earliest_checkin = first_day - timedelta(days=max_stay_days)
+
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn", "CheckOut"]),
+            Reservation.check_in_date <= last_day,
+            Reservation.check_in_date >= earliest_checkin,
+        ).all()
+
+        # Build matrix: {room_code: {day_number_str: cell_data}}
+        matrix = {}
+        for res in reservations:
+            check_out_date = res.check_in_date + timedelta(days=res.stay_days)
+
+            # Skip if doesn't actually overlap the month
+            if check_out_date < first_day:
+                continue
+
+            code = code_map.get(res.room_id)
+            if not code:
+                continue
+
+            if code not in matrix:
+                matrix[code] = {}
+
+            # Iterate over days within the month that this reservation covers
+            day_start = max(res.check_in_date, first_day)
+            day_end = min(check_out_date, last_day + timedelta(days=1))
+
+            current = day_start
+            while current < day_end:
+                day_num = str(current.day)
+                matrix[code][day_num] = {
+                    "guest": res.guest_name or "",
+                    "status": res.status,
+                    "res_id": res.id,
+                    "is_checkin": current == res.check_in_date,
+                    "is_checkout": current == check_out_date - timedelta(days=1),
+                }
+                current += timedelta(days=1)
+
+        logger.info(f"get_monthly_room_view: {year}-{month:02d}, {len(rooms_list)} rooms, {len(reservations)} reservations")
+        return {
+            "rooms": rooms_list,
+            "days": list(range(1, num_days + 1)),
+            "matrix": matrix,
+        }
+
+    @staticmethod
+    @with_db
+    def get_source_distribution(db: Session, start_date: date, end_date: date) -> List[Dict]:
+        """
+        Returns reservation count and revenue grouped by source for a date range.
+        """
+        max_stay_days = 365
+        earliest_checkin = start_date - timedelta(days=max_stay_days)
+
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn", "CheckOut"]),
+            Reservation.check_in_date <= end_date,
+            Reservation.check_in_date >= earliest_checkin,
+        ).all()
+
+        source_data: Dict[str, Dict[str, Any]] = {}
+        for res in reservations:
+            check_out = res.check_in_date + timedelta(days=res.stay_days)
+            if check_out < start_date:
+                continue
+
+            source = res.source or "Direct"
+            if source not in source_data:
+                source_data[source] = {"source": source, "count": 0, "revenue": 0.0}
+            source_data[source]["count"] += 1
+            source_data[source]["revenue"] += float(res.final_price or res.price or 0)
+
+        result = sorted(source_data.values(), key=lambda x: x["count"], reverse=True)
+        logger.info(f"get_source_distribution: {start_date} to {end_date}, {len(result)} sources")
+        return result
+
+    @staticmethod
+    @with_db
+    def get_occupancy_trend(db: Session, year: int, month: int) -> List[Dict]:
+        """
+        Returns daily occupancy percentage for a month.
+        """
+        from calendar import monthrange
+
+        _, num_days = monthrange(year, month)
+        first_day = date(year, month, 1)
+        last_day = date(year, month, num_days)
+
+        total_rooms = db.query(func.count(Room.id)).filter(Room.active == 1).scalar() or 1
+
+        max_stay_days = 365
+        earliest_checkin = first_day - timedelta(days=max_stay_days)
+
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn", "CheckOut"]),
+            Reservation.check_in_date <= last_day,
+            Reservation.check_in_date >= earliest_checkin,
+        ).all()
+
+        trend = []
+        for day_num in range(1, num_days + 1):
+            current_date = date(year, month, day_num)
+            count = 0
+            for res in reservations:
+                check_out = res.check_in_date + timedelta(days=res.stay_days)
+                if res.check_in_date <= current_date < check_out:
+                    count += 1
+            pct = round(count / total_rooms * 100, 1)
+            trend.append({
+                "date": current_date.isoformat(),
+                "count": count,
+                "total": total_rooms,
+                "occupancy_pct": pct,
+            })
+
+        logger.info(f"get_occupancy_trend: {year}-{month:02d}, avg {sum(d['occupancy_pct'] for d in trend) / len(trend):.1f}%")
+        return trend
+
+    @staticmethod
+    @with_db
+    def get_revenue_by_room_month(db: Session, year: int) -> Dict[str, Any]:
+        """
+        Returns revenue matrix: rows=rooms, columns=months 1-12.
+        """
+        rooms = (
+            db.query(Room, RoomCategory.name.label("cat_name"))
+            .join(RoomCategory, Room.category_id == RoomCategory.id)
+            .filter(Room.active == 1)
+            .order_by(Room.floor, Room.internal_code)
+            .all()
+        )
+
+        rooms_list = []
+        code_map = {}
+        for room, cat_name in rooms:
+            code = room.internal_code or room.id
+            code_map[room.id] = code
+            rooms_list.append({"code": code, "category": cat_name, "floor": room.floor or 1})
+
+        first_day = date(year, 1, 1)
+        last_day = date(year, 12, 31)
+
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn", "CheckOut"]),
+            Reservation.check_in_date >= first_day,
+            Reservation.check_in_date <= last_day,
+        ).all()
+
+        # Build matrix: {room_code: {month: revenue}}
+        matrix = {}
+        for res in reservations:
+            code = code_map.get(res.room_id)
+            if not code:
+                continue
+            month = res.check_in_date.month
+            if code not in matrix:
+                matrix[code] = {}
+            matrix[code][str(month)] = matrix[code].get(str(month), 0) + float(res.final_price or res.price or 0)
+
+        logger.info(f"get_revenue_by_room_month: {year}, {len(reservations)} reservations")
+        return {"rooms": rooms_list, "matrix": matrix}
+
+    @staticmethod
+    @with_db
+    def get_parking_usage(db: Session, start_date: date, end_date: date) -> List[Dict]:
+        """
+        Returns daily parking slot usage vs capacity for a date range.
+        """
+        from services.settings_service import SettingsService
+
+        capacity = SettingsService.get_parking_capacity(db=db) or 10
+
+        max_stay_days = 365
+        earliest_checkin = start_date - timedelta(days=max_stay_days)
+
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn"]),
+            Reservation.parking_needed == True,
+            Reservation.check_in_date <= end_date,
+            Reservation.check_in_date >= earliest_checkin,
+        ).all()
+
+        usage = []
+        current = start_date
+        while current <= end_date:
+            count = 0
+            for res in reservations:
+                check_out = res.check_in_date + timedelta(days=res.stay_days)
+                if res.check_in_date <= current < check_out:
+                    count += 1
+            usage.append({
+                "date": current.isoformat(),
+                "used": count,
+                "capacity": capacity,
+                "pct": round(count / capacity * 100, 1) if capacity > 0 else 0,
+            })
+            current += timedelta(days=1)
+
+        logger.info(f"get_parking_usage: {start_date} to {end_date}, max {max(d['used'] for d in usage) if usage else 0}/{capacity}")
+        return usage

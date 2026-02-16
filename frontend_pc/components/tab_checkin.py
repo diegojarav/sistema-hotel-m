@@ -36,6 +36,33 @@ def render_tab_checkin():
             if selected_label:
                 cid_to_load = opts[selected_label]
 
+    # === VINCULAR A RESERVA (FEAT-LINK-01) ===
+    st.markdown("---")
+    st.markdown("#### 🔗 Vincular a Reserva (Opcional)")
+    st.caption("Conecta esta ficha con una reserva existente sin check-in")
+
+    unlinked_reservations = GuestService.get_unlinked_reservations()
+    reservation_options = [""]
+    reservation_id_map = {}
+    for r in unlinked_reservations:
+        reservation_options.append(r['label'])
+        reservation_id_map[r['label']] = r['id']
+
+    selected_reservation_label = st.selectbox(
+        "Reserva sin Check-in",
+        options=reservation_options,
+        key="link_reservation_select",
+        help="Vincula esta ficha a una reserva confirmada"
+    )
+
+    linked_reservation_id = None
+    if selected_reservation_label:
+        linked_reservation_id = reservation_id_map.get(selected_reservation_label)
+        if linked_reservation_id:
+            st.info(f"✓ Se vinculará a reserva: {selected_reservation_label}")
+
+    st.markdown("---")
+
     def_apellidos = ia.get("Apellidos", "")
     def_nombres = ia.get("Nombres", "")
     def_doc = ia.get("Nro_Documento", "")
@@ -140,6 +167,7 @@ def render_tab_checkin():
             try:
                 checkin_data = CheckInCreate(
                     room_id=None,
+                    reservation_id=linked_reservation_id,  # FEAT-LINK-01
                     last_name=apellidos,
                     first_name=nombres,
                     nationality=nac,
