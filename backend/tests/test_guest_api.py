@@ -96,3 +96,54 @@ class TestGetCheckinDetail:
         r = client.get("/api/v1/guests/99999",
                         headers=auth_headers_admin)
         assert r.status_code == 404
+
+
+class TestUpdateCheckin:
+    def test_success(self, client, auth_headers_admin, seed_rooms):
+        resp = client.post("/api/v1/guests", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "Original",
+            "first_name": "Name",
+            "document_number": "UPD001",
+        }, headers=auth_headers_admin)
+        cid = resp.json()["id"]
+
+        r = client.put(f"/api/v1/guests/{cid}", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "Updated",
+            "first_name": "Name",
+            "document_number": "UPD001",
+        }, headers=auth_headers_admin)
+        assert r.status_code == 200
+
+    def test_not_found(self, client, auth_headers_admin, seed_rooms):
+        r = client.put("/api/v1/guests/99999", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "Ghost",
+            "document_number": "GHOST",
+        }, headers=auth_headers_admin)
+        assert r.status_code == 404
+
+
+class TestBillingHistory:
+    def test_found(self, client, auth_headers_admin, seed_rooms):
+        client.post("/api/v1/guests", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "BillingTest",
+            "document_number": "BILLHIST99",
+            "billing_name": "Corp SA",
+            "billing_ruc": "99999-0",
+        }, headers=auth_headers_admin)
+
+        r = client.get("/api/v1/guests/billing-history/BILLHIST99",
+                        headers=auth_headers_admin)
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+
+    def test_empty(self, client, auth_headers_admin, seed_rooms):
+        r = client.get("/api/v1/guests/billing-history/NONEXISTENT99",
+                        headers=auth_headers_admin)
+        assert r.status_code == 200
+        assert r.json() == []

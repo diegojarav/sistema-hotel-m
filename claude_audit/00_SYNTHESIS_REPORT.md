@@ -148,6 +148,33 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | BUG-GUEST-DUP-01 | No duplicate prevention on guest/check-in records | **MEDIUM** | No unique constraint on `document_number`, no master guest table, allows unlimited duplicate clients. | ✅ FIXED (via FEAT-LINK-01) |
 | FEAT-LINK-01 | Smart two-step reservation-to-checkin flow | **Feature** | Added `reservation_id` FK to CheckIn table. Extended ReservationCreate with 6 identity fields (document_number, guest_last_name, guest_first_name, nationality, birth_date, country). PC "Nueva Reserva" has document scanner (Gemini 2.5) that auto-fills + auto-creates linked CheckIn. PC "Ficha de Cliente" has "Vincular a Reserva" dropdown showing unlinked reservations. Mobile sends identity fields → backend auto-creates CheckIn. Duplicate prevention: if document_number exists, updates existing record instead of creating duplicate. | ✅ DONE |
 
+### Pre-Deployment Test Suite (2026-02-23)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| TEST-01a | Pre-deployment test suite — 189 base tests | **Feature** | 19 test files covering auth, reservations, guests, rooms, pricing, calendar, iCal, settings, users, schemas, security, DB integrity, FEAT-LINK-01. StaticPool fix for SQLite threading. In-memory DB per test. | ✅ DONE |
+| TEST-01b | Tier 1+2 test expansion — 35 additional tests (→224 total) | **Feature** | Reservation analytics (daily/range/monthly status), overbooking/parking capacity validation, iCal API endpoints (delete, toggle, sync-all, export), iCal edge cases (malformed, datetime normalization, zero-stay, update existing), background sync (aggregation, disabled feeds, standalone), guest update + billing history, reservation update + weekly view. | ✅ DONE |
+
+#### Test Coverage vs Audit Findings
+
+| Audit Area | Tests | Findings Covered |
+|------------|-------|-----------------|
+| Security (VULN-001 to 010) | 61 direct | VULN-003 (unprotected endpoints), VULN-004 (JWT revocation), VULN-005 (RBAC), VULN-010 (plaintext passwords) |
+| Performance (PERF-001 to 012) | 31 direct | PERF-001 (N+1), PERF-002 (unbounded queries), PERF-003 (occupancy), PERF-004 (pagination) |
+| Bugs (BUG-*) | 19 direct | BUG-PRICING-01/02, BUG-OVERBOOKING-01, BUG-GUEST-DUP-01, BUG-TOKEN-PC-02 |
+| Features (FEAT-*) | 42 direct | FEAT-LINK-01, FEAT-ICAL-01 to 05, FEAT-MULTICATEGORY |
+| Structural (STRUCT-*) | 117 implicit | STRUCT-04/05/06/08 validated by service + API tests |
+| **TOTAL** | **224 tests** | **76.5% coverage** |
+
+#### Remaining Gap (Tier 3-5, ~69 tests)
+
+| Tier | Tests Needed | Priority |
+|------|-------------|----------|
+| Tier 3 — Analytics (source distribution, occupancy trend, revenue) | ~10 | MEDIUM |
+| Tier 4 — AI Features (agent, vision, tools with mocked Gemini) | ~15 | LOW |
+| Tier 5 — Infrastructure (rate limiting, CORS, error handling) | ~9 | LOW |
+| **TOTAL** | **~34 post-deployment** | |
+
 ### iCal Integration — Booking.com/Airbnb Sync (2026-02-13)
 
 | ID | Finding | Severity | Detail | Status |
@@ -170,7 +197,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | STRUCT-13 | Rename constants to English | 30m |
 | PERF-10 | Use requests.Session() | ✅ DONE |
 | PERF-12 | Add Redis caching layer | 8h |
-| TEST-01 | Increase test coverage to 80% | 16h |
+| TEST-01 | Increase test coverage to 80% | **IN PROGRESS** — 224/293 tests (76.5%). Tier 1+2 done. Remaining: ~69 tests (Tier 3-5). |
 
 ---
 
@@ -210,6 +237,18 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 - [x] Smart Reservation ↔ Check-in linking (FEAT-LINK-01)
 - [x] Duplicate guest/check-in prevention by document_number (BUG-GUEST-DUP-01)
 
+### Testing
+- [x] Pre-deployment test suite: 224 tests, 22 files, all passing
+- [x] StaticPool for SQLite in-memory threading (FastAPI + pytest)
+- [x] Service-layer tests for all 7 services (auth, reservation, guest, room, pricing, settings, ical)
+- [x] API endpoint tests for all CRUD routes (auth, reservations, guests, rooms, calendar, ical, settings, users, pricing)
+- [x] Reservation analytics tests (daily/range/monthly status, parking capacity, overbooking)
+- [x] iCal edge cases (malformed, missing fields, datetime normalization, deduplication, background sync)
+- [x] Schema validation tests (Pydantic models, date validation, phone/document normalization)
+- [x] Security tests (JWT create/decode, bcrypt, RBAC, session revocation)
+- [x] FEAT-LINK-01 tests (auto check-in, duplicate prevention, unlinked reservations)
+- [ ] Tier 3-5 tests (~34 remaining: analytics, AI features, infrastructure)
+
 ### Performance
 - [x] Database indexes on frequently queried columns
 - [x] Pagination on list endpoints
@@ -226,12 +265,13 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | Metric | Value |
 |--------|-------|
 | Total Findings | 73 |
-| **Resolved** | **34** |
+| **Resolved** | **36** |
 | Security Critical | 0 remaining |
 | Architecture Critical | 0 remaining |
 | Quick Wins | 0 remaining (12/12 done) |
 | Sprint Work | 0 remaining (11/11 done) |
-| Full Remediation | ~30h backlog (all low-priority) |
+| Test Coverage | 224 tests (76.5%) — Tier 1+2 complete |
+| Full Remediation | ~22h backlog (PERF-12, STRUCT-12/13, Tier 3-5 tests) |
 
 ---
 
@@ -248,8 +288,10 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 9. ~~**Day 9:** BUG-ROOMNAME-02 (AI agent tools room naming)~~ ✅
 10. ~~**Day 10:** FEAT-ICAL-01 to 05 (iCal import/export, auto-sync, admin UI, source dropdowns)~~ ✅
 11. ~~**Day 11:** FEAT-FICHA-01 to 05 (Monthly room sheet, source distribution, occupancy trend, parking usage, revenue heatmap)~~ ✅
-12. **Backlog:** PERF-12, TEST-01, STRUCT-12, STRUCT-13
-13. **Review:** Re-run audits after all structural refactoring
+12. ~~**Day 12:** TEST-01a — Pre-deployment test suite (189 tests, 19 files)~~ ✅
+13. ~~**Day 12:** TEST-01b — Tier 1+2 test expansion (+35 → 224 tests, 22 files)~~ ✅
+14. **Backlog:** PERF-12, STRUCT-12, STRUCT-13, Tier 3-5 tests (~34 remaining)
+15. **Review:** Re-run audits after all structural refactoring
 
 ---
 

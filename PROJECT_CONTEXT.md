@@ -125,6 +125,7 @@ graph TB
 | **Cross-service deps** | `ReservationService` → `PricingService.calculate_price()`, `SettingsService.get_parking_capacity()`. No others. |
 | **Centralized API client** | `api.ts` is the single gateway for all mobile HTTP calls. Auto-attaches JWT, handles FormData, consistent error handling. |
 | **`useAuth` hook** | All protected mobile pages use `useAuth({ required: true })` for auth guards with automatic token refresh. |
+| **Test suite (pytest)** | 224 tests across 22 files. In-memory SQLite with `StaticPool` (thread-safe for FastAPI). Covers services (Streamlit path) + API endpoints (Next.js path). Fixtures in `tests/conftest.py`. Run: `cd backend && python -m pytest tests/ -v`. |
 | **Multi-category reservations** | Both frontends show all available rooms grouped by category. Users select rooms from any/multiple categories. Pricing calculates per-category and sums. Backend `create_reservations()` resolves each room's category from DB. |
 | **Room ID vs internal_code** | `Room.id` = DB primary key (e.g. `los-monges-room-001`). `Room.internal_code` = human-friendly label (e.g. `DF-01`). All UIs display `internal_code`. Reservations store `room_id` but DTOs include `room_internal_code` for display. |
 | **Date-range availability** | `/rooms/status?check_in=&check_out=` checks overlap across full range (prevents overbooking). Mobile re-fetches rooms when dates change. |
@@ -215,6 +216,29 @@ graph TB
 | Occupancy map lower bound (PERF-003) | Done |
 | Remove time.sleep() (PERF-11) | Done |
 
+### Testing
+| Feature | Status |
+|---------|--------|
+| Pre-deployment test suite (224 tests, 22 files) | Done |
+| StaticPool fix for in-memory SQLite + FastAPI threading | Done |
+| Auth API tests (login, refresh, logout, revocation, rate-limit) | Done |
+| Auth service tests (login, sessions, password hashing) | Done |
+| Reservation API + service tests (CRUD, cancel, search, weekly) | Done |
+| Reservation analytics tests (daily/range status, monthly view) | Done |
+| Overbooking + parking capacity tests | Done |
+| Guest API + service tests (CRUD, billing, search, linking) | Done |
+| Room API + service tests (CRUD, categories, availability, RBAC) | Done |
+| iCal service + API tests (sync, export, edge cases, background) | Done |
+| Calendar API tests (events, occupancy, summary) | Done |
+| Pricing tests (calculation, seasons, corporate discount) | Done |
+| Schema validation tests (Pydantic models) | Done |
+| Security tests (JWT, bcrypt, RBAC) | Done |
+| Settings API + service tests (hotel name, parking, property) | Done |
+| Users API tests (CRUD, roles, session logs) | Done |
+| DB integrity tests (FKs, unique constraints, nullable) | Done |
+| FEAT-LINK-01 tests (auto check-in, duplicate prevention) | Done |
+| Tier 3-5 tests (analytics, AI, infra) — ~69 remaining | Backlog |
+
 ### Structure
 | Feature | Status |
 |---------|--------|
@@ -297,6 +321,8 @@ graph TB
 | 2026-02-15 | **FEAT-FICHA-02/03/04**: Visualization tools — source distribution bar chart, occupancy trend area chart, parking utilization progress bars. All below the monthly grid in Ficha Mensual tab. | Claude Opus 4.6 |
 | 2026-02-15 | **FEAT-FICHA-05**: Revenue heatmap — room×month HTML table with green gradient intensity in Resumen tab. Annual totals per room. | Claude Opus 4.6 |
 | 2026-02-16 | **FEAT-LINK-01**: Smart Reservation ↔ Check-in linking — document scan in "Nueva Reserva" auto-creates linked CheckIn, "Vincular a Reserva" dropdown in "Ficha de Cliente", duplicate prevention by document_number, mobile includes identity fields. Added `reservation_id` FK to CheckIn table. 6 identity fields in ReservationCreate schema. Both frontends upgraded. | Claude Sonnet 4.5 |
+| 2026-02-23 | **TEST-01a**: Pre-deployment test suite — 189 tests across 19 files. StaticPool fix for SQLite threading with FastAPI. Covers auth, reservations, guests, rooms, pricing, calendar, iCal, settings, users, schemas, security, DB integrity, FEAT-LINK-01. | Claude Opus 4.6 |
+| 2026-02-23 | **TEST-01b**: Tier 1+2 test expansion — 35 additional tests (→224 total). Reservation analytics (daily/range/monthly status), overbooking/parking capacity, iCal API endpoints, iCal edge cases (malformed, datetime, zero-stay), background sync, guest update + billing history, reservation update + weekly view. | Claude Opus 4.6 |
 
 ---
 

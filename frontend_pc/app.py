@@ -23,7 +23,7 @@ from components.tab_checkin import render_tab_checkin
 from helpers.auth_helpers import log_login, logout
 
 # Verify DB Path
-print(f"🔌 [SYSTEM CHECK] Frontend PC Database Path: {engine.url}")
+print(f"[SYSTEM CHECK] Frontend PC Database Path: {engine.url}")
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 load_dotenv()

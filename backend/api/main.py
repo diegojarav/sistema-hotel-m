@@ -12,12 +12,17 @@ SECURITY HARDENED:
 - Rate limiting via slowapi (5 req/min on login)
 - JWT requires .env configuration
 
-Run with: python -m uvicorn api.main:app --reload --port 8000
+Run with: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000
 """
 
 import asyncio
+import os
+import shutil
+import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+import requests as http_requests
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -38,23 +43,14 @@ limiter = Limiter(key_func=get_remote_address)
 from logging_config import get_logger
 _main_logger = get_logger("api.main")
 
+# Configuration (version, CORS, monitoring URLs)
+from api.core.config import APP_VERSION, CORS_ORIGINS, HEALTHCHECK_PING_URL, DISCORD_WEBHOOK_URL
+
 # Import routers
-from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical
+from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin
 
-# ==========================================
-# APP CONFIGURATION
-# ==========================================
-
-# CORS origins - Explicitly whitelist allowed origins
-# SECURITY: Never use ["*"] with allow_credentials=True
-CORS_ORIGINS = [
-    "http://localhost:3000",      # Next.js dev
-    "http://localhost:8501",      # Streamlit
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8501",
-    # Add production domains here:
-    # "https://your-production-domain.com",
-]
+# Track server start time for uptime reporting
+_START_TIME = time.time()
 
 @asynccontextmanager
 async def lifespan(app):
@@ -69,7 +65,7 @@ async def lifespan(app):
 app = FastAPI(
     lifespan=lifespan,
     title="Hotel PMS API",
-    version="1.0.0",
+    version=APP_VERSION,
     description="""
 ## Hotel Property Management System API - Hybrid Monolith
 
@@ -157,7 +153,7 @@ def _close_stale_sessions():
 
 
 async def _periodic_ical_sync():
-    """Background task: sync all iCal feeds every 15 minutes."""
+    """Background task: sync all iCal feeds every 15 minutes + heartbeat ping."""
     while True:
         await asyncio.sleep(900)  # 15 minutes
         try:
@@ -165,6 +161,13 @@ async def _periodic_ical_sync():
             await asyncio.to_thread(ICalService.sync_all_feeds_standalone)
         except Exception as e:
             _main_logger.error(f"iCal auto-sync error: {e}")
+
+        # Heartbeat ping to healthchecks.io (push-based uptime monitoring)
+        if HEALTHCHECK_PING_URL:
+            try:
+                http_requests.get(HEALTHCHECK_PING_URL, timeout=5)
+            except Exception:
+                pass  # Don't log — network issues shouldn't spam logs
 
 
 # ==========================================
@@ -211,6 +214,7 @@ app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"]
 app.include_router(pricing.router, prefix="/api/v1/pricing", tags=["Pricing"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(ical.router, prefix="/api/v1/ical", tags=["iCal Sync"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 
 
 # ==========================================
@@ -219,11 +223,11 @@ app.include_router(ical.router, prefix="/api/v1/ical", tags=["iCal Sync"])
 
 @app.get("/", tags=["Health"])
 def root():
-    """Health check endpoint."""
+    """Quick health check endpoint."""
     return {
         "status": "ok",
         "api": "Hotel PMS API",
-        "version": "1.0.0",
+        "version": APP_VERSION,
         "architecture": "Hybrid Monolith",
         "docs": "/docs"
     }
@@ -231,10 +235,49 @@ def root():
 
 @app.get("/health", tags=["Health"])
 def health_check():
-    """Detailed health check."""
+    """
+    Detailed health check with database test, disk space, and backup info.
+    Used by monitoring systems (healthchecks.io) and deploy scripts.
+    """
+    from sqlalchemy import text
+    from database import session_factory
+
+    # Test database connectivity
+    db_status = "ok"
+    try:
+        db = session_factory()
+        db.execute(text("SELECT 1"))
+        db.close()
+    except Exception as e:
+        db_status = f"error: {e}"
+
+    # Check disk space
+    try:
+        backend_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent
+        disk = shutil.disk_usage(str(backend_dir))
+        disk_free_gb = round(disk.free / (1024 ** 3), 1)
+    except Exception:
+        disk_free_gb = -1
+
+    # Last backup info
+    last_backup_name = None
+    try:
+        backup_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / "backups"
+        if backup_dir.exists():
+            backups = sorted(backup_dir.glob("hotel_daily_*.db"), key=os.path.getmtime, reverse=True)
+            if backups:
+                last_backup_name = backups[0].name
+    except Exception:
+        pass
+
+    overall_status = "healthy" if db_status == "ok" else "degraded"
+
     return {
-        "status": "healthy",
-        "database": "sqlite (hotel.db)",
-        "cors_origins": CORS_ORIGINS,
-        "services": "Imported from root services.py"
+        "status": overall_status,
+        "version": APP_VERSION,
+        "database": db_status,
+        "disk_free_gb": disk_free_gb,
+        "last_backup": last_backup_name,
+        "uptime_seconds": round(time.time() - _START_TIME),
+        "cors_origins_count": len(CORS_ORIGINS),
     }

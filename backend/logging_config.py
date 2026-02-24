@@ -6,6 +6,7 @@ Proporciona un sistema de logging profesional con:
 - RotatingFileHandler para evitar llenado de disco
 - Formato estructurado con timestamp, nivel, módulo
 - Separación de handlers para consola (dev) y archivo (prod)
+- Discord webhook alerting para errores (opcional)
 
 Uso:
     from logging_config import get_logger
@@ -13,8 +14,11 @@ Uso:
     logger.info("Mensaje de ejemplo")
 """
 
+import json
 import logging
 import os
+import threading
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -38,6 +42,95 @@ def _ensure_log_directory():
         # Crear .gitkeep para que git trackee el directorio vacío
         gitkeep = LOG_DIR / ".gitkeep"
         gitkeep.touch(exist_ok=True)
+
+
+# ============================================
+# DISCORD WEBHOOK HANDLER
+# ============================================
+
+class DiscordWebhookHandler(logging.Handler):
+    """
+    Sends ERROR+ log messages to a Discord channel via webhook.
+
+    Features:
+    - 5-minute deduplication (same message won't spam)
+    - Non-blocking (sends in background thread)
+    - Rich embed format with red sidebar for errors
+    - Graceful failure (never crashes the app)
+    """
+
+    def __init__(self, webhook_url: str, dedup_seconds: int = 300):
+        super().__init__(level=logging.ERROR)
+        self.webhook_url = webhook_url
+        self.dedup_seconds = dedup_seconds
+        self._recent_messages = {}  # hash -> timestamp
+        self._lock = threading.Lock()
+
+    def _is_duplicate(self, message: str) -> bool:
+        """Check if this message was sent recently."""
+        msg_hash = hash(message)
+        now = time.time()
+
+        with self._lock:
+            # Clean old entries
+            self._recent_messages = {
+                h: t for h, t in self._recent_messages.items()
+                if now - t < self.dedup_seconds
+            }
+
+            if msg_hash in self._recent_messages:
+                return True
+
+            self._recent_messages[msg_hash] = now
+            return False
+
+    def emit(self, record: logging.LogRecord):
+        """Send log record to Discord webhook."""
+        try:
+            message = self.format(record)
+            if self._is_duplicate(message):
+                return
+
+            # Build Discord embed
+            color = 0xFF0000 if record.levelno >= logging.CRITICAL else 0xE74C3C  # Dark red for CRITICAL
+
+            # Truncate message for Discord (max 4096 chars in embed description)
+            description = message[:2000]
+            if record.exc_text:
+                description += f"\n```\n{record.exc_text[:1500]}\n```"
+
+            payload = {
+                "embeds": [{
+                    "title": f"🚨 {record.levelname}: {record.name}",
+                    "description": description,
+                    "color": color,
+                    "footer": {"text": f"Hotel Munich PMS | {record.funcName}"},
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(record.created)),
+                }]
+            }
+
+            # Send in background thread to not block the app
+            thread = threading.Thread(target=self._send, args=(payload,), daemon=True)
+            thread.start()
+
+        except Exception:
+            # Never let webhook errors crash the app
+            pass
+
+    def _send(self, payload: dict):
+        """Actually send the webhook (runs in background thread)."""
+        try:
+            import urllib.request
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                self.webhook_url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except Exception:
+            pass  # Silently fail — don't cascade errors
 
 
 def setup_logging(environment: str = "development") -> logging.Logger:
@@ -95,7 +188,15 @@ def setup_logging(environment: str = "development") -> logging.Logger:
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(formatter)
     root_logger.addHandler(error_handler)
-    
+
+    # === Discord Webhook Handler (errores en tiempo real) ===
+    discord_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+    if discord_url:
+        discord_handler = DiscordWebhookHandler(webhook_url=discord_url)
+        discord_handler.setLevel(logging.ERROR)
+        discord_handler.setFormatter(formatter)
+        root_logger.addHandler(discord_handler)
+
     return root_logger
 
 
