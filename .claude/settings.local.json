@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONPATH=\"c:/Users/diego/OneDrive/Escritorio/hotel_munich/backend\" \"A:/Miniconda/envs/hotel_munich/python.exe\" -c:*)",
+      "Bash(PYTHONPATH=\"c:/Users/diego/OneDrive/Escritorio/hotel_munich/backend\" \"A:/Miniconda/envs/hotel_munich/python.exe\":*)",
+      "Bash(git add:*)",
+      "Bash(python:*)",
+      "Bash(git log:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: REQUIREMENTS.md gap closure — arrival time, check-in/out display, breakfast policy\n\nFEAT-REQ-01: Fixed Property SQLAlchemy model to match actual DB schema\n  \\(22 columns including check_in_start, check_in_end, check_out_time, breakfast_included\\)\nFEAT-REQ-02: Added arrival time picker to mobile reservation form\n  - Fixed schema type: arrival_time Optional[datetime] → Optional[time]\n  - GuestForm.tsx: time input next to phone field\n  - page.tsx: sends formData.arrivalTime to API\nFEAT-REQ-03: Property settings endpoint + confirmation display\n  - GET /settings/property-settings \\(public endpoint\\)\n  - SettingsService.get_property_settings\\(\\) reads from properties table\n  - Mobile confirmation banner shows check-in/out times + breakfast policy\n  - settings.ts: getPropertySettings\\(\\) service method\n\nDocumentation updated: PROJECT_CONTEXT.md, REQUIREMENTS.md, 00_SYNTHESIS_REPORT.md\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(npm run build:*)",
+      "Bash(timeout 5 \"A:\\\\miniconda\\\\envs\\\\hotel_munich\\\\python.exe\" -m uvicorn:*)",
+      "Bash(\"A:\\\\miniconda\\\\envs\\\\hotel_munich\\\\python.exe\" -c:*)",
+      "Bash(\"C:\\\\Python314\\\\python.exe\" -c \"import site; print\\(''System Python site-packages:''\\); [print\\(f''  {p}''\\) for p in site.getsitepackages\\(\\)]; print\\(\\); import sys; print\\(''sys.executable:'', sys.executable\\); print\\(''sys.version:'', sys.version\\)\")",
+      "Bash(git status:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(done)",
+      "Bash(xargs:*)",
+      "mcp__91b81b95-ca86-4299-a8a3-0e32d5490b21__notion-create-pages",
+      "Bash(git commit:*)",
+      "mcp__91b81b95-ca86-4299-a8a3-0e32d5490b21__notion-update-page",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm install:*)",
+      "Bash(curl:*)",
+      "Bash(git -C \"C:/Users/diego/OneDrive/Escritorio/hotel_munich/.claude/worktrees/modest-bohr\" status)",
+      "Bash(git -C \"C:/Users/diego/OneDrive/Escritorio/hotel_munich/.claude/worktrees/modest-bohr\" log --oneline -20)",
+      "Bash(git -C \"C:/Users/diego/OneDrive/Escritorio/hotel_munich/.claude/worktrees/modest-bohr\" remote -v)",
+      "Bash(C:Python314python.exe -m pytest tests/ -x -q --tb=short)",
+      "Bash(/c/Python314/python.exe -m pytest:*)",
+      "Bash(/c/Python314/python.exe:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git rm:*)",
+      "Bash(git remote prune:*)",
+      "Bash(git remote add:*)"
+    ]
+  }
+}
