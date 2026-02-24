@@ -1,0 +1,23 @@
+# Hotel Munich Frontend PC - Requirements
+# =========================================
+# Streamlit desktop application
+
+# Streamlit
+streamlit>=1.51.0
+streamlit-calendar
+
+# Data Processing
+pandas>=2.3.3
+numpy>=2.2.6
+openpyxl>=3.1.5
+pyarrow>=21.0.0
+
+# Google AI (Document Analysis)
+google-genai
+pillow>=12.0.0
+
+# Shared with Backend (needed for imports)
+pydantic
+python-dotenv>=1.2.1
+requests>=2.32.5
+sqlalchemy

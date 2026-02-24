@@ -1,0 +1,154 @@
+/**
+ * Hotel Munich - Room Service
+ * ============================
+ * Handles room data fetching from FastAPI backend.
+ * Updated for RoomCategory-based schema (Los Monges MVP)
+ */
+
+import { apiGet } from './api';
+
+// Types
+export interface RoomCategory {
+    id: string;
+    name: string;
+    description?: string;
+    base_price: number;
+    max_capacity: number;
+    bed_configuration?: string;
+    amenities?: string;
+    active: number;
+}
+
+export interface RoomStatus {
+    room_id: string;
+    category_id?: string;
+    category_name: string;
+    base_price?: number;
+    max_capacity?: number;
+    internal_code?: string;
+    floor?: number;
+    status: string;  // 'Libre', 'OCUPADA', etc.
+    huesped: string;
+    res_id?: string;
+}
+
+export interface Room {
+    id: string;
+    category_id?: string;
+    category_name: string;
+    internal_code?: string;
+    floor?: number;
+    status: string;
+    base_price?: number;
+}
+
+/**
+ * Fetch all room categories with pricing.
+ */
+export async function getRoomCategories(): Promise<RoomCategory[]> {
+    return apiGet<RoomCategory[]>('/rooms/categories');
+}
+
+/**
+ * Fetch room status for today, a specific date, or a date range.
+ * When checkIn+checkOut are provided, rooms occupied on ANY day in the range
+ * are marked as "OCUPADA" (prevents overbooking).
+ */
+export async function getRoomsStatus(
+    targetDate?: string,
+    checkIn?: string,
+    checkOut?: string
+): Promise<RoomStatus[]> {
+    const params = new URLSearchParams();
+    if (checkIn && checkOut) {
+        params.set('check_in', checkIn);
+        params.set('check_out', checkOut);
+    } else if (targetDate) {
+        params.set('target_date', targetDate);
+    }
+    const qs = params.toString();
+    return apiGet<RoomStatus[]>(`/rooms/status${qs ? `?${qs}` : ''}`);
+}
+
+/**
+ * Fetch all rooms.
+ */
+export async function getAllRooms(): Promise<Room[]> {
+    return apiGet<Room[]>('/rooms');
+}
+
+/**
+ * Get status display info (color classes and label).
+ */
+export function getStatusDisplay(status: string): {
+    bgClass: string;
+    borderClass: string;
+    textClass: string;
+    label: string;
+} {
+    const statusLower = status.toLowerCase();
+
+    if (statusLower === 'libre' || statusLower === 'available') {
+        return {
+            bgClass: 'bg-green-500/20',
+            borderClass: 'border-green-500',
+            textClass: 'text-green-600',
+            label: 'Libre',
+        };
+    }
+
+    if (statusLower === 'ocupada' || statusLower === 'occupied') {
+        return {
+            bgClass: 'bg-red-500/20',
+            borderClass: 'border-red-500',
+            textClass: 'text-red-600',
+            label: 'Ocupada',
+        };
+    }
+
+    if (statusLower === 'sucia' || statusLower === 'cleaning') {
+        return {
+            bgClass: 'bg-amber-500/20',
+            borderClass: 'border-amber-500',
+            textClass: 'text-amber-600',
+            label: 'Limpieza',
+        };
+    }
+
+    if (statusLower === 'maintenance' || statusLower === 'mantenimiento') {
+        return {
+            bgClass: 'bg-blue-500/20',
+            borderClass: 'border-blue-500',
+            textClass: 'text-blue-600',
+            label: 'Mantenimiento',
+        };
+    }
+
+    return {
+        bgClass: 'bg-slate-500/20',
+        borderClass: 'border-slate-500',
+        textClass: 'text-gray-500',
+        label: status,
+    };
+}
+
+/**
+ * Format price in Guaraníes.
+ */
+export function formatPrice(price: number): string {
+    return new Intl.NumberFormat('es-PY', {
+        style: 'decimal',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+    }).format(price) + ' Gs';
+}
+
+/**
+ * Get category color based on price tier.
+ */
+export function getCategoryColor(basePrice: number): string {
+    if (basePrice >= 350000) return 'text-purple-600';
+    if (basePrice >= 250000) return 'text-blue-600';
+    if (basePrice >= 200000) return 'text-green-600';
+    return 'text-gray-500';
+}

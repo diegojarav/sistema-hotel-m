@@ -22,3 +22,6 @@ hotel.db-shm
 venv/
 .venv/
 env/
+
+# Ignorar next.js build files
+.next/
