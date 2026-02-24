@@ -92,11 +92,11 @@ PROPERTY_DATA = {
     "parking_available": 1,
     "timezone": "America/Asuncion",
     "currency": "PYG",
-    "address": "Avda Universidad Nacional Del Este Frente A La UNE, 7000 Ciudad del Este, Paraguay",
-    "phone": "+595 984 358578",
-    "email": "alifanego@hotmail.com",
-    "facebook_url": "https://www.facebook.com/p/Los-Monges-Aparthotel-100065181743771/",
-    "instagram_url": "https://www.instagram.com/losmonges_py/",
+    "address": "Calle Principal 123, Ciudad del Este, Paraguay",
+    "phone": "+595 900 000000",
+    "email": "contacto@hospedajelosmonges.com.py",
+    "facebook_url": "https://www.facebook.com/losmonges",
+    "instagram_url": "https://www.instagram.com/losmonges",
     "active": 1
 }
 

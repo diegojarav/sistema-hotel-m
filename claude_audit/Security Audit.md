@@ -17,8 +17,8 @@ The Hotel Munich PMS contains multiple critical security vulnerabilities that ex
 
 **Vector:** Real secrets committed to git repository
 ```
-GOOGLE_API_KEY=AIzaSyDFunQh6MFY5kGG0pQpzO_mHGtptTdIyxU
-JWT_SECRET_KEY=EpxYO-CwQR-Ycq8Dc0TwTuZV2TSz1mHO2ivhzzm6p9k
+GOOGLE_API_KEY=REDACTED_KEY_ROTATED
+JWT_SECRET_KEY=REDACTED_KEY_ROTATED
 ```
 
 **Impact:**

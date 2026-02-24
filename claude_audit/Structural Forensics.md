@@ -26,8 +26,8 @@
 **Pattern:** Security Vulnerability
 **Evidence:**
 ```
-GOOGLE_API_KEY=AIzaSyDFunQh6MFY5kGG0pQpzO_mHGtptTdIyxU
-JWT_SECRET_KEY=EpxYO-CwQR-Ycq8Dc0TwTuZV2TSz1mHO2ivhzzm6p9k
+GOOGLE_API_KEY=REDACTED_KEY_ROTATED
+JWT_SECRET_KEY=REDACTED_KEY_ROTATED
 ```
 **Fix:** Rotate credentials immediately, move to system environment variables or secrets manager
 **Effort:** Quick
