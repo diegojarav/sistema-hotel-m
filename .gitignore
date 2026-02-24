@@ -25,3 +25,26 @@ env/
 
 # Ignorar next.js build files
 .next/
+
+# Internal documentation (not for public repo)
+claude_audit/
+PROJECT_CONTEXT.md
+
+# Local dev config
+.claude/launch.json
+.claude/settings.local.json
+
+# Dev-only debug/admin scripts
+scripts/reset_admin_password.py
+scripts/list_users.py
+scripts/inspect_rooms.py
+scripts/check_pricing_data.py
+scripts/verify_mobile_endpoints.py
+scripts/verify_pricing.py
+scripts/repro_frontend_issue.py
+scripts/test_feat_link_01.py
+
+# Root-level dev convenience scripts
+install_backup_task.bat
+start_backend.bat
+start_pc.bat
