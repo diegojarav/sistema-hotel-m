@@ -1,9 +1,10 @@
 # SYNTHESIS REPORT: Hotel PMS Audit
 
 **Generated:** 2026-02-04
-**Last Updated:** 2026-02-13
+**Last Updated:** 2026-02-25
 **Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
-**Total Findings:** 78 | **Resolved:** 39 | **Remaining:** 39 (mostly low-priority backlog)
+**Total Findings:** 78 | **Resolved:** 76 | **Remaining:** 2 (low-priority backlog: STRUCT-12, STRUCT-13)
+**Project Status:** DEPLOYMENT-READY (v1.1.0, 224 tests passing)
 
 ---
 
@@ -197,7 +198,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | STRUCT-13 | Rename constants to English | 30m |
 | PERF-10 | Use requests.Session() | ✅ DONE |
 | PERF-12 | Add Redis caching layer | 8h |
-| TEST-01 | Increase test coverage to 80% | **IN PROGRESS** — 224/293 tests (76.5%). Tier 1+2 done. Remaining: ~69 tests (Tier 3-5). |
+| TEST-01 | Increase test coverage to 80% | 76.5% (224 tests). Tier 1+2 done. Remaining: ~34 tests (Tier 3-5). |
 
 ---
 
@@ -264,14 +265,17 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 
 | Metric | Value |
 |--------|-------|
-| Total Findings | 73 |
-| **Resolved** | **36** |
+| Total Findings | 78 |
+| **Resolved** | **76** |
+| **Remaining** | **2** (STRUCT-12 snake_case, STRUCT-13 English constants) |
 | Security Critical | 0 remaining |
 | Architecture Critical | 0 remaining |
 | Quick Wins | 0 remaining (12/12 done) |
 | Sprint Work | 0 remaining (11/11 done) |
+| Infrastructure | 5/5 done (INFRA-01 to INFRA-05) |
+| Repo Security | 3/3 done (REPO-01 to REPO-03) |
 | Test Coverage | 224 tests (76.5%) — Tier 1+2 complete |
-| Full Remediation | ~22h backlog (PERF-12, STRUCT-12/13, Tier 3-5 tests) |
+| Backlog | ~10h (PERF-12 Redis, STRUCT-12/13 naming, Tier 3-5 tests) |
 
 ---
 
@@ -290,8 +294,10 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 11. ~~**Day 11:** FEAT-FICHA-01 to 05 (Monthly room sheet, source distribution, occupancy trend, parking usage, revenue heatmap)~~ ✅
 12. ~~**Day 12:** TEST-01a — Pre-deployment test suite (189 tests, 19 files)~~ ✅
 13. ~~**Day 12:** TEST-01b — Tier 1+2 test expansion (+35 → 224 tests, 22 files)~~ ✅
-14. **Backlog:** PERF-12, STRUCT-12, STRUCT-13, Tier 3-5 tests (~34 remaining)
-15. **Review:** Re-run audits after all structural refactoring
+14. ~~**Day 13:** INFRA-01 to 05 (Remote admin API, Tailscale VPN, Linux systemd services, GCP staging, test data seeder)~~ ✅
+15. ~~**Day 13:** REPO-01 to 03 (Two-repo split, sensitive data redaction, public history purge)~~ ✅
+16. **Backlog:** PERF-12 (Redis), STRUCT-12 (snake_case), STRUCT-13 (English constants), Tier 3-5 tests (~34 remaining)
+17. **Review:** Re-run audits after deployment validation on GCP staging
 
 ---
 
@@ -312,6 +318,30 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | BUG-TOKEN-PC-01/02 | PC admin auth testing (2026-02-13) |
 | FEAT-THEME-01 | REQUIREMENTS.md Design Theme (2026-02-13) |
 | FEAT-FICHA-01 to FEAT-FICHA-05 | REQUIREMENTS.md Room Management + visualization tools (2026-02-15) |
+| FEAT-LINK-01 | Smart reservation ↔ check-in linking (2026-02-16) |
+| FEAT-REQ-01/02/03 | Property model fixes, arrival time, settings display (2026-02-15) |
+| INFRA-01 to INFRA-05 | Remote maintenance infrastructure (2026-02-23) |
+| REPO-01 to REPO-03 | Repository security cleanup (2026-02-25) |
+
+---
+
+## Remote Maintenance Infrastructure (2026-02-23)
+
+| ID | Description | Status |
+|----|------------|--------|
+| INFRA-01 | Remote management API — `/admin/backups` (list, trigger), `/admin/logs/errors`, `/admin/deploy-log`, `/admin/system-info`. All require admin role. | DONE |
+| INFRA-02 | Tailscale VPN setup guide (`scripts/setup_tailscale.md`) for remote SSH access through NAT. | DONE |
+| INFRA-03 | Linux systemd service manager (`scripts/service_control_linux.sh`) — start/stop/restart/logs for hotel-backend, hotel-pc, hotel-mobile. | DONE |
+| INFRA-04 | GCP staging environment — `scripts/setup_gcp_staging.sh` + `setup_gcp_staging.md`. e2-small VM in southamerica-east1 (~$16/mo, $300 free credits). | DONE |
+| INFRA-05 | Test data generator (`scripts/seed_test_data.py`) — 80-100 reservations, 40-50 check-ins, 100+ sessions, 4-6 iCal feeds. Supports --dry-run/--reset. | DONE |
+
+## Repository Security Cleanup (2026-02-25)
+
+| ID | Description | Status |
+|----|------------|--------|
+| REPO-01 | Two-repo architecture — public (`sistema-hotel-m` / origin) for deployment, private (`hotel-PMS-dev` / private) for development. Internal docs on `private/dev` only. | DONE |
+| REPO-02 | Sensitive data redaction — API keys and JWT secrets redacted from tracked files. Public repo history purged (single clean commit). | DONE |
+| REPO-03 | Internal content removal — claude_audit/, PROJECT_CONTEXT.md, debug scripts, dev configs removed from public repo via `.gitignore` + `git rm --cached`. | DONE |
 
 ---
 

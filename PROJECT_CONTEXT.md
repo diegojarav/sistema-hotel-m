@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT.md
 # Hotel Management System - Single Source of Truth
-**Last Updated:** 2026-02-15
-**Phase:** Los Monges MVP Deployment
+**Last Updated:** 2026-02-25
+**Phase:** Los Monges MVP -- Deployment-Ready (v1.1.0)
 
 ---
 
@@ -43,7 +43,10 @@ hotel_munich/
 │       ├── deps.py              # Auth dependencies + RBAC
 │       ├── main.py              # App + CORS + lifespan (iCal auto-sync every 15min)
 │       └── v1/endpoints/        # auth, reservations, guests, rooms, calendar,
-│                                # agent, vision, settings, pricing, users, ical
+│                                # agent, vision, settings, pricing, users, ical, admin
+│   └── tests/                   # 224 tests across 22 files (pytest + SQLite StaticPool)
+│       ├── conftest.py          # Fixtures (in-memory SQLite, test client, auth tokens)
+│       └── test_*.py            # Auth, reservations, guests, rooms, pricing, calendar, etc.
 │
 ├── frontend_pc/                 # Streamlit PC app (MODULARIZED 2026-02-08)
 │   ├── app.py                   # Orchestrator (116 LOC) — login, sidebar, tabs
@@ -79,12 +82,24 @@ hotel_munich/
 │       ├── availability/page.tsx
 │       └── chat/page.tsx
 │
-├── scripts/                     # Migration and seed scripts
-├── start_backend.bat            # Starts FastAPI (uvicorn)
-├── start_pc.bat                 # Sets PYTHONPATH=backend, runs Streamlit
-├── PROJECT_CONTEXT.md           # THIS FILE
+├── scripts/                     # Deployment, migration, and operations
+│   ├── deploy.py                # Full deployment script with rollback
+│   ├── deploy_frontend_only.py  # Frontend-only deploy shortcut
+│   ├── seed_monges.py           # Base data seeder (property, rooms, categories)
+│   ├── seed_test_data.py        # Test data generator (reservations, check-ins, sessions, iCal feeds)
+│   ├── run_migrations.py        # Schema migrations runner
+│   ├── add_indexes.py           # Database index migration
+│   ├── migrate_*.py             # Schema migration scripts
+│   ├── install_services.bat     # Windows NSSM service installer
+│   ├── service_control.bat      # Windows service controller
+│   ├── service_control_linux.sh # Linux systemd service manager
+│   ├── setup_gcp_staging.sh     # GCP VM provisioning script
+│   ├── setup_gcp_staging.md     # GCP staging setup guide
+│   └── setup_tailscale.md       # Tailscale VPN remote access guide
+│
+├── PROJECT_CONTEXT.md           # THIS FILE (private repo only)
 ├── REQUIREMENTS.md              # Los Monges business requirements
-└── claude_audit/                # Audit reports and tracking
+└── claude_audit/                # Audit reports and tracking (private repo only)
     └── 00_SYNTHESIS_REPORT.md   # Active sprint tracker
 ```
 
@@ -131,21 +146,29 @@ graph TB
 | **Date-range availability** | `/rooms/status?check_in=&check_out=` checks overlap across full range (prevents overbooking). Mobile re-fetches rooms when dates change. |
 | **Property settings endpoint** | `GET /settings/property-settings` returns check-in/out times and breakfast policy from `properties` table. Public endpoint, fetched on reservation form mount. |
 | **iCal sync (Booking.com/Airbnb)** | `ICalService` handles import (pull .ics from OTA URLs, upsert reservations with `source`/`external_id`) and export (serve .ics at `/ical/export/{room_id}.ics`). Background auto-sync every 15min via FastAPI lifespan. `ICalFeed` model stores per-room feed URLs. Admin UI in `09_Configuracion.py`. |
+| **Admin API** | `admin.py` provides remote management: backup list/trigger, error log tail, deploy log, system info. All endpoints require `require_role("admin")`. |
+| **Two-repo architecture** | Public repo (`sistema-hotel-m` / origin) for deployment only. Private repo (`hotel-PMS-dev` / private) with `main` (production code) and `dev` (main + internal docs + dev scripts). Internal docs never reach public repo. |
+| **GCP staging** | `scripts/setup_gcp_staging.sh` provisions an e2-small VM in southamerica-east1 (~$16/mo, $300 free credits). `scripts/setup_gcp_staging.md` has the full runbook. |
+| **Remote access** | Tailscale mesh VPN for NAT-traversal SSH. Guide in `scripts/setup_tailscale.md`. No port forwarding needed. |
+| **Test data seeder** | `scripts/seed_test_data.py` generates 80-100 reservations, 40-50 check-ins, 100+ sessions, 4-6 iCal feeds. Supports `--dry-run` and `--reset`. Weighted random distributions matching real-world patterns. |
+| **Linux service management** | `scripts/service_control_linux.sh` manages systemd services (hotel-backend, hotel-pc, hotel-mobile). Commands: status, start, stop, restart, logs. |
 
 ---
 
 ## STABILITY RATING
 
-**Overall Grade: A- (Production-Ready)**
+**Overall Grade: A (Deployment-Ready)**
 
 | Component | Rating | Notes |
 |-----------|--------|-------|
-| Backend API | A | FastAPI + SQLAlchemy. N+1 fixed. Pricing engine validated. |
-| PC App | A- | Modularized (116 LOC orchestrator). Caching optimized. |
-| Mobile App | A | Connectivity issues resolved. Booking flow active. |
+| Backend API | A | FastAPI + SQLAlchemy. N+1 fixed. Pricing engine validated. Admin API for remote management. |
+| PC App | A | Modularized (116 LOC orchestrator). Caching optimized. Light theme. iCal admin. |
+| Mobile App | A | Connectivity issues resolved. Booking flow active. Multi-category. |
 | Database | A- | SQLite with indexes. Performance optimized. WAL mode. |
 | AI Agent | A | Gemini 2.5 Flash stable with fallback. 30s timeout. |
-| Security | A+ | RBAC. JWT revocation. Error sanitization. Security headers. |
+| Security | A+ | RBAC. JWT revocation. Error sanitization. Security headers. Git history purged. Keys rotated. |
+| Testing | A | 224 tests across 22 files. 76.5% coverage. Pre-deployment validation. |
+| Infrastructure | A | GCP staging scripts. Linux service manager. Tailscale VPN. Test data seeder. |
 
 ---
 
@@ -158,6 +181,9 @@ graph TB
 | Authentication | JWT (single hotel) | Tenant-aware + SSO | OAuth2 |
 | Billing | N/A | Stripe integration | New tables |
 | Scalability | Vertical (single server) | Horizontal (LB) | Refactor PC app |
+| Staging Environment | GCP VM (e2-small, southamerica-east1) | Auto-scaling (GKE/Cloud Run) | Container orchestration |
+| Remote Access | Tailscale VPN + SSH | Zero-trust network | Production hardening |
+| Test Data | seed_test_data.py (manual) | CI/CD pipeline | Automated integration |
 
 **Migration Trigger:** Client #3 or >20 concurrent users.
 
@@ -172,6 +198,8 @@ graph TB
 | scoped_session concurrency in FastAPI | LOW | HIGH | **Materialized 2026-02-10:** `SessionLocal` (scoped_session) shared sessions across threadpool threads. Fixed: `deps.py` now uses `session_factory()` directly. `SessionLocal` only used by Streamlit. |
 | Overbooking (room double-booking) | LOW | HIGH | **Materialized 2026-02-10:** Room status loaded for TODAY only, never re-checked for selected dates. Fixed: date-range overlap API + frontend re-fetch on date change. |
 | Multi-tenant data leak (if tenant_id not added before Client #2) | HIGH | CRITICAL | Block Client #2 until tenant isolation is live. |
+| Deployment without staging validation | LOW | HIGH | GCP staging environment available. seed_test_data.py for realistic data. 224 tests passing. |
+| Git history data leak | ELIMINATED | -- | Public repo history purged 2026-02-25. Keys rotated. Two-repo architecture prevents future leaks. |
 
 ---
 
@@ -323,6 +351,14 @@ graph TB
 | 2026-02-16 | **FEAT-LINK-01**: Smart Reservation ↔ Check-in linking — document scan in "Nueva Reserva" auto-creates linked CheckIn, "Vincular a Reserva" dropdown in "Ficha de Cliente", duplicate prevention by document_number, mobile includes identity fields. Added `reservation_id` FK to CheckIn table. 6 identity fields in ReservationCreate schema. Both frontends upgraded. | Claude Sonnet 4.5 |
 | 2026-02-23 | **TEST-01a**: Pre-deployment test suite — 189 tests across 19 files. StaticPool fix for SQLite threading with FastAPI. Covers auth, reservations, guests, rooms, pricing, calendar, iCal, settings, users, schemas, security, DB integrity, FEAT-LINK-01. | Claude Opus 4.6 |
 | 2026-02-23 | **TEST-01b**: Tier 1+2 test expansion — 35 additional tests (→224 total). Reservation analytics (daily/range/monthly status), overbooking/parking capacity, iCal API endpoints, iCal edge cases (malformed, datetime, zero-stay), background sync, guest update + billing history, reservation update + weekly view. | Claude Opus 4.6 |
+| 2026-02-23 | **INFRA-01**: Remote management API — `/admin/backups` (list, trigger), `/admin/logs/errors`, `/admin/deploy-log`, `/admin/system-info`. All require admin role. New `admin.py` endpoint file. | Claude Opus 4.6 |
+| 2026-02-23 | **INFRA-02**: Tailscale VPN setup guide (`scripts/setup_tailscale.md`) for remote SSH access through NAT. | Claude Opus 4.6 |
+| 2026-02-23 | **INFRA-03**: Linux systemd service manager (`scripts/service_control_linux.sh`) — start/stop/restart/logs for hotel-backend, hotel-pc, hotel-mobile. | Claude Opus 4.6 |
+| 2026-02-23 | **INFRA-04**: GCP staging environment — `scripts/setup_gcp_staging.sh` + `setup_gcp_staging.md`. e2-small VM in southamerica-east1 (~$16/mo, $300 free credits). | Claude Opus 4.6 |
+| 2026-02-23 | **INFRA-05**: Test data generator (`scripts/seed_test_data.py`) — 80-100 reservations, 40-50 check-ins, 100+ sessions, 4-6 iCal feeds. Weighted random distributions. Supports --dry-run and --reset. | Claude Opus 4.6 |
+| 2026-02-25 | **REPO-01**: Two-repo architecture — public (`sistema-hotel-m` / origin) for deployment, private (`hotel-PMS-dev` / private) for development. Internal docs on `private/dev` branch only. | Claude Opus 4.6 |
+| 2026-02-25 | **REPO-02**: Sensitive data redaction — API keys and JWT secrets redacted from tracked files. Public repo history purged (single clean commit). | Claude Opus 4.6 |
+| 2026-02-25 | **REPO-03**: Internal content removal — claude_audit/, PROJECT_CONTEXT.md, debug scripts, dev configs removed from public repo via `.gitignore` + `git rm --cached`. | Claude Opus 4.6 |
 
 ---
 

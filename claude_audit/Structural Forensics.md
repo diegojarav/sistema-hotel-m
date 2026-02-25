@@ -8,14 +8,33 @@
 
 ## EXECUTIVE SUMMARY
 
-| Area | Grade | Critical Issues |
-|------|-------|-----------------|
-| Backend | **B+** | Exposed API credentials, services.py at size limit |
-| Frontend PC | **C** | app.py severely bloated (1,402 LOC), naming violations |
-| Frontend Mobile | **B-** | .next/ committed (289 MB), monolithic page component |
+> **STATUS UPDATE (2026-02-25):** All 3 critical and all 8 high-severity findings have been fully resolved. Exposed credentials were rotated and git history purged. `.next/` was removed from git. `app.py` was split from 1,402 LOC to 116 LOC orchestrator + 10 modules. `services.py` was extracted into 8-module package. Mobile page split into 4 components. All token keys consolidated. All fetch() calls routed through `api.ts`. Admin pages migrated to API. This document is retained as the historical audit trail.
+
+| Area | Original Grade (2026-02-04) | Current Grade (2026-02-25) |
+|------|---------------------------|---------------------------|
+| Backend | B+ | **A** |
+| Frontend PC | C | **A-** |
+| Frontend Mobile | B- | **A** |
 
 **Total Findings:** 38 issues identified
-**Critical:** 3 | **High:** 8 | **Medium:** 15 | **Low:** 12
+**Critical:** 3 (ALL RESOLVED) | **High:** 8 (ALL RESOLVED) | **Medium:** 15 (13 RESOLVED) | **Low:** 12 (ALL RESOLVED)
+**Remaining backlog:** STRUCT-12 (snake_case rename), STRUCT-13 (English constants)
+
+### Resolution Summary
+
+| # | Original Severity | Issue | Resolution | Date |
+|---|-------------------|-------|------------|------|
+| 1 | CRITICAL | Exposed API Credentials | Keys rotated, .env in .gitignore, public repo history purged | 2026-02-04, purge 2026-02-25 |
+| 2 | CRITICAL | .next/ in git (289 MB) | `git rm -r --cached`, added to .gitignore | 2026-02-04 |
+| 3 | CRITICAL | Incomplete git migration | Migration committed | 2026-02-04 |
+| 4 | HIGH | God file app.py (1,402 LOC) | Split to orchestrator 116 LOC + components/ + helpers/ (STRUCT-04) | 2026-02-08 |
+| 5 | HIGH | services.py at threshold (1,181 LOC) | Extracted to services/ package, 8 modules (STRUCT-05) | 2026-02-08 |
+| 6 | HIGH | Monolithic page.tsx (749 LOC) | Split to 286 LOC + 4 components (STRUCT-06) | 2026-02-08 |
+| 7 | HIGH | Token key inconsistency | Centralized in src/constants/keys.ts (TOKEN-01) | 2026-02-04 |
+| 8 | HIGH | Direct fetch() bypass | All routed through api.ts (STRUCT-08) | 2026-02-08 |
+| 9 | HIGH | sys.path.append import | Config page uses API client | 2026-02-13 |
+| 10 | HIGH | Duplicate import | Removed | 2026-02-04 |
+| 11 | HIGH | Migration in database.py | Extracted to init_db.py | 2026-02-04 |
 
 ---
 
@@ -288,15 +307,15 @@ AGENT_QUERY_URL = "http://localhost:8000/api/v1/agent/query"
 
 ---
 
-## TOP 5 FILES NEEDING IMMEDIATE ATTENTION
+## TOP 5 FILES -- CURRENT STATUS (All Resolved)
 
-| Priority | File | Issue | LOC |
-|----------|------|-------|-----|
-| 1 | `frontend_pc/app.py` | God file, mixed concerns | 1,402 |
-| 2 | `backend/services.py` | At threshold, many imports | 1,181 |
-| 3 | `frontend_mobile/app/dashboard/reservations/new/page.tsx` | Monolithic component | 749 |
-| 4 | `backend/.env` | Exposed credentials | - |
-| 5 | `frontend_mobile/.next/` | Build artifact committed | 289 MB |
+| Priority | File | Original Issue | Current Status |
+|----------|------|---------------|----------------|
+| 1 | `frontend_pc/app.py` | God file 1,402 LOC | **RESOLVED**: 116 LOC orchestrator + components/ + helpers/ |
+| 2 | `backend/services.py` | At threshold 1,181 LOC | **RESOLVED**: services/ package with 8 modules |
+| 3 | `mobile reservations/new/page.tsx` | Monolithic 749 LOC | **RESOLVED**: 286 LOC + 4 components |
+| 4 | `backend/.env` | Exposed credentials | **RESOLVED**: .gitignore + keys rotated + history purged |
+| 5 | `frontend_mobile/.next/` | 289 MB committed | **RESOLVED**: removed from git |
 
 ---
 
