@@ -40,10 +40,31 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 - **Agente IA Interno:** Asistente con herramientas para consultar disponibilidad, tarifas y resúmenes.
 - **OCR Documental:** Extracción automática de datos de documentos usando Google Gemini 2.5 Flash.
 
-### 🔄 Resiliencia y Recuperación
+### 🔄 Resiliencia y Recuperacion
 
 - **Hot Backups:** Copias de seguridad en caliente usando la API nativa de SQLite.
-- **Infraestructura como Código (IaC):** Script `install_backup_task.bat` para tareas programadas en Windows.
+- **Admin API:** Endpoints protegidos para gestion remota (backups, logs, system-info).
+- **Staging Environment:** Script de provisionamiento GCP (`scripts/setup_gcp_staging.sh`).
+- **Linux Service Manager:** Control de servicios systemd para despliegue en Linux (`scripts/service_control_linux.sh`).
+- **Acceso Remoto:** VPN mesh con Tailscale para acceso SSH seguro sin port forwarding.
+
+### 🔗 Integraciones OTA (Booking.com / Airbnb)
+
+- **Importacion:** Pull automatico de feeds .ics cada 15 minutos.
+- **Exportacion:** Endpoints publicos `.ics` para que OTAs consulten disponibilidad.
+- **Admin:** UI de configuracion en pagina Configuracion (PC).
+- **Fuentes soportadas:** Booking.com, Airbnb, WhatsApp, Facebook, Instagram, Google.
+
+### 🧪 Testing
+
+```bash
+cd backend
+python -m pytest tests/ -v
+```
+
+- **224 tests** en 22 archivos de test.
+- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB.
+- SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
 
 ---
 
@@ -53,50 +74,82 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 hotel_munich/
 ├── backend/                    # API REST (FastAPI + SQLAlchemy)
 │   ├── api/
-│   │   ├── core/              # Configuración y seguridad
-│   │   ├── deps.py            # Dependencias de inyección
-│   │   ├── main.py            # Punto de entrada FastAPI
+│   │   ├── core/              # config.py (app settings), security.py (JWT/bcrypt)
+│   │   ├── deps.py            # Auth dependencies + RBAC (require_role)
+│   │   ├── main.py            # App + CORS + lifespan (iCal auto-sync cada 15min)
 │   │   └── v1/endpoints/      # Endpoints por dominio
+│   │       ├── admin.py       # Gestion remota (backups, logs, system-info)
 │   │       ├── agent.py       # Agente IA con herramientas
 │   │       ├── ai_tools.py    # Herramientas LangChain
-│   │       ├── auth.py        # Autenticación JWT
+│   │       ├── auth.py        # Autenticacion JWT
 │   │       ├── calendar.py    # Eventos de calendario
-│   │       ├── guests.py      # Gestión de huéspedes
+│   │       ├── guests.py      # Gestion de huespedes / check-in
+│   │       ├── ical.py        # Sync iCal (Booking.com / Airbnb)
+│   │       ├── pricing.py     # Motor de precios y cotizaciones
 │   │       ├── reservations.py# Reservas
 │   │       ├── rooms.py       # Habitaciones
-│   │       ├── settings.py    # Configuración hotel
-│   │       ├── pricing.py     # Motor de precios y cotizaciones
+│   │       ├── settings.py    # Configuracion hotel
+│   │       ├── users.py       # Administracion de usuarios
 │   │       └── vision.py      # OCR con Gemini
-│   ├── database.py            # Capa de datos (SQLAlchemy)
+│   ├── database.py            # Capa de datos (SQLAlchemy, 14 modelos)
 │   ├── schemas.py             # DTOs y validaciones (Pydantic)
-│   ├── services.py            # Lógica de negocio
-│   ├── logging_config.py      # Configuración de logging
+│   ├── services/              # Logica de negocio (paquete, 8 modulos)
+│   │   ├── __init__.py        # Re-exports para compatibilidad
+│   │   ├── _base.py           # @with_db decorator (hibrido Streamlit/FastAPI)
+│   │   ├── auth_service.py    # Autenticacion y sesiones
+│   │   ├── reservation_service.py # Reservas y disponibilidad
+│   │   ├── guest_service.py   # Huespedes y check-in
+│   │   ├── room_service.py    # Habitaciones y categorias
+│   │   ├── pricing_service.py # Motor de precios
+│   │   ├── settings_service.py# Configuracion del hotel
+│   │   └── ical_service.py    # Import/export iCal para OTAs
+│   ├── tests/                 # 224 tests (pytest + SQLite in-memory)
+│   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth)
+│   │   └── test_*.py          # 22 archivos de test
+│   ├── logging_config.py      # Configuracion de logging
 │   ├── backup_manager.py      # Sistema de backups
 │   └── requirements.txt       # Dependencias Python
 │
 ├── frontend_pc/               # Interfaz Desktop (Streamlit)
-│   ├── app.py                 # Aplicación principal
+│   ├── app.py                 # Orquestador (116 LOC) — login, sidebar, tabs
 │   ├── api_client.py          # Cliente HTTP para backend
+│   ├── components/            # Modulos de UI
+│   │   ├── tab_calendario.py  # Vistas de calendario
+│   │   ├── tab_reserva.py     # Formulario de reserva (multi-categoria)
+│   │   └── tab_checkin.py     # Formulario de check-in
+│   ├── helpers/               # Utilidades compartidas
 │   ├── pages/
-│   │   ├── 04_💬_Asistente_IA.py   # Chat con agente IA
-│   │   └── 99_👤_Admin_Users.py    # Gestión de usuarios
+│   │   ├── 04_Asistente_IA.py     # Chat con agente IA
+│   │   ├── 09_Configuracion.py    # Settings + admin iCal feeds
+│   │   ├── 98_Admin_Habitaciones.py # Inventario + Ficha Mensual + Revenue Heatmap
+│   │   └── 99_Admin_Users.py      # Gestion de usuarios
 │   └── requirements.txt       # Dependencias Streamlit
 │
-├── frontend_mobile/           # Interfaz Mobile-First (Next.js)
+├── frontend_mobile/           # Interfaz Mobile-First (Next.js 16 + React 19)
 │   ├── app/
-│   │   ├── login/             # Autenticación
+│   │   ├── login/             # Autenticacion
 │   │   └── dashboard/         # Panel principal
-│   │       ├── availability/  # Disponibilidad
-│   │       ├── calendar/      # Calendario visual
+│   │       ├── availability/  # Disponibilidad por rango de fechas
+│   │       ├── calendar/      # Calendario visual mensual
 │   │       ├── chat/          # Chat con agente IA
-│   │       └── reservations/  # Nueva reserva
-│   ├── src/                   # Componentes y utilidades
+│   │       └── reservations/new/ # Nueva reserva (orquestador + 4 componentes)
+│   ├── src/
+│   │   ├── constants/keys.ts  # API_BASE_URL, tokens
+│   │   ├── services/          # rooms, pricing, auth, reservations, vision, chat, settings
+│   │   └── hooks/             # useAuth, useBeaconLogout
 │   └── package.json           # Dependencias Node.js
 │
-├── logs/                      # Archivos de log (auto-generado)
-├── start_backend.bat          # Launcher: Backend API
-├── start_pc.bat               # Launcher: Streamlit PC
-└── install_backup_task.bat    # Instalador de tarea programada
+├── scripts/                   # Deployment, migracion y operaciones
+│   ├── deploy.py              # Deployment automatizado con rollback
+│   ├── seed_monges.py         # Datos iniciales (propiedad, habitaciones, categorias)
+│   ├── seed_test_data.py      # Generador de datos de prueba
+│   ├── service_control.bat    # Control de servicios Windows
+│   ├── service_control_linux.sh # Control de servicios Linux (systemd)
+│   ├── setup_gcp_staging.sh   # Provisioning VM en GCP
+│   └── setup_gcp_staging.md   # Guia de staging GCP
+│
+├── README.md
+└── REQUIREMENTS.md             # Requisitos de negocio
 ```
 
 ---
@@ -217,27 +270,35 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 ## 📱 Funcionalidades
 
 ### Frontend PC (Streamlit)
-- 📅 **Calendario de Ocupación:** Vista mensual y semanal con estado de habitaciones.
-- 👤 **Gestión de Usuarios:** CRUD completo con roles y auditoría.
+- 📅 **Calendario de Ocupacion:** Vista mensual y semanal con estado de habitaciones.
+- 📊 **Ficha Mensual:** Vista Gantt de ocupacion room x day con estadisticas (fuentes de reserva, tendencia de ocupacion, estacionamiento).
+- 📈 **Revenue Heatmap:** Mapa de calor room x month con totales anuales.
+- 🔗 **Vinculacion Reserva-Checkin:** Escaneo OCR de documentos crea check-in vinculado automaticamente.
+- ⚙️ **Configuracion iCal:** CRUD de feeds, sync manual/masivo, URLs de exportacion.
+- 👤 **Gestion de Usuarios:** CRUD completo con roles y auditoria.
 - 💬 **Asistente IA:** Chat interno para consultas operativas.
 
 ### Frontend Mobile (Next.js)
-- 📱 **Diseño Mobile-First:** Optimizado para tablets y celulares.
-- 📊 **Dashboard:** Resumen de ocupación del día.
-- 📅 **Calendario:** Navegación mensual con indicadores visuales.
-- 📝 **Nueva Reserva:** Formulario con selección de fechas y múltiples habitaciones.
+- 📱 **Diseno Mobile-First:** Optimizado para tablets y celulares.
+- 📊 **Dashboard:** Resumen de ocupacion del dia.
+- 📅 **Calendario:** Navegacion mensual con indicadores visuales.
+- 📝 **Nueva Reserva:** Formulario con seleccion multi-categoria y multiples habitaciones.
+- 📋 **Datos de Identidad:** Captura de documento, nacionalidad y fecha de nacimiento.
 - 💬 **Chat IA:** Interfaz conversacional con el agente.
-- 🔍 **Disponibilidad:** Búsqueda rápida por rango de fechas.
+- 🔍 **Disponibilidad:** Busqueda rapida por rango de fechas.
 
 ### API Backend
-- 🔑 **Autenticación:** Login, tokens JWT, refresh.
-- 🏠 **Habitaciones:** CRUD y estado de ocupación.
-- 📅 **Reservas:** Creación, edición, cancelación con validación.
-- 👥 **Huéspedes:** Registro y búsqueda de clientes.
+- 🔑 **Autenticacion:** Login, tokens JWT, refresh, revocacion.
+- 🏠 **Habitaciones:** CRUD y estado de ocupacion por rango de fechas.
+- 📅 **Reservas:** Creacion, edicion, cancelacion con prevencion de overbooking.
+- 👥 **Huespedes:** Registro, busqueda y vinculacion con reservas.
+- 🔄 **iCal Sync:** Importacion/exportacion iCal para Booking.com y Airbnb (auto-sync cada 15 min).
+- 🛠️ **Admin Remoto:** Backups, logs, deploy log, system info via API protegida.
 - 🤖 **Agente IA:** Consultas en lenguaje natural.
-- 📷 **OCR Vision:** Extracción de datos de documentos.
-- 💰 **Pricing Engine:** Cálculo automático de tarifas con reglas de negocio.
+- 📷 **OCR Vision:** Extraccion de datos de documentos.
+- 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente.
 - 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
+- 🧪 **224 Tests:** Suite de tests pre-deployment (pytest, SQLite in-memory).
 
 ---
 
@@ -260,5 +321,7 @@ Documentación interactiva disponible en:
 - **ReDoc:** `http://localhost:8000/redoc`
 
 ---
+
+**Version:** 1.1.0
 
 **Desarrollado por Diego para Hospedaje Los Monges.**
