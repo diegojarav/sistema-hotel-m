@@ -30,12 +30,12 @@ export default function RoomSelection({
                         value={formData.checkIn}
                         onChange={(e) => {
                             const newCheckIn = e.target.value;
-                            onFormChange({
-                                checkIn: newCheckIn,
-                                checkOut: formData.checkOut <= newCheckIn
-                                    ? new Date(new Date(newCheckIn).getTime() + 86400000).toISOString().split('T')[0]
-                                    : undefined
-                            });
+                            const updates: { checkIn: string; checkOut?: string } = { checkIn: newCheckIn };
+                            if (formData.checkOut <= newCheckIn) {
+                                updates.checkOut = new Date(new Date(newCheckIn).getTime() + 86400000)
+                                    .toISOString().split('T')[0];
+                            }
+                            onFormChange(updates);
                         }}
                         className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     />

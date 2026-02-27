@@ -99,11 +99,14 @@ export default function NewReservationPage() {
     const [propertySettings, setPropertySettings] = useState<PropertySettings | null>(null);
 
     const calculateNights = (): number => {
-        const checkIn = new Date(formData.checkIn);
-        const checkOut = new Date(formData.checkOut);
+        if (!formData.checkIn || !formData.checkOut) return 1;
+        const [y1, m1, d1] = formData.checkIn.split('-').map(Number);
+        const [y2, m2, d2] = formData.checkOut.split('-').map(Number);
+        const checkIn = new Date(y1, m1 - 1, d1);
+        const checkOut = new Date(y2, m2 - 1, d2);
         const diffTime = checkOut.getTime() - checkIn.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return Math.max(1, diffDays);
+        return diffDays > 0 ? diffDays : 1;
     };
 
     const handleFormChange = (updates: Partial<typeof formData>) => {
