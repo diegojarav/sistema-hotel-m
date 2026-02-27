@@ -580,7 +580,6 @@ def seed_rooms(conn: sqlite3.Connection, dry_run: bool = False):
             room_data = {
                 'id': room_id,
                 'property_id': PROPERTY_ID,
-                'building_id': BUILDING_DATA['id'],
                 'category_id': category_id,
                 'floor': 1 if room_counter <= 8 else 2,  # Split between floors
                 'internal_code': internal_code,
@@ -739,7 +738,6 @@ def reset_los_monges_data(conn: sqlite3.Connection, dry_run: bool = False):
         ('client_types', 'property_id'),
         ('rooms', 'property_id'),
         ('room_categories', 'property_id'),
-        ('buildings', 'property_id'),
         ('properties', 'id'),
     ]
     
@@ -790,25 +788,24 @@ def run_seed(db_path: Path, dry_run: bool = False, reset: bool = False) -> bool:
         log_section("STEP 1: Property")
         seed_property(conn, dry_run)
         
-        log_section("STEP 2: Building")
-        seed_building(conn, dry_run)
-        
-        log_section("STEP 3: Room Categories")
+        # NOTE: buildings table removed from schema — skipping seed_building()
+
+        log_section("STEP 2: Room Categories")
         seed_categories(conn, dry_run)
         
-        log_section("STEP 4: Rooms")
+        log_section("STEP 3: Rooms")
         seed_rooms(conn, dry_run)
-        
-        log_section("STEP 5: Client Types")
+
+        log_section("STEP 4: Client Types")
         seed_client_types(conn, dry_run)
-        
-        log_section("STEP 6: Pricing Seasons")
+
+        log_section("STEP 5: Pricing Seasons")
         seed_pricing_seasons(conn, dry_run)
-        
-        log_section("STEP 7: AI Permissions")
+
+        log_section("STEP 6: AI Permissions")
         seed_ai_permissions(conn, dry_run)
-        
-        log_section("STEP 8: System Settings")
+
+        log_section("STEP 7: System Settings")
         seed_system_settings(conn, dry_run)
         
         # Commit
@@ -826,7 +823,6 @@ def run_seed(db_path: Path, dry_run: bool = False, reset: bool = False) -> bool:
             log_info("")
             log_info("Summary:")
             log_info(f"  - 1 property")
-            log_info(f"  - 1 building")
             log_info(f"  - {len(ROOM_CATEGORIES)} room categories")
             log_info(f"  - {sum(cat['qty'] for cat in ROOM_CATEGORIES)} rooms")
             log_info(f"  - {len(CLIENT_TYPES)} client types")

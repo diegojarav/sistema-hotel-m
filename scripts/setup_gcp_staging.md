@@ -14,7 +14,7 @@ gcloud config set project YOUR_PROJECT_ID
 
 # Create VM in Sao Paulo region
 gcloud compute instances create hotel-munich-staging \
-  --zone=southamerica-east1-b \
+  --zone=southamerica-east1-a \
   --machine-type=e2-small \
   --image-family=ubuntu-2204-lts \
   --image-project=ubuntu-os-cloud \
@@ -35,7 +35,7 @@ gcloud compute firewall-rules create hotel-allow-ports \
 ## 3. SSH Into the VM
 
 ```bash
-gcloud compute ssh hotel-munich-staging --zone=southamerica-east1-b
+gcloud compute ssh hotel-munich-staging --zone=southamerica-east1-a
 ```
 
 ## 4. Clone and Setup
@@ -73,7 +73,7 @@ After setup completes, access:
 Get external IP:
 ```bash
 gcloud compute instances describe hotel-munich-staging \
-  --zone=southamerica-east1-b \
+  --zone=southamerica-east1-a \
   --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
 ```
 
@@ -91,10 +91,10 @@ bash scripts/service_control_linux.sh logs hotel-backend # specific service
 
 ```bash
 # Stop VM when not testing (~$3.60/mo for disk only)
-gcloud compute instances stop hotel-munich-staging --zone=southamerica-east1-b
+gcloud compute instances stop hotel-munich-staging --zone=southamerica-east1-a
 
 # Resume when needed
-gcloud compute instances start hotel-munich-staging --zone=southamerica-east1-b
+gcloud compute instances start hotel-munich-staging --zone=southamerica-east1-a
 ```
 
 | State | Monthly Cost |
@@ -107,7 +107,7 @@ gcloud compute instances start hotel-munich-staging --zone=southamerica-east1-b
 
 ```bash
 # SSH into VM
-gcloud compute ssh hotel-munich-staging --zone=southamerica-east1-b
+gcloud compute ssh hotel-munich-staging --zone=southamerica-east1-a
 
 # Pull latest code
 cd /opt/hotel_munich
@@ -129,7 +129,7 @@ bash scripts/service_control_linux.sh restart
 
 ```bash
 # Delete VM completely (stops all billing)
-gcloud compute instances delete hotel-munich-staging --zone=southamerica-east1-b
+gcloud compute instances delete hotel-munich-staging --zone=southamerica-east1-a
 
 # Delete firewall rules
 gcloud compute firewall-rules delete hotel-allow-ports
