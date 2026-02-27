@@ -1,10 +1,10 @@
 # SYNTHESIS REPORT: Hotel PMS Audit
 
 **Generated:** 2026-02-04
-**Last Updated:** 2026-02-25
+**Last Updated:** 2026-02-27
 **Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
 **Total Findings:** 78 | **Resolved:** 76 | **Remaining:** 2 (low-priority backlog: STRUCT-12, STRUCT-13)
-**Project Status:** DEPLOYMENT-READY (v1.1.0, 224 tests passing)
+**Project Status:** DEPLOYED TO GCP STAGING (v1.1.0, 224 tests passing, 3 deployment bugs fixed)
 
 ---
 
@@ -188,6 +188,21 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 
 ---
 
+## GCP Staging Deployment Bugs (2026-02-27)
+
+First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1-a, IP 34.39.241.69). Three bugs found and fixed during staging validation:
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-SEED-01 | `seed_monges.py` crashes on `INSERT INTO buildings` | **HIGH** | Script referenced `buildings` table which doesn't exist in current schema. Also injected `building_id` into room data. | ✅ FIXED |
+| BUG-INITDB-01 | `init_db()` crashes with TypeError on startup | **HIGH** | Legacy Excel migration code in `database.py` tried `Room(type="Standard")` — `type` field removed from Room model. ~100 lines of dead migration code. | ✅ FIXED |
+| BUG-NAN-NIGHTS-01 | Mobile reservation form shows "Total de Noches: NaN" + 0 rooms | **HIGH** | Two linked issues: (1) `RoomSelection.tsx` checkIn onChange passed `checkOut: undefined` via object spread, wiping the value. (2) `calculateNights()` used `new Date(undefined)` → NaN, and `Math.max(1, NaN)` → NaN (JS gotcha). Also prevented room API call (guard `!formData.checkOut` → true). | ✅ FIXED |
+| BUG-SEED-02 | `/rooms/categories` API returns empty array — no room categories visible | **HIGH** | `seed_monges.py` inserted categories without `active` column. DB defaulted to NULL. API filters `WHERE active=1`, excluding all rows. | ✅ FIXED |
+
+**Lesson learned:** Staging deployment exposed 4 bugs that were invisible to unit tests and local development. All were data/schema mismatches between seed scripts and the evolved database schema, plus a subtle JavaScript object spread gotcha.
+
+---
+
 ## BACKLOG — Nice to Have
 
 | ID | Task | Time |
@@ -296,8 +311,9 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 13. ~~**Day 12:** TEST-01b — Tier 1+2 test expansion (+35 → 224 tests, 22 files)~~ ✅
 14. ~~**Day 13:** INFRA-01 to 05 (Remote admin API, Tailscale VPN, Linux systemd services, GCP staging, test data seeder)~~ ✅
 15. ~~**Day 13:** REPO-01 to 03 (Two-repo split, sensitive data redaction, public history purge)~~ ✅
-16. **Backlog:** PERF-12 (Redis), STRUCT-12 (snake_case), STRUCT-13 (English constants), Tier 3-5 tests (~34 remaining)
-17. **Review:** Re-run audits after deployment validation on GCP staging
+16. ~~**Day 14:** DEPLOY-01 — GCP staging deployment + 4 deployment bug fixes (BUG-SEED-01/02, BUG-INITDB-01, BUG-NAN-NIGHTS-01)~~ ✅
+17. **Backlog:** PERF-12 (Redis), STRUCT-12 (snake_case), STRUCT-13 (English constants), Tier 3-5 tests (~34 remaining)
+18. **Next:** Continue staging validation — verify remaining mobile flows (room selection still needs testing), test PC frontend on VM
 
 ---
 
@@ -322,6 +338,7 @@ Discovered during live testing after STRUCT-08. These were latent bugs invisible
 | FEAT-REQ-01/02/03 | Property model fixes, arrival time, settings display (2026-02-15) |
 | INFRA-01 to INFRA-05 | Remote maintenance infrastructure (2026-02-23) |
 | REPO-01 to REPO-03 | Repository security cleanup (2026-02-25) |
+| BUG-SEED-01/02, BUG-INITDB-01, BUG-NAN-NIGHTS-01 | GCP staging deployment validation (2026-02-27) |
 
 ---
 

@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT.md
 # Hotel Management System - Single Source of Truth
-**Last Updated:** 2026-02-25
-**Phase:** Los Monges MVP -- Deployment-Ready (v1.1.0)
+**Last Updated:** 2026-02-27
+**Phase:** Los Monges MVP -- Deployed to GCP Staging (v1.1.0)
 
 ---
 
@@ -163,7 +163,7 @@ graph TB
 |-----------|--------|-------|
 | Backend API | A | FastAPI + SQLAlchemy. N+1 fixed. Pricing engine validated. Admin API for remote management. |
 | PC App | A | Modularized (116 LOC orchestrator). Caching optimized. Light theme. iCal admin. |
-| Mobile App | A | Connectivity issues resolved. Booking flow active. Multi-category. |
+| Mobile App | A | Connectivity issues resolved. Booking flow active. Multi-category. NaN nights + missing rooms fixed (2026-02-27). |
 | Database | A- | SQLite with indexes. Performance optimized. WAL mode. |
 | AI Agent | A | Gemini 2.5 Flash stable with fallback. 30s timeout. |
 | Security | A+ | RBAC. JWT revocation. Error sanitization. Security headers. Git history purged. Keys rotated. |
@@ -198,7 +198,7 @@ graph TB
 | scoped_session concurrency in FastAPI | LOW | HIGH | **Materialized 2026-02-10:** `SessionLocal` (scoped_session) shared sessions across threadpool threads. Fixed: `deps.py` now uses `session_factory()` directly. `SessionLocal` only used by Streamlit. |
 | Overbooking (room double-booking) | LOW | HIGH | **Materialized 2026-02-10:** Room status loaded for TODAY only, never re-checked for selected dates. Fixed: date-range overlap API + frontend re-fetch on date change. |
 | Multi-tenant data leak (if tenant_id not added before Client #2) | HIGH | CRITICAL | Block Client #2 until tenant isolation is live. |
-| Deployment without staging validation | LOW | HIGH | GCP staging environment available. seed_test_data.py for realistic data. 224 tests passing. |
+| Deployment without staging validation | LOW | HIGH | GCP staging deployed and validated (2026-02-27). 3 deployment bugs found and fixed. seed_test_data.py for realistic data. 224 tests passing. |
 | Git history data leak | ELIMINATED | -- | Public repo history purged 2026-02-25. Keys rotated. Two-repo architecture prevents future leaks. |
 
 ---
@@ -359,6 +359,11 @@ graph TB
 | 2026-02-25 | **REPO-01**: Two-repo architecture — public (`sistema-hotel-m` / origin) for deployment, private (`hotel-PMS-dev` / private) for development. Internal docs on `private/dev` branch only. | Claude Opus 4.6 |
 | 2026-02-25 | **REPO-02**: Sensitive data redaction — API keys and JWT secrets redacted from tracked files. Public repo history purged (single clean commit). | Claude Opus 4.6 |
 | 2026-02-25 | **REPO-03**: Internal content removal — claude_audit/, PROJECT_CONTEXT.md, debug scripts, dev configs removed from public repo via `.gitignore` + `git rm --cached`. | Claude Opus 4.6 |
+| 2026-02-27 | **DEPLOY-01**: First GCP staging deployment — VM `hotel-munich-staging` (e2-small, southamerica-east1-a, IP 34.39.241.69). All 3 services running via systemd. | Claude Opus 4.6 |
+| 2026-02-27 | **BUG-SEED-01**: Fixed `seed_monges.py` — removed reference to nonexistent `buildings` table. | Claude Opus 4.6 |
+| 2026-02-27 | **BUG-INITDB-01**: Fixed `database.py` `init_db()` — removed legacy Excel migration code that used old Room schema fields (`type`, `status`). | Claude Opus 4.6 |
+| 2026-02-27 | **BUG-NAN-NIGHTS-01**: Fixed NaN nights display in mobile reservation form — `RoomSelection.tsx` checkIn onChange passed `checkOut: undefined` via spread; `calculateNights()` hardened with guard clause + timezone-safe date parsing. | Claude Opus 4.6 |
+| 2026-02-27 | **BUG-SEED-02**: Fixed `seed_monges.py` — room categories missing `active=1`, causing `/rooms/categories` API to return empty array (filter `WHERE active=1` excluded all NULL rows). | Claude Opus 4.6 |
 
 ---
 
