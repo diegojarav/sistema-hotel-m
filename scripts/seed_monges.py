@@ -126,6 +126,7 @@ ROOM_CATEGORIES = [
             {"type": "litera", "qty": 1}
         ]),
         "amenities": json.dumps(["wifi", "ac", "tv", "frigobar", "baño_privado"]),
+        "active": 1,
         "sort_order": 1,
         "qty": 2  # Estimated quantity - UPDATE THIS
     },
@@ -140,6 +141,7 @@ ROOM_CATEGORIES = [
             {"type": "litera", "qty": 1}
         ]),
         "amenities": json.dumps(["wifi", "ac", "tv", "baño_privado"]),
+        "active": 1,
         "sort_order": 2,
         "qty": 3  # Estimated quantity - UPDATE THIS
     },
@@ -154,6 +156,7 @@ ROOM_CATEGORIES = [
             {"type": "individual", "qty": 2}
         ]),
         "amenities": json.dumps(["wifi", "ac", "tv", "frigobar", "escritorio", "baño_privado"]),
+        "active": 1,
         "sort_order": 3,
         "qty": 2  # Estimated quantity - UPDATE THIS
     },
@@ -168,6 +171,7 @@ ROOM_CATEGORIES = [
             {"type": "individual", "qty": 1}
         ]),
         "amenities": json.dumps(["wifi", "ac", "tv", "baño_privado"]),
+        "active": 1,
         "sort_order": 4,
         "qty": 3  # Estimated quantity - UPDATE THIS
     },
@@ -181,6 +185,7 @@ ROOM_CATEGORIES = [
             {"type": "matrimonial", "qty": 1}
         ]),
         "amenities": json.dumps(["wifi", "ac", "tv", "frigobar", "baño_privado"]),
+        "active": 1,
         "sort_order": 5,
         "qty": 2  # Estimated quantity - UPDATE THIS
     },
@@ -194,6 +199,7 @@ ROOM_CATEGORIES = [
             {"type": "matrimonial", "qty": 1}
         ]),
         "amenities": json.dumps(["wifi", "ac", "tv", "baño_privado"]),
+        "active": 1,
         "sort_order": 6,
         "qty": 3  # Estimated quantity - UPDATE THIS
     },
