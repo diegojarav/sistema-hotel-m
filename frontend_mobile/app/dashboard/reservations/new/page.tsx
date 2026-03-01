@@ -64,11 +64,8 @@ export default function NewReservationPage() {
     const [isScanning, setIsScanning] = useState(false);
     const [scanError, setScanError] = useState('');
 
-    // Get today and tomorrow for defaults
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-
-    // Form state
+    // Form state — dates initialized empty to avoid SSR hydration mismatch,
+    // then set to today/tomorrow on client mount via useEffect below.
     const [formData, setFormData] = useState({
         apellidos: '',
         nombres: '',
@@ -78,14 +75,25 @@ export default function NewReservationPage() {
         fechaNacimiento: '',
         telefono: '',
         arrivalTime: '',
-        checkIn: today,
-        checkOut: tomorrow,
+        checkIn: '',
+        checkOut: '',
         precio: 0,
         parkingNeeded: false,
         vehicleModel: '',
         vehiclePlate: '',
         source: 'Direct',
     });
+
+    // Set default dates on client only (avoids SSR hydration mismatch)
+    const datesInitialized = useRef(false);
+    useEffect(() => {
+        if (!datesInitialized.current) {
+            const today = new Date().toISOString().split('T')[0];
+            const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+            setFormData(prev => ({ ...prev, checkIn: today, checkOut: tomorrow }));
+            datesInitialized.current = true;
+        }
+    }, []);
 
     // Multi-room selection (across categories)
     const [selectedRooms, setSelectedRooms] = useState<string[]>([]);

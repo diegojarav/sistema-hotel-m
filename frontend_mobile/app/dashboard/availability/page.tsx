@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import {
     RoomStatus,
@@ -16,6 +16,7 @@ export default function AvailabilityPage() {
     const [rooms, setRooms] = useState<RoomStatus[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+    const [lastUpdated, setLastUpdated] = useState('');
 
     useEffect(() => {
         if (authLoading) return;
@@ -24,6 +25,7 @@ export default function AvailabilityPage() {
             try {
                 const data = await getRoomsStatus();
                 setRooms(data);
+                setLastUpdated(new Date().toLocaleTimeString('es-ES'));
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Error desconocido');
             } finally {
@@ -174,7 +176,7 @@ export default function AvailabilityPage() {
 
             <footer className="p-4 text-center">
                 <p className="text-gray-400 text-xs">
-                    Actualizado: {new Date().toLocaleTimeString('es-ES')}
+                    {lastUpdated && `Actualizado: ${lastUpdated}`}
                 </p>
             </footer>
         </div>

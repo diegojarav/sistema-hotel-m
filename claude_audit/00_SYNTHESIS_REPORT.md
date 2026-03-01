@@ -1,10 +1,10 @@
 # SYNTHESIS REPORT: Hotel PMS Audit
 
 **Generated:** 2026-02-04
-**Last Updated:** 2026-02-27
+**Last Updated:** 2026-03-01
 **Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
-**Total Findings:** 78 | **Resolved:** 76 | **Remaining:** 2 (low-priority backlog: STRUCT-12, STRUCT-13)
-**Project Status:** DEPLOYED TO GCP STAGING (v1.1.0, 224 tests passing, 3 deployment bugs fixed)
+**Total Findings:** 80 | **Resolved:** 78 | **Remaining:** 2 (low-priority backlog: STRUCT-12, STRUCT-13)
+**Project Status:** DEPLOYED TO GCP STAGING (v1.1.0, 224 tests passing, CI/CD + pre-commit hooks active, full UI testing verified)
 
 ---
 
@@ -198,8 +198,35 @@ First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1
 | BUG-INITDB-01 | `init_db()` crashes with TypeError on startup | **HIGH** | Legacy Excel migration code in `database.py` tried `Room(type="Standard")` — `type` field removed from Room model. ~100 lines of dead migration code. | ✅ FIXED |
 | BUG-NAN-NIGHTS-01 | Mobile reservation form shows "Total de Noches: NaN" + 0 rooms | **HIGH** | Two linked issues: (1) `RoomSelection.tsx` checkIn onChange passed `checkOut: undefined` via object spread, wiping the value. (2) `calculateNights()` used `new Date(undefined)` → NaN, and `Math.max(1, NaN)` → NaN (JS gotcha). Also prevented room API call (guard `!formData.checkOut` → true). | ✅ FIXED |
 | BUG-SEED-02 | `/rooms/categories` API returns empty array — no room categories visible | **HIGH** | `seed_monges.py` inserted categories without `active` column. DB defaulted to NULL. API filters `WHERE active=1`, excluding all rows. | ✅ FIXED |
+| BUG-SEED-03 | `/pricing/client-types` API returns empty array — pricing shows 0 Gs | **HIGH** | Same pattern as BUG-SEED-02: `seed_monges.py` inserted `client_types` without `active=1`. All 7 client types had `active=NULL`, API filtered them out. Room selection showed "Total: 0 Gs". | ✅ FIXED |
+| BUG-HYDRATION-01 | Next.js hydration mismatch error on reservation page | **MEDIUM** | `new Date().toISOString()` computed during SSR produces different value on client. Also `toLocaleTimeString()` rendered inline in availability page. Fixed by deferring date computation to `useEffect`. | ✅ FIXED |
 
-**Lesson learned:** Staging deployment exposed 4 bugs that were invisible to unit tests and local development. All were data/schema mismatches between seed scripts and the evolved database schema, plus a subtle JavaScript object spread gotcha.
+**Lesson learned:** Staging deployment exposed 4 bugs + UI testing exposed 2 more (BUG-SEED-03, BUG-HYDRATION-01) that were invisible to unit tests. Seed data bugs are a recurring pattern — raw SQL INSERTs bypass ORM column defaults. Full-stack UI testing is essential alongside unit tests.
+
+---
+
+## Professional Development Workflow (2026-03-01)
+
+After GCP deployment exposed multiple bugs, a comprehensive development workflow was implemented to prevent regressions and automate quality gates.
+
+**Root cause analysis:** The deployment bugs were not code quality issues — they were workflow issues. No CI, no pre-commit hooks, no automated testing gates, no DB reset command, manual multi-step deployment, and force-pushes between repos causing history divergence.
+
+| ID | Component | Detail | Status |
+|----|-----------|--------|--------|
+| WORKFLOW-01a | DB reset script | `scripts/reset_local_db.py` — deletes hotel.db + WAL/SHM, creates schema, seeds data. Handles Windows UTF-8 encoding. `npm run reset-db` | DONE |
+| WORKFLOW-01b | npm scripts task runner | Root `package.json` — `npm run test`, `npm run reset-db`, `npm run deploy:staging`, `npm run dev:backend/mobile/pc` | DONE |
+| WORKFLOW-01c | Pre-commit hook | `scripts/hooks/pre-commit` — blocks `.env`, `.db`, credentials from commits. Runs backend pytest (~3s). Installed via `git config core.hooksPath scripts/hooks`. | DONE |
+| WORKFLOW-01d | GitHub Actions CI | `.github/workflows/ci.yml` — two parallel jobs on push to main/dev: (1) backend pytest (Python 3.11), (2) frontend build check (Node 20). | DONE |
+| WORKFLOW-01e | One-command deploy | `scripts/deploy_staging.sh` — runs local tests → pushes to origin → SSHs to VM → git pull + rebuild + restart services. | DONE |
+| WORKFLOW-01f | Dual push URL | `git push origin dev:main` pushes to both public (`sistema-hotel-m`) and private (`hotel-PMS-dev`) repos. No more force-pushes — histories unified. | DONE |
+
+**Developer daily workflow:**
+```
+npm run reset-db          # Reset local DB (if needed)
+npm test                  # Run all tests (backend + frontend build)
+git commit -m "..."       # Pre-commit hook auto-runs tests + blocks secrets
+npm run deploy:staging    # Tests + push + deploy in one command
+```
 
 ---
 
@@ -265,6 +292,15 @@ First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1
 - [x] FEAT-LINK-01 tests (auto check-in, duplicate prevention, unlinked reservations)
 - [ ] Tier 3-5 tests (~34 remaining: analytics, AI features, infrastructure)
 
+### DevOps & Workflow
+- [x] Pre-commit hook blocks secrets + runs backend tests (WORKFLOW-01c)
+- [x] GitHub Actions CI on push — backend tests + frontend build (WORKFLOW-01d)
+- [x] npm scripts task runner — `npm test`, `npm run reset-db`, `npm run deploy:staging` (WORKFLOW-01b)
+- [x] One-command DB reset for local development (WORKFLOW-01a)
+- [x] One-command staging deployment with pre-flight tests (WORKFLOW-01e)
+- [x] Dual push URL — single push to both repos (WORKFLOW-01f)
+- [x] No force-push policy — histories unified (WORKFLOW-01f)
+
 ### Performance
 - [x] Database indexes on frequently queried columns
 - [x] Pagination on list endpoints
@@ -280,14 +316,16 @@ First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1
 
 | Metric | Value |
 |--------|-------|
-| Total Findings | 78 |
-| **Resolved** | **76** |
+| Total Findings | 80 |
+| **Resolved** | **78** |
 | **Remaining** | **2** (STRUCT-12 snake_case, STRUCT-13 English constants) |
 | Security Critical | 0 remaining |
 | Architecture Critical | 0 remaining |
 | Quick Wins | 0 remaining (12/12 done) |
 | Sprint Work | 0 remaining (11/11 done) |
 | Infrastructure | 5/5 done (INFRA-01 to INFRA-05) |
+| Dev Workflow | 6/6 done (WORKFLOW-01a to 01f) |
+| UI/UX Testing | 2 bugs caught + fixed (BUG-SEED-03, BUG-HYDRATION-01) |
 | Repo Security | 3/3 done (REPO-01 to REPO-03) |
 | Test Coverage | 224 tests (76.5%) — Tier 1+2 complete |
 | Backlog | ~10h (PERF-12 Redis, STRUCT-12/13 naming, Tier 3-5 tests) |
@@ -312,8 +350,10 @@ First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1
 14. ~~**Day 13:** INFRA-01 to 05 (Remote admin API, Tailscale VPN, Linux systemd services, GCP staging, test data seeder)~~ ✅
 15. ~~**Day 13:** REPO-01 to 03 (Two-repo split, sensitive data redaction, public history purge)~~ ✅
 16. ~~**Day 14:** DEPLOY-01 — GCP staging deployment + 4 deployment bug fixes (BUG-SEED-01/02, BUG-INITDB-01, BUG-NAN-NIGHTS-01)~~ ✅
-17. **Backlog:** PERF-12 (Redis), STRUCT-12 (snake_case), STRUCT-13 (English constants), Tier 3-5 tests (~34 remaining)
-18. **Next:** Continue staging validation — verify remaining mobile flows (room selection still needs testing), test PC frontend on VM
+17. ~~**Day 15:** WORKFLOW-01 — Professional development workflow (npm scripts, pre-commit hook, GitHub Actions CI, deploy script, dual push URL, DB reset)~~ ✅
+18. ~~**Day 15:** BUG-SEED-03, BUG-HYDRATION-01 — Full UI/UX testing (mobile + PC) caught seed bug (client_types active=NULL) and Next.js hydration mismatch~~ ✅
+19. **Next:** Start VM → deploy with `npm run deploy:staging` → validate staging
+20. **Backlog:** PERF-12 (Redis), STRUCT-12 (snake_case), STRUCT-13 (English constants), Tier 3-5 tests (~34 remaining)
 
 ---
 
@@ -339,6 +379,8 @@ First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1
 | INFRA-01 to INFRA-05 | Remote maintenance infrastructure (2026-02-23) |
 | REPO-01 to REPO-03 | Repository security cleanup (2026-02-25) |
 | BUG-SEED-01/02, BUG-INITDB-01, BUG-NAN-NIGHTS-01 | GCP staging deployment validation (2026-02-27) |
+| WORKFLOW-01a to 01f | Professional workflow implementation (2026-03-01) |
+| BUG-SEED-03, BUG-HYDRATION-01 | Full UI/UX testing — local testing with seeded DB (2026-03-01) |
 
 ---
 

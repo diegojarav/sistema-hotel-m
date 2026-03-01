@@ -216,7 +216,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#6B7280",  # Gray
         "icon": "user",
-        "sort_order": 1
+        "sort_order": 1,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-empresa",
@@ -227,7 +228,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#3B82F6",  # Blue
         "icon": "building",
-        "sort_order": 2
+        "sort_order": 2,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-grupo",
@@ -238,7 +240,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 3,
         "color": "#8B5CF6",  # Purple
         "icon": "users",
-        "sort_order": 3
+        "sort_order": 3,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-agencia",
@@ -249,7 +252,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#10B981",  # Green
         "icon": "globe",
-        "sort_order": 4
+        "sort_order": 4,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-booking",
@@ -260,7 +264,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#003580",  # Booking blue
         "icon": "calendar",
-        "sort_order": 5
+        "sort_order": 5,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-airbnb",
@@ -271,7 +276,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#FF5A5F",  # Airbnb red
         "icon": "home",
-        "sort_order": 6
+        "sort_order": 6,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-vip",
@@ -282,7 +288,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#F59E0B",  # Amber/Gold
         "icon": "star",
-        "sort_order": 7
+        "sort_order": 7,
+        "active": 1
     },
 ]
 

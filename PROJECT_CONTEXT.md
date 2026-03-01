@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT.md
 # Hotel Management System - Single Source of Truth
-**Last Updated:** 2026-02-27
-**Phase:** Los Monges MVP -- Deployed to GCP Staging (v1.1.0)
+**Last Updated:** 2026-03-01
+**Phase:** Los Monges MVP -- Deployed to GCP Staging (v1.1.0) + Professional Workflow
 
 ---
 
@@ -85,11 +85,15 @@ hotel_munich/
 ├── scripts/                     # Deployment, migration, and operations
 │   ├── deploy.py                # Full deployment script with rollback
 │   ├── deploy_frontend_only.py  # Frontend-only deploy shortcut
+│   ├── deploy_staging.sh        # One-command GCP staging deploy (tests + push + SSH)
+│   ├── reset_local_db.py        # Reset local hotel.db: delete + schema + seed
 │   ├── seed_monges.py           # Base data seeder (property, rooms, categories)
 │   ├── seed_test_data.py        # Test data generator (reservations, check-ins, sessions, iCal feeds)
 │   ├── run_migrations.py        # Schema migrations runner
 │   ├── add_indexes.py           # Database index migration
 │   ├── migrate_*.py             # Schema migration scripts
+│   ├── hooks/                   # Git hooks (pre-commit: blocks secrets, runs tests)
+│   │   └── pre-commit           # git config core.hooksPath scripts/hooks
 │   ├── install_services.bat     # Windows NSSM service installer
 │   ├── service_control.bat      # Windows service controller
 │   ├── service_control_linux.sh # Linux systemd service manager
@@ -97,6 +101,8 @@ hotel_munich/
 │   ├── setup_gcp_staging.md     # GCP staging setup guide
 │   └── setup_tailscale.md       # Tailscale VPN remote access guide
 │
+├── .github/workflows/ci.yml    # GitHub Actions CI (backend tests + frontend build)
+├── package.json                 # Root task runner (npm scripts: test, reset-db, deploy)
 ├── PROJECT_CONTEXT.md           # THIS FILE (private repo only)
 ├── REQUIREMENTS.md              # Los Monges business requirements
 └── claude_audit/                # Audit reports and tracking (private repo only)
@@ -147,7 +153,12 @@ graph TB
 | **Property settings endpoint** | `GET /settings/property-settings` returns check-in/out times and breakfast policy from `properties` table. Public endpoint, fetched on reservation form mount. |
 | **iCal sync (Booking.com/Airbnb)** | `ICalService` handles import (pull .ics from OTA URLs, upsert reservations with `source`/`external_id`) and export (serve .ics at `/ical/export/{room_id}.ics`). Background auto-sync every 15min via FastAPI lifespan. `ICalFeed` model stores per-room feed URLs. Admin UI in `09_Configuracion.py`. |
 | **Admin API** | `admin.py` provides remote management: backup list/trigger, error log tail, deploy log, system info. All endpoints require `require_role("admin")`. |
-| **Two-repo architecture** | Public repo (`sistema-hotel-m` / origin) for deployment only. Private repo (`hotel-PMS-dev` / private) with `main` (production code) and `dev` (main + internal docs + dev scripts). Internal docs never reach public repo. |
+| **Two-repo architecture** | Public repo (`sistema-hotel-m` / origin) for deployment only. Private repo (`hotel-PMS-dev` / private) with `main` (production code) and `dev` (main + internal docs + dev scripts). **Dual push URL**: `git push origin dev:main` pushes to both repos simultaneously. Internal docs never reach public repo. |
+| **Task runner (npm scripts)** | Root `package.json` with workspace-level scripts: `npm run test:backend`, `npm run test:frontend`, `npm run test`, `npm run reset-db`, `npm run deploy:staging`, `npm run dev:backend`, `npm run dev:mobile`, `npm run dev:pc`. |
+| **Pre-commit hook** | `scripts/hooks/pre-commit` blocks `.env`, `.db`, credentials, secrets from being committed. Runs backend pytest automatically (~3s). Installed via `git config core.hooksPath scripts/hooks`. |
+| **GitHub Actions CI** | `.github/workflows/ci.yml` — two parallel jobs on push to `main`/`dev`: (1) backend tests (Python 3.11 + pytest), (2) frontend build check (Node 20 + `npm run build`). |
+| **One-command deploy** | `scripts/deploy_staging.sh` (or `npm run deploy:staging`): runs local tests → pushes to origin → SSHs to VM → pulls + rebuilds + restarts services. |
+| **DB reset script** | `scripts/reset_local_db.py` (or `npm run reset-db`): deletes hotel.db + WAL/SHM → creates schema via `init_db()` → seeds via `run_seed()`. Handles Windows UTF-8 encoding. |
 | **GCP staging** | `scripts/setup_gcp_staging.sh` provisions an e2-small VM in southamerica-east1 (~$16/mo, $300 free credits). `scripts/setup_gcp_staging.md` has the full runbook. |
 | **Remote access** | Tailscale mesh VPN for NAT-traversal SSH. Guide in `scripts/setup_tailscale.md`. No port forwarding needed. |
 | **Test data seeder** | `scripts/seed_test_data.py` generates 80-100 reservations, 40-50 check-ins, 100+ sessions, 4-6 iCal feeds. Supports `--dry-run` and `--reset`. Weighted random distributions matching real-world patterns. |
@@ -198,7 +209,7 @@ graph TB
 | scoped_session concurrency in FastAPI | LOW | HIGH | **Materialized 2026-02-10:** `SessionLocal` (scoped_session) shared sessions across threadpool threads. Fixed: `deps.py` now uses `session_factory()` directly. `SessionLocal` only used by Streamlit. |
 | Overbooking (room double-booking) | LOW | HIGH | **Materialized 2026-02-10:** Room status loaded for TODAY only, never re-checked for selected dates. Fixed: date-range overlap API + frontend re-fetch on date change. |
 | Multi-tenant data leak (if tenant_id not added before Client #2) | HIGH | CRITICAL | Block Client #2 until tenant isolation is live. |
-| Deployment without staging validation | LOW | HIGH | GCP staging deployed and validated (2026-02-27). 3 deployment bugs found and fixed. seed_test_data.py for realistic data. 224 tests passing. |
+| Deployment without staging validation | LOW | HIGH | **Mitigated (2026-03-01):** GCP staging deployed. Pre-commit hook blocks bad commits + runs tests. GitHub Actions CI on push. One-command deploy (`npm run deploy:staging`) runs tests before deploying. 224 tests passing. |
 | Git history data leak | ELIMINATED | -- | Public repo history purged 2026-02-25. Keys rotated. Two-repo architecture prevents future leaks. |
 
 ---
@@ -364,6 +375,22 @@ graph TB
 | 2026-02-27 | **BUG-INITDB-01**: Fixed `database.py` `init_db()` — removed legacy Excel migration code that used old Room schema fields (`type`, `status`). | Claude Opus 4.6 |
 | 2026-02-27 | **BUG-NAN-NIGHTS-01**: Fixed NaN nights display in mobile reservation form — `RoomSelection.tsx` checkIn onChange passed `checkOut: undefined` via spread; `calculateNights()` hardened with guard clause + timezone-safe date parsing. | Claude Opus 4.6 |
 | 2026-02-27 | **BUG-SEED-02**: Fixed `seed_monges.py` — room categories missing `active=1`, causing `/rooms/categories` API to return empty array (filter `WHERE active=1` excluded all NULL rows). | Claude Opus 4.6 |
+| 2026-03-01 | **WORKFLOW-01**: Professional development workflow — root `package.json` task runner (npm scripts), `scripts/reset_local_db.py` (one-command DB reset), pre-commit hook (block secrets + run tests), GitHub Actions CI (backend tests + frontend build), `scripts/deploy_staging.sh` (one-command staging deploy), dual push URL (both repos). | Claude Opus 4.6 |
+| 2026-03-01 | **BUG-SEED-03**: Fixed `seed_monges.py` — client_types missing `active=1` (same pattern as BUG-SEED-02). All 7 client types had `active=NULL`, causing pricing API to return empty array and reservation form to show "Total: 0 Gs". | Claude Opus 4.6 |
+| 2026-03-01 | **BUG-HYDRATION-01**: Fixed Next.js SSR hydration mismatch — `new Date()` computed during render in `reservations/new/page.tsx` (lines 68-69) and `toLocaleTimeString()` in `availability/page.tsx` (line 177). Deferred date computation to `useEffect` for client-only execution. | Claude Opus 4.6 |
+
+---
+
+### DevOps & Workflow
+| Feature | Status |
+|---------|--------|
+| npm scripts task runner (`package.json`) | Done |
+| Pre-commit hook (secrets block + backend tests) | Done |
+| GitHub Actions CI (backend + frontend, parallel jobs) | Done |
+| One-command DB reset (`npm run reset-db`) | Done |
+| One-command staging deploy (`npm run deploy:staging`) | Done |
+| Dual push URL (origin pushes to both repos) | Done |
+| No force-push policy (histories unified) | Done |
 
 ---
 
