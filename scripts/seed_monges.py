@@ -100,17 +100,6 @@ PROPERTY_DATA = {
     "active": 1
 }
 
-# Building (single building for Los Monges)
-BUILDING_DATA = {
-    "id": f"{PROPERTY_ID}-principal",
-    "property_id": PROPERTY_ID,
-    "name": "Edificio Principal",
-    "floors": 2,
-    "description": "Edificio principal del hospedaje",
-    "sort_order": 0,
-    "active": 1
-}
-
 # Room categories with pricing
 # NOTE: Quantities (qty) are estimates - update based on actual inventory
 ROOM_CATEGORIES = [
@@ -494,25 +483,6 @@ def seed_property(conn: sqlite3.Connection, dry_run: bool = False):
     conn.execute(f"INSERT INTO properties ({columns}) VALUES ({placeholders})", values)
     log_success(f"Property '{PROPERTY_NAME}' created")
 
-def seed_building(conn: sqlite3.Connection, dry_run: bool = False):
-    """Seed the building record."""
-    log_info(f"Seeding building: {BUILDING_DATA['name']}")
-    
-    if check_data_exists(conn, 'buildings', 'id', BUILDING_DATA['id']):
-        log_warning(f"Building '{BUILDING_DATA['id']}' already exists. Skipping.")
-        return
-    
-    if dry_run:
-        log_info(f"[DRY RUN] Would insert building: {BUILDING_DATA['name']}")
-        return
-    
-    columns = ', '.join(BUILDING_DATA.keys())
-    placeholders = ', '.join(['?' for _ in BUILDING_DATA])
-    values = tuple(BUILDING_DATA.values())
-    
-    conn.execute(f"INSERT INTO buildings ({columns}) VALUES ({placeholders})", values)
-    log_success(f"Building '{BUILDING_DATA['name']}' created")
-
 def seed_categories(conn: sqlite3.Connection, dry_run: bool = False):
     """Seed room categories."""
     log_info(f"Seeding {len(ROOM_CATEGORIES)} room categories...")
@@ -800,8 +770,6 @@ def run_seed(db_path: Path, dry_run: bool = False, reset: bool = False) -> bool:
         # Seed in order (respecting foreign keys)
         log_section("STEP 1: Property")
         seed_property(conn, dry_run)
-        
-        # NOTE: buildings table removed from schema — skipping seed_building()
 
         log_section("STEP 2: Room Categories")
         seed_categories(conn, dry_run)

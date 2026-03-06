@@ -141,13 +141,20 @@ hotel_munich/
 │
 ├── scripts/                   # Deployment, migracion y operaciones
 │   ├── deploy.py              # Deployment automatizado con rollback
+│   ├── deploy_staging.sh      # One-command staging deploy (GCP VM)
+│   ├── reset_local_db.py      # Reset + re-seed local database
 │   ├── seed_monges.py         # Datos iniciales (propiedad, habitaciones, categorias)
 │   ├── seed_test_data.py      # Generador de datos de prueba
+│   ├── hooks/
+│   │   └── pre-commit         # Block secrets + run tests before commit
 │   ├── service_control.bat    # Control de servicios Windows
 │   ├── service_control_linux.sh # Control de servicios Linux (systemd)
 │   ├── setup_gcp_staging.sh   # Provisioning VM en GCP
 │   └── setup_gcp_staging.md   # Guia de staging GCP
 │
+├── .github/workflows/ci.yml   # GitHub Actions CI (tests + build)
+├── .gitattributes              # LF enforcement for shell scripts
+├── package.json                # npm scripts task runner (root)
 ├── README.md
 └── REQUIREMENTS.md             # Requisitos de negocio
 ```
