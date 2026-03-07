@@ -3,7 +3,9 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import {
+    RoomCategory,
     RoomStatus,
+    getRoomCategories,
     getRoomsStatus,
     getStatusDisplay,
     formatPrice,
@@ -14,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 export default function AvailabilityPage() {
     const { isLoading: authLoading } = useAuth({ required: true });
     const [rooms, setRooms] = useState<RoomStatus[]>([]);
+    const [categories, setCategories] = useState<RoomCategory[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [lastUpdated, setLastUpdated] = useState('');
@@ -23,8 +26,12 @@ export default function AvailabilityPage() {
 
         async function fetchRooms() {
             try {
-                const data = await getRoomsStatus();
-                setRooms(data);
+                const [roomsData, catsData] = await Promise.all([
+                    getRoomsStatus(),
+                    getRoomCategories(),
+                ]);
+                setRooms(roomsData);
+                setCategories(catsData);
                 setLastUpdated(new Date().toLocaleTimeString('es-ES'));
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Error desconocido');
@@ -35,6 +42,12 @@ export default function AvailabilityPage() {
 
         fetchRooms();
     }, [authLoading]);
+
+    // Build category lookup for descriptions
+    const catMap = categories.reduce((acc, cat) => {
+        acc[cat.id] = cat;
+        return acc;
+    }, {} as Record<string, RoomCategory>);
 
     // Group rooms by floor
     const roomsByFloor = rooms.reduce((acc, room) => {
@@ -142,6 +155,12 @@ export default function AvailabilityPage() {
                                         <p className="text-gray-600 text-sm font-medium mb-1">
                                             {room.category_name}
                                         </p>
+
+                                        {room.category_id && catMap[room.category_id]?.description && (
+                                            <p className="text-gray-400 text-xs mb-1">
+                                                {catMap[room.category_id].description}
+                                            </p>
+                                        )}
 
                                         {room.base_price && (
                                             <p className={`text-xs ${priceColor} mb-1`}>

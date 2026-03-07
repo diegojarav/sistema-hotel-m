@@ -22,7 +22,8 @@ class PricingService:
         check_in: date,
         stay_days: int,
         client_type_id: str,
-        room_id: str = None
+        room_id: str = None,
+        season_id: str = None
     ) -> Dict[str, Any]:
         """
         Calculates the final price with all modifiers.
@@ -34,6 +35,7 @@ class PricingService:
             stay_days: Number of nights
             client_type_id: Client Type ID
             room_id: Optional, to check for custom room price
+            season_id: Optional, manual season override (bypasses auto-detect)
 
         Returns:
             Dict with final_price, currency, breakdown_json, etc.
@@ -85,25 +87,36 @@ class PricingService:
                     "amount": -discount_amount
                 })
 
-        # 4. Seasonal Pricing
-        seasons = db.query(PricingSeason).filter(
-            PricingSeason.property_id == property_id,
-            PricingSeason.active == 1,
-            PricingSeason.start_date <= check_in,
-            PricingSeason.end_date >= check_in
-        ).order_by(desc(PricingSeason.priority)).all()
+        # 4. Seasonal Pricing (manual override or auto-detect by check-in date)
+        season = None
+        if season_id:
+            # Manual override — use the specific season chosen by staff
+            season = db.query(PricingSeason).filter(
+                PricingSeason.id == season_id,
+                PricingSeason.active == 1
+            ).first()
+        else:
+            # Auto-detect — highest priority season covering check-in date
+            seasons = db.query(PricingSeason).filter(
+                PricingSeason.property_id == property_id,
+                PricingSeason.active == 1,
+                PricingSeason.start_date <= check_in,
+                PricingSeason.end_date >= check_in
+            ).order_by(desc(PricingSeason.priority)).all()
+            if seasons:
+                season = seasons[0]
 
-        if seasons:
-            # Take highest priority season active at check-in
-            season = seasons[0]
+        if season:
             modifier = season.price_modifier
-
             season_adjustment = total_base * (modifier - 1.0)
             current_total += season_adjustment
 
             pct_change = (modifier - 1.0) * 100
+            label = f"Temporada: {season.name}"
+            if season_id:
+                label += " (manual)"
             breakdown["modifiers"].append({
-                "name": f"Temporada: {season.name}",
+                "name": label,
                 "percent": pct_change,
                 "amount": season_adjustment
             })
@@ -118,6 +131,26 @@ class PricingService:
             "currency": "PYG",
             "breakdown": breakdown
         }
+
+    @staticmethod
+    @with_db
+    def get_seasons(db: Session, property_id: str = "los-monges") -> List[Dict]:
+        """Get all active pricing seasons for manual selection."""
+        seasons = db.query(PricingSeason).filter(
+            PricingSeason.property_id == property_id,
+            PricingSeason.active == 1
+        ).order_by(desc(PricingSeason.priority)).all()
+
+        return [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description or "",
+                "price_modifier": s.price_modifier,
+                "color": s.color or "#F59E0B"
+            }
+            for s in seasons
+        ]
 
     @staticmethod
     @with_db

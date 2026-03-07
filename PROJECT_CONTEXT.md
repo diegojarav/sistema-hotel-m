@@ -1,6 +1,6 @@
 # PROJECT_CONTEXT.md
 # Hotel Management System - Single Source of Truth
-**Last Updated:** 2026-03-01
+**Last Updated:** 2026-03-07
 **Phase:** Los Monges MVP -- Deployed to GCP Staging (v1.1.0) + Professional Workflow
 
 ---
@@ -35,7 +35,7 @@ hotel_munich/
 │   │   ├── reservation_service.py # ReservationService (905 LOC)
 │   │   ├── guest_service.py     # GuestService (160 LOC)
 │   │   ├── settings_service.py  # SettingsService (84 LOC)
-│   │   ├── pricing_service.py   # PricingService (136 LOC)
+│   │   ├── pricing_service.py   # PricingService (170 LOC) — manual season override
 │   │   ├── room_service.py      # RoomService (202 LOC)
 │   │   └── ical_service.py      # ICalService (331 LOC) — iCal import/export/sync
 │   └── api/                     # FastAPI routes
@@ -44,7 +44,7 @@ hotel_munich/
 │       ├── main.py              # App + CORS + lifespan (iCal auto-sync every 15min)
 │       └── v1/endpoints/        # auth, reservations, guests, rooms, calendar,
 │                                # agent, vision, settings, pricing, users, ical, admin
-│   └── tests/                   # 224 tests across 22 files (pytest + SQLite StaticPool)
+│   └── tests/                   # 237 tests across 22 files (pytest + SQLite StaticPool)
 │       ├── conftest.py          # Fixtures (in-memory SQLite, test client, auth tokens)
 │       └── test_*.py            # Auth, reservations, guests, rooms, pricing, calendar, etc.
 │
@@ -77,7 +77,7 @@ hotel_munich/
 │   └── app/dashboard/
 │       ├── reservations/new/    # (MODULARIZED 2026-02-08)
 │       │   ├── page.tsx         # Orchestrator (286 LOC)
-│       │   └── components/      # DocumentScanner, GuestForm, RoomSelection, PriceSummary
+│       │   └── components/      # DocumentScanner, GuestForm, RoomSelection, PriceSummary, SeasonSelector
 │       ├── calendar/page.tsx
 │       ├── availability/page.tsx
 │       └── chat/page.tsx
@@ -146,7 +146,7 @@ graph TB
 | **Cross-service deps** | `ReservationService` → `PricingService.calculate_price()`, `SettingsService.get_parking_capacity()`. No others. |
 | **Centralized API client** | `api.ts` is the single gateway for all mobile HTTP calls. Auto-attaches JWT, handles FormData, consistent error handling. |
 | **`useAuth` hook** | All protected mobile pages use `useAuth({ required: true })` for auth guards with automatic token refresh. |
-| **Test suite (pytest)** | 224 tests across 22 files. In-memory SQLite with `StaticPool` (thread-safe for FastAPI). Covers services (Streamlit path) + API endpoints (Next.js path). Fixtures in `tests/conftest.py`. Run: `cd backend && python -m pytest tests/ -v`. |
+| **Test suite (pytest)** | 237 tests across 22 files. In-memory SQLite with `StaticPool` (thread-safe for FastAPI). Covers services (Streamlit path) + API endpoints (Next.js path). Fixtures in `tests/conftest.py`. Run: `cd backend && python -m pytest tests/ -v`. |
 | **Multi-category reservations** | Both frontends show all available rooms grouped by category. Users select rooms from any/multiple categories. Pricing calculates per-category and sums. Backend `create_reservations()` resolves each room's category from DB. |
 | **Room ID vs internal_code** | `Room.id` = DB primary key (e.g. `los-monges-room-001`). `Room.internal_code` = human-friendly label (e.g. `DF-01`). All UIs display `internal_code`. Reservations store `room_id` but DTOs include `room_internal_code` for display. |
 | **Date-range availability** | `/rooms/status?check_in=&check_out=` checks overlap across full range (prevents overbooking). Mobile re-fetches rooms when dates change. |
@@ -178,7 +178,7 @@ graph TB
 | Database | A- | SQLite with indexes. Performance optimized. WAL mode. |
 | AI Agent | A | Gemini 2.5 Flash stable with fallback. 30s timeout. |
 | Security | A+ | RBAC. JWT revocation. Error sanitization. Security headers. Git history purged. Keys rotated. |
-| Testing | A | 224 tests across 22 files. 76.5% coverage. Pre-deployment validation. |
+| Testing | A | 237 tests across 22 files. 76.5% coverage. Pre-deployment validation. |
 | Infrastructure | A | GCP staging scripts. Linux service manager. Tailscale VPN. Test data seeder. |
 
 ---
@@ -258,7 +258,7 @@ graph TB
 ### Testing
 | Feature | Status |
 |---------|--------|
-| Pre-deployment test suite (224 tests, 22 files) | Done |
+| Pre-deployment test suite (237 tests, 22 files) | Done |
 | StaticPool fix for in-memory SQLite + FastAPI threading | Done |
 | Auth API tests (login, refresh, logout, revocation, rate-limit) | Done |
 | Auth service tests (login, sessions, password hashing) | Done |
@@ -269,7 +269,7 @@ graph TB
 | Room API + service tests (CRUD, categories, availability, RBAC) | Done |
 | iCal service + API tests (sync, export, edge cases, background) | Done |
 | Calendar API tests (events, occupancy, summary) | Done |
-| Pricing tests (calculation, seasons, corporate discount) | Done |
+| Pricing tests (calculation, seasons, corporate discount, manual season override, GET /seasons) | Done |
 | Schema validation tests (Pydantic models) | Done |
 | Security tests (JWT, bcrypt, RBAC) | Done |
 | Settings API + service tests (hotel name, parking, property) | Done |
@@ -302,6 +302,14 @@ graph TB
 | Background auto-sync every 15 min (FEAT-ICAL-03) | Done |
 | iCal admin UI in Configuracion page (FEAT-ICAL-04) | Done |
 | Source dropdown: Facebook, Instagram, Google added (FEAT-ICAL-05) | Done |
+| Manual season override — optional `season_id` param in pricing API (FEAT-SEASON-OVERRIDE) | Done |
+| GET /pricing/seasons endpoint — list active seasons for UI selectors (FEAT-SEASON-LIST) | Done |
+| Season selector UI — mobile (SeasonSelector chip component) + PC (selectbox) (FEAT-SEASON-UI) | Done |
+| Category descriptions — bed config + amenities shown in room selection (mobile + PC) (FEAT-CAT-DESC) | Done |
+| Category descriptions in availability page — mobile room cards show description (FEAT-CAT-DESC-AVAIL) | Done |
+| Category descriptions in daily view — PC calendar shows room type info (FEAT-CAT-DESC-DAILY) | Done |
+| LAN CORS origin — `192.168.3.140:3000` added for phone testing (FEAT-LAN-CORS) | Done |
+| iOS date input fix — vertical stack layout for Safari compatibility (BUG-IOS-DATE) | Done |
 | PC admin token key fix — `api_token` consistent (BUG-TOKEN-PC-01) | Done |
 | PC login JWT includes `role` + `sid` (BUG-TOKEN-PC-02) | Done |
 | Light theme — both frontends white bg + black text (FEAT-THEME-01) | Done |
@@ -378,6 +386,11 @@ graph TB
 | 2026-03-01 | **WORKFLOW-01**: Professional development workflow — root `package.json` task runner (npm scripts), `scripts/reset_local_db.py` (one-command DB reset), pre-commit hook (block secrets + run tests), GitHub Actions CI (backend tests + frontend build), `scripts/deploy_staging.sh` (one-command staging deploy), dual push URL (both repos). | Claude Opus 4.6 |
 | 2026-03-01 | **BUG-SEED-03**: Fixed `seed_monges.py` — client_types missing `active=1` (same pattern as BUG-SEED-02). All 7 client types had `active=NULL`, causing pricing API to return empty array and reservation form to show "Total: 0 Gs". | Claude Opus 4.6 |
 | 2026-03-01 | **BUG-HYDRATION-01**: Fixed Next.js SSR hydration mismatch — `new Date()` computed during render in `reservations/new/page.tsx` (lines 68-69) and `toLocaleTimeString()` in `availability/page.tsx` (line 177). Deferred date computation to `useEffect` for client-only execution. | Claude Opus 4.6 |
+| 2026-03-07 | **FEAT-SEASON-OVERRIDE**: Manual season override — optional `season_id` in `PriceCalculationRequest`, `GET /pricing/seasons` endpoint, `SeasonSelector` mobile component, PC `st.selectbox`. Staff can force a season (e.g. concerts/events) instead of auto-detect by date. 13 new tests (→237 total). | Claude Opus 4.6 |
+| 2026-03-07 | **FEAT-CAT-DESC**: Category descriptions and bed configuration shown in room selection (mobile + PC), availability page (mobile), and daily view (PC calendar). `parseBedConfig()` helper converts JSON bed config to human-readable format. | Claude Opus 4.6 |
+| 2026-03-07 | **BUG-IOS-DATE**: Fixed date input overlap on iPhone 12 Pro (390px) — iOS Safari date inputs have fixed minimum width. Changed from `grid-cols-2` to vertical `space-y-2` stack layout. | Claude Opus 4.6 |
+| 2026-03-07 | **BUG-TOKEN-SETTINGS**: Fixed hotel name save in Admin Users → Configuración General — session key `jwt_token` → `api_token` (same pattern as BUG-TOKEN-PC-01). | Claude Opus 4.6 |
+| 2026-03-07 | **FEAT-LAN-CORS**: Added `http://192.168.3.140:3000` to CORS whitelist + `.env.local` for phone testing on LAN. | Claude Opus 4.6 |
 
 ---
 

@@ -62,6 +62,6 @@ DISCORD_WEBHOOK_URL: str = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 # Comma-separated list of allowed origins
 # Default covers local development; add Tailscale IPs for remote access
-_DEFAULT_CORS = "http://localhost:3000,http://localhost:8501,http://127.0.0.1:3000,http://127.0.0.1:8501"
+_DEFAULT_CORS = "http://localhost:3000,http://localhost:8501,http://127.0.0.1:3000,http://127.0.0.1:8501,http://192.168.3.140:3000"
 CORS_ORIGINS_RAW: str = os.environ.get("CORS_ORIGINS", _DEFAULT_CORS)
 CORS_ORIGINS: list = [origin.strip() for origin in CORS_ORIGINS_RAW.split(",") if origin.strip()]

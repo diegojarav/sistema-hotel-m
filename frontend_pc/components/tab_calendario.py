@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 
 from helpers.constants import MESES_ES
-from helpers.data_fetchers import get_all_rooms_list
+from helpers.data_fetchers import get_all_rooms_list, get_room_categories
 from components.calendar_render import render_native_calendar, render_day_reservations
 from services import ReservationService
 
@@ -151,10 +151,21 @@ def render_tab_calendario():
 
         status_list = ReservationService.get_daily_status(fecha_diaria)
 
+        # Build category description lookup (by name)
+        all_cats = get_room_categories()
+        cat_desc_map = {c["name"]: c.get("description", "") for c in all_cats} if all_cats else {}
+
         for info in status_list:
             with st.container():
                 c1, c2, c3, c4 = st.columns([1, 2, 4, 2])
                 c1.subheader(f"🚪{info.get('internal_code', info['room_id'])}")
+                # Show category name and description
+                room_type = info.get('type', '')
+                if room_type:
+                    c1.caption(room_type)
+                    cat_desc = cat_desc_map.get(room_type, "")
+                    if cat_desc:
+                        c1.caption(cat_desc)
                 if info['status'] == "OCUPADA":
                     c2.markdown(":red[**OCUPADA**]")
                     c3.write(f"👤 {info['huesped']}")

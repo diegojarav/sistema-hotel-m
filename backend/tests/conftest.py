@@ -270,12 +270,40 @@ def seed_pricing_data(db_session):
         id=f"{prop_id}-semana-santa-2026",
         property_id=prop_id,
         name="Semana Santa",
+        description="Temporada alta - Semana Santa",
         start_date=date(2026, 3, 29),
         end_date=date(2026, 4, 5),
         price_modifier=1.30,
         applies_to_categories=None,
+        priority=10,
+        color="#EF4444",
+        active=1,
     )
-    db_session.add(s_high)
+    # Low Season (Febrero -10%)
+    s_low = PricingSeason(
+        id=f"{prop_id}-baja-feb-2026",
+        property_id=prop_id,
+        name="Temporada Baja Febrero",
+        description="Temporada baja",
+        start_date=date(2026, 2, 1),
+        end_date=date(2026, 2, 28),
+        price_modifier=0.90,
+        applies_to_categories=None,
+        priority=5,
+        color="#10B981",
+        active=1,
+    )
+    # Inactive season (should not appear in API)
+    s_inactive = PricingSeason(
+        id=f"{prop_id}-inactive",
+        property_id=prop_id,
+        name="Inactiva",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        price_modifier=1.50,
+        active=0,
+    )
+    db_session.add_all([s_high, s_low, s_inactive])
     db_session.commit()
 
     return {
@@ -284,6 +312,7 @@ def seed_pricing_data(db_session):
         "c_std": c_std,
         "c_corp": c_corp,
         "s_high": s_high,
+        "s_low": s_low,
     }
 
 

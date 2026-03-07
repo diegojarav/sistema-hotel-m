@@ -11,8 +11,10 @@ import {
 } from '@/services/rooms';
 import {
     getClientTypes,
+    getSeasons,
     calculatePrice,
     ClientType,
+    PricingSeason,
     PriceCalculationResponse
 } from '@/services/pricing';
 import { createReservation } from '@/services/reservations';
@@ -23,6 +25,7 @@ import { getPropertySettings, PropertySettings } from '@/services/settings';
 import DocumentScanner from './components/DocumentScanner';
 import GuestForm from './components/GuestForm';
 import RoomSelection from './components/RoomSelection';
+import SeasonSelector from './components/SeasonSelector';
 import PriceSummary from './components/PriceSummary';
 
 interface ExtractedData {
@@ -57,6 +60,8 @@ export default function NewReservationPage() {
     // Pricing state
     const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
     const [selectedClientType, setSelectedClientType] = useState<ClientType | null>(null);
+    const [seasons, setSeasons] = useState<PricingSeason[]>([]);
+    const [selectedSeason, setSelectedSeason] = useState<PricingSeason | null>(null);
     const [pricingResults, setPricingResults] = useState<CategoryPricingResult[]>([]);
     const [priceBreakdown, setPriceBreakdown] = useState<string>('{}');
 
@@ -127,13 +132,15 @@ export default function NewReservationPage() {
 
         async function loadStaticData() {
             try {
-                const [categoriesData, clientTypesData, settingsData] = await Promise.all([
+                const [categoriesData, clientTypesData, seasonsData, settingsData] = await Promise.all([
                     getRoomCategories(),
                     getClientTypes(),
+                    getSeasons(),
                     getPropertySettings(),
                 ]);
                 setCategories(categoriesData);
                 setClientTypes(clientTypesData);
+                setSeasons(seasonsData);
                 setPropertySettings(settingsData);
 
                 if (clientTypesData.length > 0) {
@@ -194,7 +201,7 @@ export default function NewReservationPage() {
                 // Calculate price for each unique category in parallel
                 const promises = Array.from(roomsByCategory.entries()).map(
                     ([catId, catRoomIds]) =>
-                        calculatePrice(catId, formData.checkIn, nights, selectedClientType.id)
+                        calculatePrice(catId, formData.checkIn, nights, selectedClientType.id, undefined, selectedSeason?.id)
                             .then(res => {
                                 const cat = categories.find(c => c.id === catId);
                                 return {
@@ -223,7 +230,7 @@ export default function NewReservationPage() {
 
         fetchPrices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedClientType, selectedRooms, formData.checkIn, formData.checkOut]);
+    }, [selectedClientType, selectedSeason, selectedRooms, formData.checkIn, formData.checkOut]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -401,6 +408,12 @@ export default function NewReservationPage() {
                         clientTypes={clientTypes}
                         selectedClientType={selectedClientType}
                         onClientTypeChange={setSelectedClientType}
+                    />
+
+                    <SeasonSelector
+                        seasons={seasons}
+                        selectedSeason={selectedSeason}
+                        onSeasonChange={setSelectedSeason}
                     />
 
                     <RoomSelection
