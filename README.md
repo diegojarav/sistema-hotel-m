@@ -12,7 +12,7 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 
 - **Monorepo Multi-Frontend:** Arquitectura con un backend centralizado y dos frontends especializados (PC y Mobile).
 - **API REST Versionada:** FastAPI con endpoints organizados por dominio (`/api/v1/`).
-- **Motor de Precios Dinámico:** Sistema avanzado de pricing por Categoría, Temporada y Tipo de Cliente.
+- **Motor de Precios Dinámico:** Sistema avanzado de pricing por Categoría, Temporada y Tipo de Cliente, con override manual de temporada.
 - **Layered Architecture:** Separación estricta entre API, Servicios y Datos.
 - **Modelo de Datos Relacional:** SQLite con integridad referencial.
 - **Concurrencia Optimista:** SQLite en **WAL Mode** (Write-Ahead Logging) y `scoped_session` para múltiples usuarios simultáneos.
@@ -62,7 +62,7 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-- **224 tests** en 22 archivos de test.
+- **237 tests** en 22 archivos de test.
 - Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
 
@@ -103,7 +103,7 @@ hotel_munich/
 │   │   ├── pricing_service.py # Motor de precios
 │   │   ├── settings_service.py# Configuracion del hotel
 │   │   └── ical_service.py    # Import/export iCal para OTAs
-│   ├── tests/                 # 224 tests (pytest + SQLite in-memory)
+│   ├── tests/                 # 237 tests (pytest + SQLite in-memory)
 │   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth)
 │   │   └── test_*.py          # 22 archivos de test
 │   ├── logging_config.py      # Configuracion de logging
@@ -303,9 +303,10 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 - 🛠️ **Admin Remoto:** Backups, logs, deploy log, system info via API protegida.
 - 🤖 **Agente IA:** Consultas en lenguaje natural.
 - 📷 **OCR Vision:** Extraccion de datos de documentos.
-- 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente.
+- 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente. Override manual de temporada para eventos especiales.
+- 🏷️ **Descripciones de Categorias:** Configuracion de camas, amenidades y descripciones visibles en seleccion de habitaciones.
 - 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
-- 🧪 **224 Tests:** Suite de tests pre-deployment (pytest, SQLite in-memory).
+- 🧪 **237 Tests:** Suite de tests pre-deployment (pytest, SQLite in-memory).
 
 ---
 

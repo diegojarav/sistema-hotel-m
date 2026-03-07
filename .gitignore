@@ -29,6 +29,7 @@ env/
 # Internal documentation (not for public repo)
 claude_audit/
 PROJECT_CONTEXT.md
+REQUIREMENTS.md
 
 # Local dev config
 .claude/launch.json
