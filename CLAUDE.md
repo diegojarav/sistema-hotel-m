@@ -14,8 +14,8 @@
 backend/          # FastAPI API + services + models
   api/            # Endpoints, deps, middleware, auth
   services/       # Business logic (ReservationService, PricingService, etc.)
-  database/       # SQLAlchemy models + session management
-  tests/          # pytest test suite (237+ tests)
+  database.py     # SQLAlchemy models + session management
+  tests/          # pytest test suite (281 tests, 78% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
 frontend_mobile/  # Next.js mobile app
@@ -76,12 +76,12 @@ cd backend && python -m pytest tests/ -v -k "not perf"
 
 Changes to these files MUST be validated with KPI tests:
 
--  - All reservation operations
--  - Price calculation engine
--  - Room management
--  - Reservation API
--  - Pricing API
--  - Calendar endpoints
+- `backend/services/reservation_service.py` - All reservation operations
+- `backend/services/pricing_service.py` - Price calculation engine
+- `backend/services/room_service.py` - Room management
+- `backend/api/v1/endpoints/reservations.py` - Reservation API
+- `backend/api/v1/endpoints/pricing.py` - Pricing API
+- `backend/api/v1/endpoints/calendar.py` - Calendar endpoints
 
 ## Monthly Maintenance Workflow
 
@@ -93,15 +93,40 @@ A scheduled task runs on the 1st of each month at 9 AM:
 
 ## Skills Available
 
--  - On-demand KPI evaluation + full test suite
--  - On-demand performance benchmarks with analysis
+- `/hotel-health-check` - On-demand KPI evaluation + full test suite
+- `/hotel-perf-benchmark` - On-demand performance benchmarks with analysis
+
+## Monitoring Stack
+
+| Channel | What | How |
+|---------|------|-----|
+| Discord (runtime) | Backend ERROR/CRITICAL logs | `DiscordWebhookHandler` in `logging_config.py` — auto-sends on error, 5-min dedup, non-blocking |
+| Discord (CI) | GitHub Actions failures | `notify-discord` job in `ci.yml` — uses `DISCORD_WEBHOOK_URL` secret |
+| Healthchecks.io | Backend uptime | Push ping every 15 min from `_periodic_ical_sync()` in `api/main.py` |
+| GitHub Email | CI workflow results | Automatic on push to `main`/`dev` |
+
+## CI Pipeline (GitHub Actions)
+
+Runs on push to `main`/`dev`:
+1. **backend-tests**: Install deps → pytest with coverage (75% min) → KPI tests → perf benchmarks → upload reports
+2. **frontend-check**: npm ci → npm run build
+3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
 ## Development Notes
 
-- Always use  when opening files in Python
+- Always use `encoding='utf-8'` when opening files in Python
 - Test DB uses in-memory SQLite with StaticPool for thread safety
 - Credentials for testing: admin/admin123, recepcion/recep123
 - Rate limiter is auto-disabled during tests
-- The  decorator manages session lifecycle for Streamlit calls
-- FastAPI endpoints use  for session injection
--  requires  (not optional)
+- The `@with_db` decorator manages session lifecycle for Streamlit calls
+- FastAPI endpoints use `Depends(get_db)` for session injection
+- `PricingService.calculate_price()` requires `client_type_id` (not optional)
+- `database.py` must NOT import pandas (removed — was causing CI failures)
+- `Pillow` is required in `requirements.txt` for `vision.py` OCR endpoint
+
+## Two-Repo Architecture
+
+- **Public** (`sistema-hotel-m` / origin): deployment code only — no internal docs
+- **Private** (`hotel-PMS-dev` / private): full codebase + internal docs
+- `origin` has dual push URLs — single `git push origin dev` pushes to both repos
+- `.gitignore` excludes: `claude_audit/`, `PROJECT_CONTEXT.md`, `REQUIREMENTS.md`, `.bat` scripts, `.claude/` configs

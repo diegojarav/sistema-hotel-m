@@ -76,7 +76,7 @@ cd backend && python -m pytest tests/test_performance.py -v -m perf
 - **8 KPIs** con scoring 0-100: Booking Integrity, Occupancy Accuracy, Pricing Accuracy, API Response Time, Data Consistency, Calendar Sync, Revenue Accuracy, Security Compliance.
 - **19 benchmarks** de performance: servicios criticos medidos bajo 10/100/500 reservas.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
-- CI automatizado con GitHub Actions: coverage, KPI, benchmarks.
+- CI automatizado con GitHub Actions: coverage, KPI, benchmarks, alertas Discord.
 
 ---
 
@@ -166,7 +166,7 @@ hotel_munich/
 │   ├── setup_gcp_staging.sh   # Provisioning VM en GCP
 │   └── setup_gcp_staging.md   # Guia de staging GCP
 │
-├── .github/workflows/ci.yml   # GitHub Actions CI (coverage + KPI + perf + build)
+├── .github/workflows/ci.yml   # GitHub Actions CI (coverage + KPI + perf + build + Discord alerts)
 ├── .gitattributes              # LF enforcement for shell scripts
 ├── package.json                # npm scripts task runner (root)
 ├── README.md
@@ -269,6 +269,8 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 | **IA/OCR** | Google Gemini 2.5 Flash (google-genai SDK) |
 | **Agente IA** | LangChain Tools |
 | **Logging** | RotatingFileHandler |
+| **Monitoreo** | Discord Webhooks + Healthchecks.io |
+| **CI/CD** | GitHub Actions (tests + build + Discord alerts) |
 
 ---
 
@@ -306,6 +308,13 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 - 🏷️ **Descripciones de Categorias:** Configuracion de camas, amenidades y descripciones visibles en seleccion de habitaciones.
 - 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
 - 🧪 **281 Tests:** Suite completa con 78% coverage, 8 KPIs (scored 0-100), 19 benchmarks de performance, y CI automatizado.
+
+### 📡 Monitoreo y Alertas
+
+- **Discord (Runtime):** Alertas automaticas de errores del backend (ERROR/CRITICAL) con deduplicacion de 5 minutos.
+- **Discord (CI):** Notificacion en Discord cuando GitHub Actions falla (branch, commit, autor, link al workflow).
+- **Healthchecks.io:** Ping de uptime cada 15 minutos. Alerta si el backend no responde por mas de 1 hora.
+- **GitHub Actions CI:** Tests con coverage (75% min), evaluacion KPI, benchmarks de performance, build de frontend. Notificacion por email automatica.
 
 ---
 
