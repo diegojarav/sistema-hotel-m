@@ -125,6 +125,80 @@ def get_weekly_view(
 
 
 @router.get(
+    "/monthly-view",
+    summary="Monthly Room View",
+    description="Get room x day matrix for a full month."
+)
+def get_monthly_view(
+    year: int = Query(..., ge=2020, le=2100, description="Year"),
+    month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get monthly room view matrix for the planning board."""
+    return ReservationService.get_monthly_room_view(db, year, month)
+
+
+@router.get(
+    "/source-stats",
+    summary="Source Distribution",
+    description="Get reservation count and revenue grouped by booking source."
+)
+def get_source_stats(
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get booking source distribution stats."""
+    return ReservationService.get_source_distribution(db, start_date, end_date)
+
+
+@router.get(
+    "/parking-usage",
+    summary="Parking Usage",
+    description="Get daily parking slot usage vs capacity."
+)
+def get_parking_usage(
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get parking utilization data."""
+    return ReservationService.get_parking_usage(db, start_date, end_date)
+
+
+@router.get(
+    "/revenue-matrix",
+    summary="Revenue Matrix",
+    description="Get revenue by room and month for a full year."
+)
+def get_revenue_matrix(
+    year: int = Query(..., ge=2020, le=2100, description="Year"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get annual revenue matrix by room x month."""
+    return ReservationService.get_revenue_by_room_month(db, year)
+
+
+@router.get(
+    "/room-report",
+    summary="Room Report",
+    description="Get detailed reservation report for a specific room or all rooms in a date range."
+)
+def get_room_report(
+    start_date: date = Query(..., description="Start date"),
+    end_date: date = Query(..., description="End date"),
+    room_id: str = Query(default=None, description="Room internal_code. Omit for all rooms."),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get per-room reservation report with summary stats."""
+    return ReservationService.get_room_report(db, start_date, end_date, room_id)
+
+@router.get(
     "/{reservation_id}",
     summary="Get Reservation",
     description="Get detailed information about a specific reservation. Requires authentication."

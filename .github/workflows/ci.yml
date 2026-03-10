@@ -19,8 +19,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
-      - name: Run backend tests
-        run: cd backend && python -m pytest tests/ -v
+      - name: Run backend tests with coverage
+        run: |
+          cd backend && python -m pytest tests/ -v             --cov=services --cov=api             --cov-report=term-missing             --cov-fail-under=75             -k "not kpi and not perf"
+
+      - name: Run KPI evaluation tests
+        run: cd backend && python -m pytest tests/test_kpis.py -v -m kpi
+
+      - name: Run performance benchmarks
+        run: cd backend && python -m pytest tests/test_performance.py -v -m perf
+
+      - name: Upload KPI/Perf reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: backend/tests/reports/*.json
+          retention-days: 90
 
   frontend-check:
     runs-on: ubuntu-latest

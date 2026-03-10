@@ -184,6 +184,191 @@ def render_native_calendar(year: int, month: int, occupancy_map: dict):
     components.html(full_html, height=height, scrolling=False)
 
 
+def render_monthly_room_grid(data: dict, year: int, month: int):
+    """
+    Renderiza la ficha mensual de habitaciones: rows=rooms, columns=days.
+    Gantt-style planning board rendered via HTML in an iframe.
+    """
+    today = date.today()
+    rooms = data.get("rooms", [])
+    days = data.get("days", [])
+    matrix = data.get("matrix", {})
+    num_days = len(days)
+
+    if not rooms:
+        st.warning("No hay habitaciones activas.")
+        return
+
+    # Color mapping by status
+    status_colors = {
+        "Confirmada": {"bg": "#dcfce7", "text": "#166534"},
+        "CheckIn": {"bg": "#dbeafe", "text": "#1e40af"},
+        "CheckOut": {"bg": "#fef3c7", "text": "#92400e"},
+        "Cancelada": {"bg": "#fee2e2", "text": "#991b1b"},
+    }
+    default_color = {"bg": "#f3f4f6", "text": "#374151"}
+
+    # Build CSS
+    css = """
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        .grid-wrapper {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow-x: auto;
+            max-width: 100%;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+        }
+        table.room-grid {
+            border-collapse: collapse;
+            min-width: 100%;
+            font-size: 11px;
+        }
+        table.room-grid th, table.room-grid td {
+            border: 1px solid #e5e7eb;
+            padding: 4px 6px;
+            text-align: center;
+            white-space: nowrap;
+        }
+        table.room-grid thead th {
+            background: #f9fafb;
+            color: #6b7280;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        /* Sticky first 2 columns */
+        table.room-grid th:nth-child(1),
+        table.room-grid td:nth-child(1) {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            background: #f9fafb;
+            font-weight: 600;
+            color: #111827;
+            min-width: 60px;
+        }
+        table.room-grid th:nth-child(2),
+        table.room-grid td:nth-child(2) {
+            position: sticky;
+            left: 60px;
+            z-index: 3;
+            background: #f9fafb;
+            color: #6b7280;
+            font-size: 10px;
+            min-width: 70px;
+        }
+        /* Sticky header corners */
+        table.room-grid thead th:nth-child(1),
+        table.room-grid thead th:nth-child(2) {
+            z-index: 4;
+        }
+        .cell-occupied {
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-size: 10px;
+            font-weight: 500;
+            max-width: 70px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .cell-checkin { border-left: 3px solid #3b82f6 !important; }
+        .cell-checkout { border-right: 3px solid #ef4444 !important; }
+        .cell-cancelled .cell-occupied { text-decoration: line-through; opacity: 0.6; }
+        .col-today { background: #fef3c7 !important; border-bottom: 2px solid #f59e0b; }
+        .col-weekend { background: #f9fafb; }
+        .legend-bar {
+            display: flex; gap: 16px; padding: 8px 12px;
+            border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280;
+            flex-wrap: wrap;
+        }
+        .legend-bar span {
+            display: inline-flex; align-items: center; gap: 4px;
+        }
+        .legend-swatch {
+            display: inline-block; width: 12px; height: 12px;
+            border-radius: 3px;
+        }
+    </style>
+    """
+
+    # Build header row
+    header = '<tr><th>Hab.</th><th>Categoría</th>'
+    for d in days:
+        day_date = date(year, month, d)
+        is_today = day_date == today
+        is_weekend = day_date.weekday() >= 5
+        cls = "col-today" if is_today else ("col-weekend" if is_weekend else "")
+        dow = ["L", "M", "X", "J", "V", "S", "D"][day_date.weekday()]
+        header += f'<th class="{cls}">{dow}<br>{d}</th>'
+    header += '</tr>'
+
+    # Build body rows
+    body = ''
+    for room in rooms:
+        code = room["code"]
+        cat = room["category"]
+        room_data = matrix.get(code, {})
+        body += f'<tr><td>{code}</td><td>{cat[:8]}</td>'
+        for d in days:
+            day_str = str(d)
+            cell = room_data.get(day_str)
+            day_date = date(year, month, d)
+            is_today = day_date == today
+            is_weekend = day_date.weekday() >= 5
+            td_cls = "col-today" if is_today else ("col-weekend" if is_weekend else "")
+
+            if cell:
+                guest = cell.get("guest", "")[:10]
+                st_name = cell.get("status", "")
+                colors = status_colors.get(st_name, default_color)
+                extra_cls = ""
+                if cell.get("is_checkin"):
+                    extra_cls += " cell-checkin"
+                if cell.get("is_checkout"):
+                    extra_cls += " cell-checkout"
+                if st_name == "Cancelada":
+                    extra_cls += " cell-cancelled"
+                res_id = cell.get("res_id", "")
+                body += (
+                    f'<td class="{td_cls}{extra_cls}" title="{cell.get("guest", "")} | {st_name} | #{res_id}">'
+                    f'<div class="cell-occupied" style="background:{colors["bg"]};color:{colors["text"]}">'
+                    f'{guest}</div></td>'
+                )
+            else:
+                body += f'<td class="{td_cls}"></td>'
+        body += '</tr>'
+
+    # Legend
+    legend = """
+    <div class="legend-bar">
+        <span><span class="legend-swatch" style="background:#dcfce7;border:1px solid #166534"></span> Confirmada</span>
+        <span><span class="legend-swatch" style="background:#dbeafe;border:1px solid #1e40af"></span> CheckIn</span>
+        <span><span class="legend-swatch" style="background:#fef3c7;border:1px solid #92400e"></span> CheckOut</span>
+        <span><span class="legend-swatch" style="background:#fee2e2;border:1px solid #991b1b"></span> Cancelada</span>
+        <span><span class="legend-swatch" style="border-left:3px solid #3b82f6;width:6px"></span> Día entrada</span>
+        <span><span class="legend-swatch" style="border-right:3px solid #ef4444;width:6px"></span> Día salida</span>
+        <span><span class="legend-swatch" style="background:#fef3c7;border:1px solid #f59e0b"></span> Hoy</span>
+    </div>
+    """
+
+    full_html = f"""
+    <div class="grid-wrapper">
+        {css}
+        <table class="room-grid">
+            <thead>{header}</thead>
+            <tbody>{body}</tbody>
+        </table>
+        {legend}
+    </div>
+    """
+
+    # Height: header(40) + rows(28 each) + legend(40) + padding(20)
+    height = 40 + len(rooms) * 28 + 40 + 20
+    components.html(full_html, height=height, scrolling=True)
+
+
 def render_day_reservations(selected_date: date, occupancy_map: dict):
     """Renderiza las reservas de un día específico como tarjetas."""
     day_key = selected_date.strftime("%Y-%m-%d")

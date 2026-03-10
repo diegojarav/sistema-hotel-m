@@ -55,16 +55,28 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 - **Admin:** UI de configuracion en pagina Configuracion (PC).
 - **Fuentes soportadas:** Booking.com, Airbnb, WhatsApp, Facebook, Instagram, Google.
 
-### 🧪 Testing
+### 🧪 Testing y Quality Assurance
 
 ```bash
-cd backend
-python -m pytest tests/ -v
+# Tests completos
+cd backend && python -m pytest tests/ -v
+
+# Tests con coverage (78%)
+cd backend && python -m pytest tests/ -v --cov=services --cov=api --cov-report=term-missing
+
+# Evaluacion KPI (scored 0-100)
+cd backend && python -m pytest tests/test_kpis.py -v -m kpi
+
+# Performance benchmarks
+cd backend && python -m pytest tests/test_performance.py -v -m perf
 ```
 
-- **237 tests** en 22 archivos de test.
+- **281 tests** en 24 archivos de test — **78% coverage**.
 - Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB.
+- **8 KPIs** con scoring 0-100: Booking Integrity, Occupancy Accuracy, Pricing Accuracy, API Response Time, Data Consistency, Calendar Sync, Revenue Accuracy, Security Compliance.
+- **19 benchmarks** de performance: servicios criticos medidos bajo 10/100/500 reservas.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
+- CI automatizado con GitHub Actions: coverage, KPI, benchmarks.
 
 ---
 
@@ -103,9 +115,11 @@ hotel_munich/
 │   │   ├── pricing_service.py # Motor de precios
 │   │   ├── settings_service.py# Configuracion del hotel
 │   │   └── ical_service.py    # Import/export iCal para OTAs
-│   ├── tests/                 # 237 tests (pytest + SQLite in-memory)
+│   ├── tests/                 # 281 tests (pytest + SQLite in-memory)
 │   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth)
-│   │   └── test_*.py          # 22 archivos de test
+│   │   ├── test_kpis.py       # 25 KPI evaluation tests (scored 0-100)
+│   │   ├── test_performance.py # 19 performance benchmark tests
+│   │   └── test_*.py          # 22 archivos de test funcional
 │   ├── logging_config.py      # Configuracion de logging
 │   ├── backup_manager.py      # Sistema de backups
 │   └── requirements.txt       # Dependencias Python
@@ -152,7 +166,7 @@ hotel_munich/
 │   ├── setup_gcp_staging.sh   # Provisioning VM en GCP
 │   └── setup_gcp_staging.md   # Guia de staging GCP
 │
-├── .github/workflows/ci.yml   # GitHub Actions CI (tests + build)
+├── .github/workflows/ci.yml   # GitHub Actions CI (coverage + KPI + perf + build)
 ├── .gitattributes              # LF enforcement for shell scripts
 ├── package.json                # npm scripts task runner (root)
 ├── README.md
@@ -167,7 +181,7 @@ hotel_munich/
 
 ```bash
 git clone https://github.com/diegojarav/sistema-hotel-m.git
-cd sistema-hotel-m
+cd hotel_munich
 ```
 
 ### 2. Configurar Backend
@@ -211,22 +225,6 @@ cp .env.local.example .env.local
 ```
 
 ### 5. Ejecutar
-
-#### Opción A: Scripts de Windows
-
-```bash
-# Desde la raíz del proyecto
-.\start_backend.bat   # Inicia FastAPI en puerto 8000
-.\start_pc.bat        # Inicia Streamlit en puerto 8501
-```
-
-Para el frontend mobile:
-```bash
-cd frontend_mobile
-npm run dev           # Inicia Next.js en puerto 3000
-```
-
-#### Opción B: Comandos manuales
 
 ```bash
 # Terminal 1: Backend
@@ -279,6 +277,7 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 ### Frontend PC (Streamlit)
 - 📅 **Calendario de Ocupacion:** Vista mensual y semanal con estado de habitaciones.
 - 📊 **Ficha Mensual:** Vista Gantt de ocupacion room x day con estadisticas (fuentes de reserva, tendencia de ocupacion, estacionamiento).
+- 📋 **Resumen por Habitacion:** Metricas detalladas por habitacion individual o vista general con tabla de resumen, totales y exportacion CSV.
 - 📈 **Revenue Heatmap:** Mapa de calor room x month con totales anuales.
 - 🔗 **Vinculacion Reserva-Checkin:** Escaneo OCR de documentos crea check-in vinculado automaticamente.
 - ⚙️ **Configuracion iCal:** CRUD de feeds, sync manual/masivo, URLs de exportacion.
@@ -306,7 +305,7 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 - 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente. Override manual de temporada para eventos especiales.
 - 🏷️ **Descripciones de Categorias:** Configuracion de camas, amenidades y descripciones visibles en seleccion de habitaciones.
 - 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
-- 🧪 **237 Tests:** Suite de tests pre-deployment (pytest, SQLite in-memory).
+- 🧪 **281 Tests:** Suite completa con 78% coverage, 8 KPIs (scored 0-100), 19 benchmarks de performance, y CI automatizado.
 
 ---
 
@@ -330,6 +329,6 @@ Documentación interactiva disponible en:
 
 ---
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 
 **Desarrollado por Diego para Hospedaje Los Monges.**

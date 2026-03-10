@@ -944,3 +944,112 @@ class ReservationService:
 
         logger.info(f"get_parking_usage: {start_date} to {end_date}, max {max(d['used'] for d in usage) if usage else 0}/{capacity}")
         return usage
+
+    # --- Room Report (Resumen por Habitacion) ---
+
+    @staticmethod
+    @with_db
+    def get_room_report(db: Session, start_date: date, end_date: date, room_code: str = None) -> Dict[str, Any]:
+        """
+        Get a detailed reservation report for one room or all rooms in a date range.
+        Returns per-room reservations list and summary metrics.
+        """
+        # Get all active rooms
+        rooms = (
+            db.query(Room, RoomCategory.name.label("cat_name"))
+            .join(RoomCategory, Room.category_id == RoomCategory.id)
+            .filter(Room.active == 1)
+            .order_by(Room.floor, Room.internal_code)
+            .all()
+        )
+
+        code_to_room = {}
+        id_to_code = {}
+        for room, cat_name in rooms:
+            code = room.internal_code or room.id
+            id_to_code[room.id] = code
+            code_to_room[code] = {
+                "id": room.id,
+                "code": code,
+                "category": cat_name,
+                "floor": room.floor or 1,
+            }
+
+        # If a specific room was requested, validate it exists
+        if room_code and room_code not in code_to_room:
+            return {"rooms": [], "error": f"Room {room_code} not found"}
+
+        # Fetch reservations overlapping date range
+        max_stay_days = 365
+        earliest_checkin = start_date - timedelta(days=max_stay_days)
+
+        reservations = db.query(Reservation).filter(
+            Reservation.status.in_(["Confirmada", "CheckIn", "CheckOut"]),
+            Reservation.check_in_date <= end_date,
+            Reservation.check_in_date >= earliest_checkin,
+        ).all()
+
+        # Filter to overlapping and build per-room data
+        total_days_in_range = (end_date - start_date).days + 1
+
+        # Decide which rooms to report on
+        target_codes = [room_code] if room_code else sorted(code_to_room.keys())
+
+        result_rooms = []
+        for code in target_codes:
+            room_info = code_to_room[code]
+            room_id = room_info["id"]
+
+            room_reservations = []
+            total_nights = 0
+            total_revenue = 0.0
+
+            for res in reservations:
+                if res.room_id != room_id:
+                    continue
+
+                check_out_date = res.check_in_date + timedelta(days=res.stay_days)
+
+                # Check overlap
+                if check_out_date <= start_date or res.check_in_date > end_date:
+                    continue
+
+                # Calculate nights within the range
+                overlap_start = max(res.check_in_date, start_date)
+                overlap_end = min(check_out_date, end_date + timedelta(days=1))
+                nights_in_range = (overlap_end - overlap_start).days
+
+                revenue = float(res.final_price or res.price or 0)
+
+                room_reservations.append({
+                    "guest_name": res.guest_name or "",
+                    "check_in": res.check_in_date.isoformat(),
+                    "check_out": check_out_date.isoformat(),
+                    "nights": res.stay_days,
+                    "nights_in_range": nights_in_range,
+                    "price": revenue,
+                    "source": res.source or "Direct",
+                    "status": res.status,
+                })
+
+                total_nights += nights_in_range
+                total_revenue += revenue
+
+            occupancy_pct = round(total_nights / total_days_in_range * 100, 1) if total_days_in_range > 0 else 0
+            avg_rate = round(total_revenue / total_nights, 0) if total_nights > 0 else 0
+
+            result_rooms.append({
+                "room": room_info,
+                "reservations": sorted(room_reservations, key=lambda r: r["check_in"]),
+                "summary": {
+                    "total_nights": total_nights,
+                    "total_revenue": total_revenue,
+                    "occupancy_pct": occupancy_pct,
+                    "avg_nightly_rate": avg_rate,
+                    "reservation_count": len(room_reservations),
+                }
+            })
+
+        logger.info(f"get_room_report: {start_date} to {end_date}, room={room_code or 'ALL'}, {len(result_rooms)} rooms")
+        return {"rooms": result_rooms, "period": {"start": start_date.isoformat(), "end": end_date.isoformat(), "days": total_days_in_range}}
+
