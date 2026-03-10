@@ -1,0 +1,6 @@
+# Force LF for shell scripts (must work on Linux)
+*.sh text eol=lf
+scripts/hooks/* text eol=lf
+
+# Force CRLF for Windows-only scripts
+*.bat text eol=crlf

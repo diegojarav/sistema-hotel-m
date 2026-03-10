@@ -1,0 +1,29 @@
+#!/bin/bash
+# Pre-commit hook: block forbidden files + run backend tests
+# Install: git config core.hooksPath scripts/hooks
+
+set -e
+
+echo "=== Pre-commit checks ==="
+
+# 1. Block secrets and database files from being committed
+FORBIDDEN=$(git diff --cached --name-only | grep -E '\.env$|\.db$|credentials|secret|\.pem$|\.key$' || true)
+if [ -n "$FORBIDDEN" ]; then
+    echo ""
+    echo "BLOCKED: These files should not be committed:"
+    echo "$FORBIDDEN"
+    echo ""
+    echo "Remove them with: git reset HEAD <file>"
+    exit 1
+fi
+
+# 2. Run backend tests (fast — ~3 seconds)
+echo "Running backend tests..."
+(cd backend && python -m pytest tests/ -q --tb=short)
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "BLOCKED: Backend tests failed. Fix tests before committing."
+    exit 1
+fi
+
+echo "=== All pre-commit checks passed ==="

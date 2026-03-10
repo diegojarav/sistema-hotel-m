@@ -16,7 +16,7 @@ V8 FIX: Refactored to use API calls instead of direct sqlite3 access.
 
 import streamlit as st
 import requests
-from datetime import datetime
+from datetime import datetime, date
 import pandas as pd
 
 # Import logging and shared session (PERF-10)
@@ -269,11 +269,13 @@ st.divider()
 # TAB LAYOUT
 # ==========================================
 
-tab_inventory, tab_add, tab_manage, tab_summary = st.tabs([
+tab_inventory, tab_add, tab_manage, tab_summary, tab_ficha, tab_room_detail = st.tabs([
     "📋 Inventario",
     "➕ Agregar Habitaciones",
     "🔧 Gestionar Habitaciones",
-    "📊 Resumen por Categoria"
+    "📊 Resumen por Categoria",
+    "📅 Ficha Mensual",
+    "🏠 Resumen por Habitacion"
 ])
 
 
@@ -604,6 +606,441 @@ with tab_summary:
 python scripts/migrate_monges.py
 python scripts/seed_monges.py
         """)
+
+    # Revenue Heatmap
+    st.divider()
+    st.markdown("### 💰 Mapa de Ingresos por Habitacion")
+
+    rev_year = st.selectbox(
+        "Año",
+        options=list(range(date.today().year - 1, date.today().year + 2)),
+        index=1,
+        key="revenue_year"
+    )
+
+    try:
+        rev_resp = _s.get(
+            f"{API_BASE_URL}/reservations/revenue-matrix",
+            params={"year": rev_year},
+            headers=get_auth_headers(),
+            timeout=15
+        )
+        if rev_resp.ok:
+            rev_data = rev_resp.json()
+            rev_rooms = rev_data.get("rooms", [])
+            rev_matrix = rev_data.get("matrix", {})
+
+            if rev_rooms:
+                from helpers.constants import MESES_ES
+
+                all_vals = [
+                    v for room_data in rev_matrix.values()
+                    for v in room_data.values() if v > 0
+                ]
+                max_rev = max(all_vals) if all_vals else 1
+
+                import streamlit.components.v1 as components
+
+                hm_css = """
+                <style>
+                    .rev-grid { font-family: sans-serif; font-size: 11px; border-collapse: collapse; width: 100%; }
+                    .rev-grid th, .rev-grid td { border: 1px solid #e5e7eb; padding: 4px 6px; text-align: center; }
+                    .rev-grid th { background: #f9fafb; color: #6b7280; font-weight: 600; }
+                    .rev-grid td:first-child { font-weight: 600; text-align: left; background: #f9fafb; }
+                </style>
+                """
+
+                hm_header = '<tr><th>Habitacion</th>'
+                for m in range(1, 13):
+                    hm_header += f'<th>{MESES_ES[m-1][:3]}</th>'
+                hm_header += '<th>Total</th></tr>'
+
+                hm_body = ''
+                for room in rev_rooms:
+                    code = room["code"]
+                    room_rev = rev_matrix.get(code, {})
+                    hm_body += f'<tr><td>{code}</td>'
+                    row_total = 0
+                    for m in range(1, 13):
+                        val = room_rev.get(str(m), 0)
+                        row_total += val
+                        if val > 0:
+                            intensity = min(val / max_rev, 1.0)
+                            r_c = int(220 - intensity * 100)
+                            g_c = int(252 - intensity * 50)
+                            b_c = int(231 - intensity * 100)
+                            bg = f"rgb({r_c},{g_c},{b_c})"
+                            hm_body += f'<td style="background:{bg}" title="{val:,.0f} Gs">{val/1000:.0f}k</td>'
+                        else:
+                            hm_body += '<td style="color:#d1d5db">—</td>'
+                    hm_body += f'<td style="font-weight:bold;background:#f0fdf4">{row_total/1000:.0f}k</td></tr>'
+
+                hm_html = f"""
+                <div style="overflow-x:auto;border:1px solid #e5e7eb;border-radius:8px">
+                    {hm_css}
+                    <table class="rev-grid">
+                        <thead>{hm_header}</thead>
+                        <tbody>{hm_body}</tbody>
+                    </table>
+                </div>
+                """
+
+                height = 40 + len(rev_rooms) * 28 + 20
+                components.html(hm_html, height=height, scrolling=True)
+            else:
+                st.info("Sin habitaciones registradas")
+        else:
+            st.warning("No se pudo cargar el mapa de ingresos")
+    except Exception as e:
+        st.error(f"Error: {e}")
+
+
+
+# ------------------------------------------
+# TAB 5: Ficha Mensual
+# ------------------------------------------
+with tab_ficha:
+    from helpers.constants import MESES_ES
+    from components.calendar_render import render_monthly_room_grid
+    from calendar import monthrange
+
+    st.subheader("📅 Ficha Mensual de Habitaciones")
+
+    today = date.today()
+    col_year, col_month, col_refresh = st.columns([1, 2, 1])
+
+    with col_year:
+        ficha_year = st.selectbox(
+            "Año",
+            options=list(range(today.year - 1, today.year + 2)),
+            index=1,
+            key="ficha_year"
+        )
+    with col_month:
+        ficha_month = st.selectbox(
+            "Mes",
+            options=list(range(1, 13)),
+            format_func=lambda x: MESES_ES[x - 1],
+            index=today.month - 1,
+            key="ficha_month"
+        )
+    with col_refresh:
+        st.write("")
+        st.write("")
+        if st.button("🔄 Actualizar", key="refresh_ficha"):
+            st.rerun()
+
+    try:
+        resp = _s.get(
+            f"{API_BASE_URL}/reservations/monthly-view",
+            params={"year": ficha_year, "month": ficha_month},
+            headers=get_auth_headers(),
+            timeout=15
+        )
+        if resp.ok:
+            grid_data = resp.json()
+            render_monthly_room_grid(grid_data, ficha_year, ficha_month)
+        else:
+            st.error(f"Error al cargar ficha mensual: {resp.status_code}")
+    except Exception as e:
+        st.error(f"Error de conexion: {e}")
+
+    st.divider()
+    st.subheader("📊 Indicadores del Mes")
+
+    _, num_days = monthrange(ficha_year, ficha_month)
+    month_start = date(ficha_year, ficha_month, 1)
+    month_end = date(ficha_year, ficha_month, num_days)
+
+    source_data = None
+    trend_data = None
+    parking_data = None
+
+    try:
+        r1 = _s.get(
+            f"{API_BASE_URL}/reservations/source-stats",
+            params={"start_date": str(month_start), "end_date": str(month_end)},
+            headers=get_auth_headers(),
+            timeout=10
+        )
+        if r1.ok:
+            source_data = r1.json()
+    except Exception:
+        pass
+
+    try:
+        r2 = _s.get(
+            f"{API_BASE_URL}/calendar/occupancy-trend",
+            params={"year": ficha_year, "month": ficha_month},
+            timeout=10
+        )
+        if r2.ok:
+            trend_data = r2.json()
+    except Exception:
+        pass
+
+    try:
+        r3 = _s.get(
+            f"{API_BASE_URL}/reservations/parking-usage",
+            params={"start_date": str(month_start), "end_date": str(month_end)},
+            headers=get_auth_headers(),
+            timeout=10
+        )
+        if r3.ok:
+            parking_data = r3.json()
+    except Exception:
+        pass
+
+    col_src, col_trend = st.columns(2)
+
+    with col_src:
+        st.markdown("#### Reservas por Canal")
+        if source_data:
+            src_df = pd.DataFrame(source_data)
+            if not src_df.empty:
+                st.bar_chart(src_df.set_index("source")["count"])
+                total_res = src_df["count"].sum()
+                total_rev = src_df["revenue"].sum()
+                c1, c2 = st.columns(2)
+                c1.metric("Total Reservas", int(total_res))
+                c2.metric("Ingresos", f"{total_rev:,.0f} Gs")
+            else:
+                st.info("Sin reservas en este periodo")
+        else:
+            st.info("Sin datos disponibles")
+
+    with col_trend:
+        st.markdown("#### Tendencia de Ocupacion")
+        if trend_data:
+            trend_df = pd.DataFrame(trend_data)
+            if not trend_df.empty:
+                trend_df = trend_df.rename(columns={"date": "Fecha", "occupancy_pct": "Ocupacion %"})
+                st.area_chart(trend_df.set_index("Fecha")["Ocupacion %"])
+                avg_occ = trend_df["Ocupacion %"].mean()
+                max_occ = trend_df["Ocupacion %"].max()
+                c1, c2 = st.columns(2)
+                c1.metric("Promedio", f"{avg_occ:.1f}%")
+                c2.metric("Maximo", f"{max_occ:.1f}%")
+            else:
+                st.info("Sin datos de ocupacion")
+        else:
+            st.info("Sin datos disponibles")
+
+    st.markdown("#### 🚗 Uso de Estacionamiento")
+    if parking_data:
+        park_df = pd.DataFrame(parking_data)
+        if not park_df.empty:
+            display_days = park_df.head(min(7, len(park_df)))
+            for _, row in display_days.iterrows():
+                pct = row.get("pct", 0)
+                cap = row.get("capacity", 0)
+                used = row.get("used", 0)
+                label = row.get("date", "")
+                st.markdown(f"**{label}** — {used}/{cap} lugares")
+                st.progress(min(pct / 100, 1.0))
+        else:
+            st.info("Sin datos de estacionamiento")
+    else:
+        st.info("Sin datos disponibles")
+
+
+# ------------------------------------------
+# TAB 6: Resumen por Habitacion
+# ------------------------------------------
+with tab_room_detail:
+    import io
+    import csv
+    from calendar import monthrange as _monthrange
+
+    st.subheader("🏠 Resumen por Habitacion")
+
+    all_rooms = get_all_rooms()
+
+    if all_rooms:
+        room_labels = {f"{r['internal_code']} - {r['category_name']}": r['internal_code'] for r in all_rooms}
+        room_options_list = ["📊 Todas las habitaciones"] + list(room_labels.keys())
+
+        selected_room_label_rd = st.selectbox(
+            "Seleccionar Habitacion",
+            options=room_options_list,
+            key="room_detail_select"
+        )
+
+        is_all_rooms = selected_room_label_rd == "📊 Todas las habitaciones"
+        selected_room_code = None if is_all_rooms else room_labels[selected_room_label_rd]
+
+        col_y, col_m, col_period = st.columns([1, 2, 2])
+
+        with col_y:
+            rd_year = st.selectbox(
+                "Año",
+                options=list(range(date.today().year - 1, date.today().year + 2)),
+                index=1,
+                key="rd_year"
+            )
+        with col_m:
+            from helpers.constants import MESES_ES as _MESES
+            rd_month = st.selectbox(
+                "Mes",
+                options=list(range(1, 13)),
+                format_func=lambda x: _MESES[x - 1],
+                index=date.today().month - 1,
+                key="rd_month"
+            )
+        with col_period:
+            rd_period = st.radio(
+                "Periodo",
+                options=["Mensual", "Semanal", "Diario"],
+                horizontal=True,
+                key="rd_period"
+            )
+
+        _, rd_num_days = _monthrange(rd_year, rd_month)
+
+        if rd_period == "Mensual":
+            rd_start = date(rd_year, rd_month, 1)
+            rd_end = date(rd_year, rd_month, rd_num_days)
+        elif rd_period == "Semanal":
+            rd_start = date(rd_year, rd_month, 1)
+            rd_end = date(rd_year, rd_month, min(7, rd_num_days))
+        else:
+            rd_start = date(rd_year, rd_month, 1)
+            rd_end = date(rd_year, rd_month, 1)
+
+        st.caption(f"Periodo: {rd_start.isoformat()} a {rd_end.isoformat()}")
+
+        try:
+            params = {"start_date": str(rd_start), "end_date": str(rd_end)}
+            if selected_room_code:
+                params["room_id"] = selected_room_code
+
+            report_resp = _s.get(
+                f"{API_BASE_URL}/reservations/room-report",
+                params=params,
+                headers=get_auth_headers(),
+                timeout=15
+            )
+
+            if report_resp.ok:
+                report = report_resp.json()
+                report_rooms = report.get("rooms", [])
+
+                if is_all_rooms:
+                    st.markdown("### 📊 Resumen General de Todas las Habitaciones")
+
+                    if report_rooms:
+                        summary_rows = []
+                        for rr in report_rooms:
+                            rm = rr["room"]
+                            s = rr["summary"]
+                            summary_rows.append({
+                                "Codigo": rm["code"],
+                                "Categoria": rm["category"],
+                                "Piso": rm["floor"],
+                                "Noches Ocupadas": s["total_nights"],
+                                "Ingresos (Gs)": f"{s['total_revenue']:,.0f}",
+                                "% Ocupacion": f"{s['occupancy_pct']:.1f}%",
+                                "Tarifa Promedio": f"{s['avg_nightly_rate']:,.0f}",
+                                "Reservas": s["reservation_count"],
+                            })
+
+                        st.dataframe(summary_rows, use_container_width=True, hide_index=True)
+
+                        total_nights_all = sum(rr["summary"]["total_nights"] for rr in report_rooms)
+                        total_revenue_all = sum(rr["summary"]["total_revenue"] for rr in report_rooms)
+                        avg_occ_all = sum(rr["summary"]["occupancy_pct"] for rr in report_rooms) / len(report_rooms) if report_rooms else 0
+
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Total Noches Ocupadas", total_nights_all)
+                        c2.metric("Ingresos Totales", f"{total_revenue_all:,.0f} Gs")
+                        c3.metric("Ocupacion Promedio", f"{avg_occ_all:.1f}%")
+
+                        csv_buf = io.StringIO()
+                        writer = csv.DictWriter(csv_buf, fieldnames=["Codigo", "Categoria", "Piso", "Noches Ocupadas", "Ingresos", "% Ocupacion", "Tarifa Promedio", "Reservas"])
+                        writer.writeheader()
+                        for rr in report_rooms:
+                            rm = rr["room"]
+                            s = rr["summary"]
+                            writer.writerow({
+                                "Codigo": rm["code"],
+                                "Categoria": rm["category"],
+                                "Piso": rm["floor"],
+                                "Noches Ocupadas": s["total_nights"],
+                                "Ingresos": s["total_revenue"],
+                                "% Ocupacion": s["occupancy_pct"],
+                                "Tarifa Promedio": s["avg_nightly_rate"],
+                                "Reservas": s["reservation_count"],
+                            })
+                        st.download_button(
+                            "📥 Descargar CSV (Todas las Habitaciones)",
+                            data=csv_buf.getvalue(),
+                            file_name=f"resumen_habitaciones_{rd_start}_{rd_end}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("Sin datos para el periodo seleccionado")
+
+                else:
+                    if report_rooms:
+                        room_data = report_rooms[0]
+                        rm = room_data["room"]
+                        s = room_data["summary"]
+                        reservations_list = room_data["reservations"]
+
+                        st.markdown(f"### Habitacion {rm['code']} — {rm['category']} (Piso {rm['floor']})")
+
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("🛏️ Noches Ocupadas", s["total_nights"])
+                        c2.metric("💰 Ingresos", f"{s['total_revenue']:,.0f} Gs")
+                        c3.metric("📈 % Ocupacion", f"{s['occupancy_pct']:.1f}%")
+                        c4.metric("💵 Tarifa Promedio", f"{s['avg_nightly_rate']:,.0f} Gs")
+
+                        if reservations_list:
+                            st.markdown("#### Detalle de Reservas")
+                            table_data = []
+                            for res in reservations_list:
+                                table_data.append({
+                                    "Huesped": res["guest_name"],
+                                    "Check-in": res["check_in"],
+                                    "Check-out": res["check_out"],
+                                    "Noches": res["nights"],
+                                    "Precio (Gs)": f"{res['price']:,.0f}",
+                                    "Canal": res["source"],
+                                    "Estado": res["status"],
+                                })
+                            st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+                            csv_buf = io.StringIO()
+                            writer = csv.DictWriter(csv_buf, fieldnames=["Huesped", "Check-in", "Check-out", "Noches", "Precio", "Canal", "Estado"])
+                            writer.writeheader()
+                            for res in reservations_list:
+                                writer.writerow({
+                                    "Huesped": res["guest_name"],
+                                    "Check-in": res["check_in"],
+                                    "Check-out": res["check_out"],
+                                    "Noches": res["nights"],
+                                    "Precio": res["price"],
+                                    "Canal": res["source"],
+                                    "Estado": res["status"],
+                                })
+                            st.download_button(
+                                f"📥 Descargar CSV ({rm['code']})",
+                                data=csv_buf.getvalue(),
+                                file_name=f"resumen_{rm['code']}_{rd_start}_{rd_end}.csv",
+                                mime="text/csv",
+                                use_container_width=True
+                            )
+                        else:
+                            st.info("Sin reservas en este periodo para esta habitacion")
+                    else:
+                        st.info("Sin datos para esta habitacion")
+            else:
+                st.error(f"Error al cargar reporte: {report_resp.status_code}")
+        except Exception as e:
+            st.error(f"Error de conexion: {e}")
+    else:
+        st.warning("No hay habitaciones registradas")
 
 
 # ==========================================

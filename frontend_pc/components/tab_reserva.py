@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from logging_config import get_logger
 from services import ReservationService, GuestService, PricingService, ReservationCreate
 from helpers.constants import LISTA_TIPOS_LEGACY, LISTA_HABITACIONES_LEGACY
-from helpers.data_fetchers import get_room_categories, get_available_rooms_for_dates, get_all_rooms_list, get_client_types
+from helpers.data_fetchers import get_room_categories, get_available_rooms_for_dates, get_all_rooms_list, get_client_types, get_seasons
 from helpers.ui_helpers import _format_validation_error, analizar_documento_con_ia
 from frontend_services.cache_service import force_refresh
 
@@ -180,6 +180,31 @@ def render_tab_reserva():
 
     st.markdown("---")
 
+    # === SEASON OVERRIDE (manual selection) ===
+    st.markdown("#### 📅 Temporada")
+    all_seasons = get_seasons()
+    season_labels = ["🔄 Automática (según fecha)"]
+    season_map = {}  # label -> season dict
+    for s in all_seasons:
+        pct = (s["price_modifier"] - 1.0) * 100
+        mod_str = f"+{pct:.0f}%" if pct > 0 else (f"{pct:.0f}%" if pct < 0 else "base")
+        label = f"{s['name']} ({mod_str})"
+        season_labels.append(label)
+        season_map[label] = s
+
+    selected_season_label = st.selectbox(
+        "📅 Override de Temporada",
+        options=season_labels,
+        index=0,
+        help="Seleccione manualmente una temporada o deje 'Automática' para detección por fecha",
+        key="season_select",
+        label_visibility="collapsed"
+    )
+    selected_season = season_map.get(selected_season_label)
+    season_id = selected_season["id"] if selected_season else None
+
+    st.markdown("---")
+
     # === ROOM SELECTION: ALL rooms grouped by category (outside form) ===
     st.markdown("#### 🚪 Selección de Habitaciones")
 
@@ -235,6 +260,11 @@ def render_tab_reserva():
                 f"🛏️ {cat_name} — {price_str} Gs/noche (máx {cat_data['max_capacity']} pers.) — {len(room_list)} disponibles",
                 expanded=True
             ):
+                # Show category description if available
+                cat_detail = cat_lookup.get(cat_data.get("category_id", ""), {})
+                cat_desc = cat_detail.get("description", "")
+                if cat_desc:
+                    st.caption(cat_desc)
                 picked = st.multiselect(
                     f"Seleccionar habitaciones de {cat_name}",
                     room_list,
@@ -298,7 +328,8 @@ def render_tab_reserva():
                     category_id=cat_id,
                     check_in=check_in,
                     stay_days=noches,
-                    client_type_id=client_type_id
+                    client_type_id=client_type_id,
+                    season_id=season_id
                 )
 
                 all_breakdowns[cat_id] = price_data

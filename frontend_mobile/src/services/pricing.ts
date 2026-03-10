@@ -1,7 +1,7 @@
 /**
  * Hotel Munich - Pricing Service
  * ================================
- * Handles pricing calculations and client type data.
+ * Handles pricing calculations, client type, and season data.
  */
 
 import { apiGet, apiPost } from './api';
@@ -34,6 +34,14 @@ export interface ClientType {
     icon: string;
 }
 
+export interface PricingSeason {
+    id: string;
+    name: string;
+    description: string;
+    price_modifier: number;
+    color: string;
+}
+
 export async function getClientTypes(): Promise<ClientType[]> {
     try {
         return await apiGet<ClientType[]>('/pricing/client-types');
@@ -43,12 +51,22 @@ export async function getClientTypes(): Promise<ClientType[]> {
     }
 }
 
+export async function getSeasons(): Promise<PricingSeason[]> {
+    try {
+        return await apiGet<PricingSeason[]>('/pricing/seasons');
+    } catch (error) {
+        console.error("Error fetching seasons", error);
+        return [];
+    }
+}
+
 export async function calculatePrice(
     categoryId: string,
     checkIn: string,
     stayDays: number,
     clientTypeId: string,
-    roomId?: string
+    roomId?: string,
+    seasonId?: string
 ): Promise<PriceCalculationResponse> {
     return apiPost<PriceCalculationResponse>('/pricing/calculate', {
         category_id: categoryId,
@@ -56,5 +74,6 @@ export async function calculatePrice(
         stay_days: stayDays,
         client_type_id: clientTypeId,
         room_id: roomId,
+        season_id: seasonId,
     });
 }

@@ -270,12 +270,40 @@ def seed_pricing_data(db_session):
         id=f"{prop_id}-semana-santa-2026",
         property_id=prop_id,
         name="Semana Santa",
+        description="Temporada alta - Semana Santa",
         start_date=date(2026, 3, 29),
         end_date=date(2026, 4, 5),
         price_modifier=1.30,
         applies_to_categories=None,
+        priority=10,
+        color="#EF4444",
+        active=1,
     )
-    db_session.add(s_high)
+    # Low Season (Febrero -10%)
+    s_low = PricingSeason(
+        id=f"{prop_id}-baja-feb-2026",
+        property_id=prop_id,
+        name="Temporada Baja Febrero",
+        description="Temporada baja",
+        start_date=date(2026, 2, 1),
+        end_date=date(2026, 2, 28),
+        price_modifier=0.90,
+        applies_to_categories=None,
+        priority=5,
+        color="#10B981",
+        active=1,
+    )
+    # Inactive season (should not appear in API)
+    s_inactive = PricingSeason(
+        id=f"{prop_id}-inactive",
+        property_id=prop_id,
+        name="Inactiva",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 1, 31),
+        price_modifier=1.50,
+        active=0,
+    )
+    db_session.add_all([s_high, s_low, s_inactive])
     db_session.commit()
 
     return {
@@ -284,6 +312,7 @@ def seed_pricing_data(db_session):
         "c_std": c_std,
         "c_corp": c_corp,
         "s_high": s_high,
+        "s_low": s_low,
     }
 
 
@@ -390,3 +419,141 @@ def make_reservation(db_session, seed_rooms):
         return res
 
     return _make
+
+
+# ==========================================
+# KPI & PERFORMANCE REPORT INFRASTRUCTURE
+# ==========================================
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+
+class KPIReport:
+    """Collects KPI scores during test session and writes JSON report."""
+
+    def __init__(self):
+        self.results = []
+        self.timestamp = datetime.now().isoformat()
+
+    def record(self, kpi_name: str, score: float, max_score: float = 100.0,
+               tests_passed: int = 0, tests_total: int = 0, details: dict = None):
+        self.results.append({
+            "name": kpi_name,
+            "score": round(score, 1),
+            "max_score": max_score,
+            "tests_passed": tests_passed,
+            "tests_total": tests_total,
+            "details": details or {},
+        })
+
+    def save(self):
+        reports_dir = Path(__file__).parent / "reports"
+        reports_dir.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        path = reports_dir / f"kpi_{ts}.json"
+
+        overall = 0.0
+        if self.results:
+            overall = sum(r["score"] for r in self.results) / len(self.results)
+
+        report = {
+            "timestamp": self.timestamp,
+            "overall_score": round(overall, 1),
+            "kpi_count": len(self.results),
+            "kpis": self.results,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+        return str(path)
+
+
+class PerfReport:
+    """Collects performance benchmark timings and writes JSON report."""
+
+    def __init__(self):
+        self.benchmarks = []
+        self.timestamp = datetime.now().isoformat()
+
+    def record(self, name: str, data_size: int, duration_ms: float,
+               threshold_ms: float):
+        self.benchmarks.append({
+            "name": name,
+            "data_size": data_size,
+            "duration_ms": round(duration_ms, 2),
+            "threshold_ms": threshold_ms,
+            "passed": duration_ms <= threshold_ms,
+        })
+
+    def save(self):
+        reports_dir = Path(__file__).parent / "reports"
+        reports_dir.mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        path = reports_dir / f"perf_{ts}.json"
+
+        passed = sum(1 for b in self.benchmarks if b["passed"])
+        total = len(self.benchmarks)
+
+        report = {
+            "timestamp": self.timestamp,
+            "summary": {
+                "total_benchmarks": total,
+                "passed": passed,
+                "failed": total - passed,
+                "pass_rate": round(passed / total * 100, 1) if total else 0.0,
+            },
+            "benchmarks": self.benchmarks,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2, ensure_ascii=False)
+        return str(path)
+
+
+@pytest.fixture(scope="module")
+def kpi_report():
+    """Module-scoped KPI report collector. Saves JSON on teardown."""
+    report = KPIReport()
+    yield report
+    report.save()
+
+
+@pytest.fixture(scope="module")
+def perf_report():
+    """Module-scoped performance report collector. Saves JSON on teardown."""
+    report = PerfReport()
+    yield report
+    report.save()
+
+
+@pytest.fixture
+def seed_n_reservations(db_session, seed_rooms):
+    """Factory fixture: creates N reservations spread across rooms and dates."""
+
+    def _seed(n: int):
+        rooms = seed_rooms["rooms"]
+        reservations = []
+        for i in range(n):
+            room = rooms[i % len(rooms)]
+            check_in = date.today() + timedelta(days=(i * 2) % 365)
+            res = Reservation(
+                id=f"{2000 + i:07d}",
+                check_in_date=check_in,
+                stay_days=(i % 5) + 1,
+                guest_name=f"Perf Guest {i}",
+                room_id=room.id,
+                status="Confirmada",
+                price=150000.0,
+                final_price=150000.0,
+                property_id="los-monges",
+                source=["Direct", "Booking", "Airbnb"][i % 3],
+                reserved_by="test",
+                received_by="test",
+                contact_phone="",
+            )
+            reservations.append(res)
+        db_session.add_all(reservations)
+        db_session.commit()
+        return reservations
+
+    return _seed

@@ -46,3 +46,13 @@ def get_client_types():
     except Exception as e:
         logger.error(f"Error fetching client types: {e}")
         return []
+
+
+@st.cache_data(ttl=60)
+def get_seasons():
+    """Fetch active pricing seasons for manual override."""
+    try:
+        return PricingService.get_seasons()
+    except Exception as e:
+        logger.error(f"Error fetching seasons: {e}")
+        return []

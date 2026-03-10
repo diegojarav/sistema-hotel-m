@@ -480,8 +480,8 @@ with tab_config:
                 # Import frontend services and update
                 import api_client
                 
-                # Get JWT token from session (if available)
-                token = st.session_state.get('jwt_token', '')
+                # Get JWT token from session
+                token = st.session_state.get('api_token', '')
                 
                 if api_client.set_hotel_name(new_hotel_name.strip(), token):
                     st.session_state.hotel_name = new_hotel_name.strip()

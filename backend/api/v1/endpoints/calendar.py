@@ -50,6 +50,19 @@ def get_occupancy_map(
 
 
 @router.get(
+    "/occupancy-trend",
+    summary="Occupancy Trend",
+    description="Get daily occupancy percentage for a month."
+)
+def get_occupancy_trend(
+    year: int = Query(..., ge=2020, le=2100, description="Year"),
+    month: int = Query(..., ge=1, le=12, description="Month (1-12)"),
+    db: Session = Depends(get_db)
+):
+    """Get daily occupancy trend for a month."""
+    return ReservationService.get_occupancy_trend(db, year, month)
+
+@router.get(
     "/summary",
     response_model=TodaySummaryDTO,
     summary="Get Today's Summary",

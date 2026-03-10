@@ -29,6 +29,7 @@ env/
 # Internal documentation (not for public repo)
 claude_audit/
 PROJECT_CONTEXT.md
+REQUIREMENTS.md
 
 # Local dev config
 .claude/launch.json
@@ -48,3 +49,8 @@ scripts/test_feat_link_01.py
 install_backup_task.bat
 start_backend.bat
 start_pc.bat
+start_all.bat
+
+# KPI/Perf test reports (generated)
+backend/tests/reports/*.json
+backend/tests/reports/*.md

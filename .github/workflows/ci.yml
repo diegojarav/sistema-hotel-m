@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run backend tests with coverage
+        run: |
+          cd backend && python -m pytest tests/ -v \
+            --cov=services --cov=api \
+            --cov-report=term-missing \
+            --cov-fail-under=75 \
+            -k "not kpi and not perf"
+
+      - name: Run KPI evaluation tests
+        run: cd backend && python -m pytest tests/test_kpis.py -v -m kpi
+
+      - name: Run performance benchmarks
+        run: cd backend && python -m pytest tests/test_performance.py -v -m perf
+
+      - name: Upload KPI/Perf reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: backend/tests/reports/*.json
+          retention-days: 90
+
+  frontend-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: cd frontend_mobile && npm ci
+
+      - name: Build frontend
+        run: cd frontend_mobile && npm run build
+
+  notify-discord:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-check]
+    if: always() && contains(needs.*.result, 'failure')
+    steps:
+      - name: Send Discord alert on CI failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL secret not set, skipping notification"
+            exit 0
+          fi
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          curl -s -H "Content-Type: application/json" -X POST "$DISCORD_WEBHOOK_URL" \
+            -d "{\"embeds\":[{\"title\":\"\u274c CI Failed \u2014 Hotel Munich PMS\",\"description\":\"**Branch:** ${{ github.ref_name }}\n**Commit:** [\`${GITHUB_SHA::7}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})\n**Author:** ${{ github.actor }}\n\n[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\",\"color\":15158332,\"footer\":{\"text\":\"GitHub Actions CI\"},\"timestamp\":\"${TIMESTAMP}\"}]}"

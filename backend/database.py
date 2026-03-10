@@ -1,5 +1,4 @@
 import os
-import pandas as pd
 from sqlalchemy import create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime, Time, event, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from datetime import datetime

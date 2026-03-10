@@ -3,7 +3,10 @@ from sqlalchemy.orm import Session
 from api.deps import get_db
 from services import PricingService
 from typing import List
-from schemas import PriceCalculationRequest, PriceCalculationResponse, ClientTypeDTO
+from schemas import (
+    PriceCalculationRequest, PriceCalculationResponse,
+    ClientTypeDTO, PricingSeasonDTO
+)
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -21,6 +24,17 @@ def get_client_types_list(db: Session = Depends(get_db)):
         logger.error(f"Error fetching client types: {e}")
         raise HTTPException(status_code=500, detail="Error fetching client types")
 
+@router.get("/seasons", response_model=List[PricingSeasonDTO])
+def get_seasons_list(db: Session = Depends(get_db)):
+    """
+    Get list of active pricing seasons for manual override selection.
+    """
+    try:
+        return PricingService.get_seasons(db)
+    except Exception as e:
+        logger.error(f"Error fetching seasons: {e}")
+        raise HTTPException(status_code=500, detail="Error fetching seasons")
+
 @router.post("/calculate", response_model=PriceCalculationResponse)
 def calculate_price(
     request: PriceCalculationRequest,
@@ -30,16 +44,15 @@ def calculate_price(
     Calculate dynamic price for a reservation based on rules.
     """
     try:
-        # Pass db explicitly to leverage dependency injection
-        # The service method accepts db as first argument due to @with_db
         result = PricingService.calculate_price(
-            db, # Passed as first arg
+            db,
             property_id=request.property_id,
             category_id=request.category_id,
             check_in=request.check_in,
             stay_days=request.stay_days,
             client_type_id=request.client_type_id,
-            room_id=request.room_id
+            room_id=request.room_id,
+            season_id=request.season_id
         )
         return result
     except ValueError as e:

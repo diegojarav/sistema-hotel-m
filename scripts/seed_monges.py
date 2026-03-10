@@ -100,17 +100,6 @@ PROPERTY_DATA = {
     "active": 1
 }
 
-# Building (single building for Los Monges)
-BUILDING_DATA = {
-    "id": f"{PROPERTY_ID}-principal",
-    "property_id": PROPERTY_ID,
-    "name": "Edificio Principal",
-    "floors": 2,
-    "description": "Edificio principal del hospedaje",
-    "sort_order": 0,
-    "active": 1
-}
-
 # Room categories with pricing
 # NOTE: Quantities (qty) are estimates - update based on actual inventory
 ROOM_CATEGORIES = [
@@ -216,7 +205,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#6B7280",  # Gray
         "icon": "user",
-        "sort_order": 1
+        "sort_order": 1,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-empresa",
@@ -227,7 +217,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#3B82F6",  # Blue
         "icon": "building",
-        "sort_order": 2
+        "sort_order": 2,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-grupo",
@@ -238,7 +229,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 3,
         "color": "#8B5CF6",  # Purple
         "icon": "users",
-        "sort_order": 3
+        "sort_order": 3,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-agencia",
@@ -249,7 +241,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#10B981",  # Green
         "icon": "globe",
-        "sort_order": 4
+        "sort_order": 4,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-booking",
@@ -260,7 +253,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#003580",  # Booking blue
         "icon": "calendar",
-        "sort_order": 5
+        "sort_order": 5,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-airbnb",
@@ -271,7 +265,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#FF5A5F",  # Airbnb red
         "icon": "home",
-        "sort_order": 6
+        "sort_order": 6,
+        "active": 1
     },
     {
         "id": f"{PROPERTY_ID}-vip",
@@ -282,7 +277,8 @@ CLIENT_TYPES = [
         "min_rooms_per_booking": 1,
         "color": "#F59E0B",  # Amber/Gold
         "icon": "star",
-        "sort_order": 7
+        "sort_order": 7,
+        "active": 1
     },
 ]
 
@@ -486,25 +482,6 @@ def seed_property(conn: sqlite3.Connection, dry_run: bool = False):
     
     conn.execute(f"INSERT INTO properties ({columns}) VALUES ({placeholders})", values)
     log_success(f"Property '{PROPERTY_NAME}' created")
-
-def seed_building(conn: sqlite3.Connection, dry_run: bool = False):
-    """Seed the building record."""
-    log_info(f"Seeding building: {BUILDING_DATA['name']}")
-    
-    if check_data_exists(conn, 'buildings', 'id', BUILDING_DATA['id']):
-        log_warning(f"Building '{BUILDING_DATA['id']}' already exists. Skipping.")
-        return
-    
-    if dry_run:
-        log_info(f"[DRY RUN] Would insert building: {BUILDING_DATA['name']}")
-        return
-    
-    columns = ', '.join(BUILDING_DATA.keys())
-    placeholders = ', '.join(['?' for _ in BUILDING_DATA])
-    values = tuple(BUILDING_DATA.values())
-    
-    conn.execute(f"INSERT INTO buildings ({columns}) VALUES ({placeholders})", values)
-    log_success(f"Building '{BUILDING_DATA['name']}' created")
 
 def seed_categories(conn: sqlite3.Connection, dry_run: bool = False):
     """Seed room categories."""
@@ -793,8 +770,6 @@ def run_seed(db_path: Path, dry_run: bool = False, reset: bool = False) -> bool:
         # Seed in order (respecting foreign keys)
         log_section("STEP 1: Property")
         seed_property(conn, dry_run)
-        
-        # NOTE: buildings table removed from schema — skipping seed_building()
 
         log_section("STEP 2: Room Categories")
         seed_categories(conn, dry_run)

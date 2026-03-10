@@ -2,6 +2,16 @@
 
 import { RoomCategory, RoomStatus, formatPrice, getCategoryColor } from '@/services/rooms';
 
+function parseBedConfig(json?: string): string {
+    if (!json) return '';
+    try {
+        const beds: { type: string; qty: number }[] = JSON.parse(json);
+        return beds.map(b => `${b.qty} ${b.type}`).join(', ');
+    } catch {
+        return '';
+    }
+}
+
 interface RoomSelectionProps {
     formData: { checkIn: string; checkOut: string };
     onFormChange: (updates: { checkIn?: string; checkOut?: string }) => void;
@@ -22,7 +32,7 @@ export default function RoomSelection({
             {/* Date Range Section */}
             <h3 className="text-lg font-semibold text-gray-900 mb-2 mt-6">Fechas de Estadía</h3>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
                 <div>
                     <label className="text-gray-600 text-xs mb-1 block">📅 Check-in</label>
                     <input
@@ -79,10 +89,16 @@ export default function RoomSelection({
                     <div key={cat.id} className="mb-4">
                         {/* Category header */}
                         <div className="flex justify-between items-center mb-2 p-3 bg-white rounded-xl border border-gray-200">
-                            <div>
+                            <div className="flex-1 min-w-0">
                                 <p className="text-gray-900 font-semibold">{cat.name}</p>
+                                {cat.description && (
+                                    <p className="text-gray-400 text-xs mt-0.5">{cat.description}</p>
+                                )}
                                 <p className="text-gray-500 text-xs">
                                     👥 máx {cat.max_capacity} pers. — {catRooms.length} disponibles
+                                    {parseBedConfig(cat.bed_configuration) && (
+                                        <span className="ml-1">• 🛏️ {parseBedConfig(cat.bed_configuration)}</span>
+                                    )}
                                 </p>
                             </div>
                             <div className="text-right">

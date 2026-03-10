@@ -252,6 +252,15 @@ class PriceCalculationRequest(BaseModel):
     stay_days: int = Field(..., ge=1, le=365, description="Días de estadía")
     client_type_id: str = Field(default="los-monges-particular", description="ID del tipo de cliente")
     room_id: Optional[str] = Field(default=None, description="ID de habitación (opcional)")
+    season_id: Optional[str] = Field(default=None, description="Override de temporada (selección manual)")
+
+class PricingSeasonDTO(BaseModel):
+    """Season info for manual selection dropdown."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    price_modifier: float
+    color: str = "#F59E0B"
 
 class PriceModifierDTO(BaseModel):
     """Detalle de modificador de precio (temporada/descuento)."""
