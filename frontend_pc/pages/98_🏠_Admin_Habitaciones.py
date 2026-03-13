@@ -17,6 +17,8 @@ V8 FIX: Refactored to use API calls instead of direct sqlite3 access.
 import streamlit as st
 import requests
 from datetime import datetime, date
+import io
+import csv
 import pandas as pd
 
 # Import logging and shared session (PERF-10)
@@ -687,6 +689,32 @@ python scripts/seed_monges.py
 
                 height = 40 + len(rev_rooms) * 28 + 20
                 components.html(hm_html, height=height, scrolling=True)
+
+                # Excel download for revenue heatmap
+                hm_rows = []
+                for room in rev_rooms:
+                    code = room["code"]
+                    room_rev = rev_matrix.get(code, {})
+                    row = {"Habitacion": code}
+                    row_total = 0
+                    for m in range(1, 13):
+                        val = room_rev.get(str(m), 0)
+                        row_total += val
+                        row[MESES_ES[m-1][:3]] = val
+                    row["Total"] = row_total
+                    hm_rows.append(row)
+
+                hm_df = pd.DataFrame(hm_rows)
+                hm_buf = io.BytesIO()
+                with pd.ExcelWriter(hm_buf, engine="openpyxl") as writer:
+                    hm_df.to_excel(writer, index=False, sheet_name="Ingresos")
+                st.download_button(
+                    "📥 Descargar Excel (Mapa de Ingresos)",
+                    data=hm_buf.getvalue(),
+                    file_name=f"ingresos_habitacion_{rev_year}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
             else:
                 st.info("Sin habitaciones registradas")
         else:
@@ -848,8 +876,6 @@ with tab_ficha:
 # TAB 6: Resumen por Habitacion
 # ------------------------------------------
 with tab_room_detail:
-    import io
-    import csv
     from calendar import monthrange as _monthrange
 
     st.subheader("🏠 Resumen por Habitacion")
@@ -955,27 +981,59 @@ with tab_room_detail:
                         c2.metric("Ingresos Totales", f"{total_revenue_all:,.0f} Gs")
                         c3.metric("Ocupacion Promedio", f"{avg_occ_all:.1f}%")
 
-                        csv_buf = io.StringIO()
-                        writer = csv.DictWriter(csv_buf, fieldnames=["Codigo", "Categoria", "Piso", "Noches Ocupadas", "Ingresos", "% Ocupacion", "Tarifa Promedio", "Reservas"])
-                        writer.writeheader()
+                        # Build data for downloads
+                        dl_rows = []
                         for rr in report_rooms:
                             rm = rr["room"]
                             s = rr["summary"]
-                            writer.writerow({
+                            dl_rows.append({
                                 "Codigo": rm["code"],
                                 "Categoria": rm["category"],
                                 "Piso": rm["floor"],
                                 "Noches Ocupadas": s["total_nights"],
-                                "Ingresos": s["total_revenue"],
-                                "% Ocupacion": s["occupancy_pct"],
-                                "Tarifa Promedio": s["avg_nightly_rate"],
+                                "Ingresos (Gs)": s["total_revenue"],
+                                "% Ocupacion": round(s["occupancy_pct"], 1),
+                                "Tarifa Promedio (Gs)": round(s["avg_nightly_rate"]),
                                 "Reservas": s["reservation_count"],
                             })
-                        st.download_button(
-                            "📥 Descargar CSV (Todas las Habitaciones)",
+                        # Add totals row
+                        dl_rows.append({
+                            "Codigo": "TOTAL",
+                            "Categoria": "",
+                            "Piso": "",
+                            "Noches Ocupadas": total_nights_all,
+                            "Ingresos (Gs)": total_revenue_all,
+                            "% Ocupacion": round(avg_occ_all, 1),
+                            "Tarifa Promedio (Gs)": "",
+                            "Reservas": sum(rr["summary"]["reservation_count"] for rr in report_rooms),
+                        })
+
+                        dl_col1, dl_col2 = st.columns(2)
+
+                        # CSV download
+                        csv_buf = io.StringIO()
+                        writer = csv.DictWriter(csv_buf, fieldnames=list(dl_rows[0].keys()))
+                        writer.writeheader()
+                        for row in dl_rows:
+                            writer.writerow(row)
+                        dl_col1.download_button(
+                            "📥 Descargar CSV",
                             data=csv_buf.getvalue(),
                             file_name=f"resumen_habitaciones_{rd_start}_{rd_end}.csv",
                             mime="text/csv",
+                            use_container_width=True
+                        )
+
+                        # Excel download
+                        xl_df = pd.DataFrame(dl_rows)
+                        xl_buf = io.BytesIO()
+                        with pd.ExcelWriter(xl_buf, engine="openpyxl") as writer:
+                            xl_df.to_excel(writer, index=False, sheet_name="Resumen")
+                        dl_col2.download_button(
+                            "📥 Descargar Excel",
+                            data=xl_buf.getvalue(),
+                            file_name=f"resumen_habitaciones_{rd_start}_{rd_end}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
                     else:
