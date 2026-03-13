@@ -5,7 +5,7 @@ set -e
 
 ZONE="southamerica-east1-a"
 VM="hotel-munich-staging"
-IP="34.39.241.69"
+IP="34.151.217.242"
 
 # Detect gcloud path (Windows vs Linux)
 if [ -f "C:/Users/diego/AppData/Local/Google/Cloud SDK/google-cloud-sdk/bin/gcloud.cmd" ]; then
