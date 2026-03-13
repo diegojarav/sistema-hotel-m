@@ -60,6 +60,7 @@ cd backend && python -m pytest tests/ -v -k "not perf"
 6. **Calendar Sync** - Views agree with each other
 7. **Revenue Accuracy** - Revenue sums match manual calculations
 8. **Security Compliance** - Protected endpoints reject unauthenticated
+9. **Agent Tool Reliability** - All 11 AI tools callable, return strings, handle errors
 
 ## Performance Baselines (test_performance.py)
 
@@ -82,14 +83,17 @@ Changes to these files MUST be validated with KPI tests:
 - `backend/api/v1/endpoints/reservations.py` - Reservation API
 - `backend/api/v1/endpoints/pricing.py` - Pricing API
 - `backend/api/v1/endpoints/calendar.py` - Calendar endpoints
+- `backend/api/v1/endpoints/ai_tools.py` - AI agent tools (11 functions)
+- `backend/api/v1/endpoints/agent.py` - AI agent endpoint + system prompt
 
 ## Monthly Maintenance Workflow
 
 A scheduled task runs on the 1st of each month at 9 AM:
-1. Runs KPI evaluation suite
+1. Runs KPI evaluation suite (including Agent Tool Reliability KPI)
 2. Runs performance benchmarks
 3. Runs full test suite with coverage
-4. Generates monthly summary with regressions
+4. Evaluates AI agent: verifies all tools callable, return valid strings, handle edge cases
+5. Generates monthly summary with regressions
 
 ## Skills Available
 

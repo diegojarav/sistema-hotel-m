@@ -306,6 +306,351 @@ def get_reservations_report(start_date: str, end_date: str, room_number: Optiona
 
 
 # ==========================================
+# TOOL 7: Calculate Price
+# ==========================================
+
+def calculate_price(category_name: str, check_in_date: str, stay_days: int, client_type: str = "Particular") -> str:
+    """
+    Calculate the total price for a hotel stay based on room category, dates, and client type.
+    Use this tool when the user asks how much a stay costs, wants a price quote,
+    or asks about pricing for specific dates or room types.
+
+    Args:
+        category_name: Room category name (e.g., "Estandar", "Matrimonial", "Triple", "Familiar").
+        check_in_date: Check-in date in YYYY-MM-DD format (e.g., "2026-03-15").
+        stay_days: Number of nights to stay. Must be >= 1.
+        client_type: Client type for pricing (e.g., "Particular", "Corporativo", "Agencia"). Defaults to "Particular".
+
+    Returns:
+        String with the calculated price breakdown including base price, modifiers, and total.
+
+    Examples:
+        - "¿Cuánto cuesta 3 noches en Matrimonial?" → calculate_price("Matrimonial", "2026-03-15", 3)
+        - "Precio para una Familiar 5 noches tipo Corporativo" → calculate_price("Familiar", "2026-03-20", 5, "Corporativo")
+        - "¿Cuánto sale una noche?" → calculate_price("Estandar", "2026-03-15", 1)
+    """
+    from services import PricingService, RoomService
+
+    # Validate date
+    try:
+        check_in = datetime.strptime(check_in_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha inválida: {check_in_date}. Usa formato YYYY-MM-DD."
+
+    if stay_days < 1:
+        return "La cantidad de noches debe ser al menos 1."
+
+    # Resolve category_id from name
+    categories = RoomService.get_all_categories()
+    matching_cat = [c for c in categories if category_name.lower() in c["name"].lower()]
+    if not matching_cat:
+        avail = ", ".join([c["name"] for c in categories])
+        return f"No encontré la categoría '{category_name}'. Categorías disponibles: {avail}"
+    category = matching_cat[0]
+
+    # Resolve client_type_id from name
+    client_types = PricingService.get_client_types()
+    matching_ct = [ct for ct in client_types if client_type.lower() in ct["name"].lower()]
+    if not matching_ct:
+        avail = ", ".join([ct["name"] for ct in client_types])
+        return f"No encontré el tipo de cliente '{client_type}'. Tipos disponibles: {avail}"
+    ct = matching_ct[0]
+
+    try:
+        result = PricingService.calculate_price(
+            property_id="los-monges",
+            category_id=category["id"],
+            check_in=check_in,
+            stay_days=stay_days,
+            client_type_id=ct["id"],
+        )
+    except Exception as e:
+        return f"Error al calcular precio: {str(e)}"
+
+    # Format response
+    bd = result.get("breakdown", {})
+    base_unit = bd.get("base_unit_price", 0)
+    final = result.get("final_price", 0)
+    modifiers = bd.get("modifiers", [])
+
+    lines = [
+        f"Cotización para {category['name']} - {stay_days} noche(s) desde {check_in.strftime('%d/%m/%Y')}:",
+        f"  - Tarifa base: {base_unit:,.0f} Gs/noche",
+        f"  - Subtotal ({stay_days} noches): {bd.get('base_total', 0):,.0f} Gs",
+    ]
+
+    for mod in modifiers:
+        sign = "+" if mod["percent"] > 0 else ""
+        lines.append(f"  - {mod['name']}: {sign}{mod['percent']:.0f}% ({mod['amount']:,.0f} Gs)")
+
+    lines.append(f"  - **TOTAL: {final:,.0f} Gs**")
+    lines.append(f"  - Tipo de cliente: {ct['name']}")
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# TOOL 8: Get Occupancy for Month
+# ==========================================
+
+def get_occupancy_for_month(year: int, month: int) -> str:
+    """
+    Get the monthly occupancy overview for a specific month.
+    Use this tool when the user asks about how busy the hotel is/was in a month,
+    occupancy trends, or monthly statistics.
+
+    Args:
+        year: Year number (e.g., 2026).
+        month: Month number from 1 to 12 (e.g., 3 for March).
+
+    Returns:
+        String with average occupancy, busiest/quietest days, and daily breakdown summary.
+
+    Examples:
+        - "¿Cómo está la ocupación en marzo?" → get_occupancy_for_month(2026, 3)
+        - "¿Cómo estuvo febrero?" → get_occupancy_for_month(2026, 2)
+        - "Ocupación del mes pasado" → get_occupancy_for_month(2026, 2)
+    """
+    if month < 1 or month > 12:
+        return f"Mes inválido: {month}. Debe ser entre 1 y 12."
+
+    MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+
+    try:
+        occ_map = ReservationService.get_occupancy_map(year, month)
+    except Exception as e:
+        return f"Error al obtener datos de ocupación: {str(e)}"
+
+    if not occ_map:
+        return f"No hay datos de ocupación para {MESES[month-1]} {year}."
+
+    total_rooms = 15  # Hotel capacity
+    days_data = []
+    for day_str, info in sorted(occ_map.items()):
+        count = info.get("count", 0)
+        pct = round(count / total_rooms * 100, 1)
+        days_data.append({"date": day_str, "count": count, "pct": pct})
+
+    if not days_data:
+        return f"No hay datos de ocupación para {MESES[month-1]} {year}."
+
+    avg_occ = round(sum(d["pct"] for d in days_data) / len(days_data), 1)
+    busiest = max(days_data, key=lambda d: d["count"])
+    quietest = min(days_data, key=lambda d: d["count"])
+    high_days = sum(1 for d in days_data if d["pct"] >= 80)
+    low_days = sum(1 for d in days_data if d["pct"] == 0)
+
+    lines = [
+        f"Ocupación de {MESES[month-1]} {year}:",
+        f"  - Promedio: {avg_occ}%",
+        f"  - Día más ocupado: {busiest['date']} ({busiest['count']}/{total_rooms} hab, {busiest['pct']}%)",
+        f"  - Día más libre: {quietest['date']} ({quietest['count']}/{total_rooms} hab, {quietest['pct']}%)",
+        f"  - Días con alta ocupación (≥80%): {high_days}",
+        f"  - Días vacíos (0%): {low_days}",
+        f"  - Total días: {len(days_data)}",
+    ]
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# TOOL 9: Get Room Performance Report
+# ==========================================
+
+def get_room_performance(start_date: str, end_date: str, room_code: Optional[str] = None) -> str:
+    """
+    Get a performance report for one room or all rooms in a date range.
+    Shows nights occupied, revenue, occupancy percentage, average nightly rate, and reservation count.
+    Use this tool when the user asks about room performance, revenue per room, or room statistics.
+
+    Args:
+        start_date: Start of date range in YYYY-MM-DD format (e.g., "2026-03-01").
+        end_date: End of date range in YYYY-MM-DD format (e.g., "2026-03-31").
+        room_code: Optional room code to filter (e.g., "DE-01", "DM-01"). If not provided, shows all rooms.
+
+    Returns:
+        String with per-room performance metrics.
+
+    Examples:
+        - "¿Cómo rindió la habitación DE-01 este mes?" → get_room_performance("2026-03-01", "2026-03-31", "DE-01")
+        - "Reporte de rendimiento de habitaciones del mes" → get_room_performance("2026-03-01", "2026-03-31")
+        - "¿Cuál habitación genera más ingresos?" → get_room_performance("2026-01-01", "2026-03-31")
+    """
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha de inicio inválida: {start_date}. Usa formato YYYY-MM-DD."
+
+    try:
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha de fin inválida: {end_date}. Usa formato YYYY-MM-DD."
+
+    if end < start:
+        return f"Error: La fecha de fin ({end_date}) debe ser posterior a la de inicio ({start_date})."
+
+    try:
+        report = ReservationService.get_room_report(start, end, room_code)
+    except Exception as e:
+        return f"Error al obtener reporte: {str(e)}"
+
+    if report.get("error"):
+        return f"Error: {report['error']}"
+
+    rooms = report.get("rooms", [])
+    if not rooms:
+        filter_text = f" para habitación {room_code}" if room_code else ""
+        return f"No hay datos de rendimiento{filter_text} en el período {start_date} a {end_date}."
+
+    period = report.get("period", {})
+    header = f"Rendimiento de Habitaciones ({period.get('start', start_date)} al {period.get('end', end_date)}, {period.get('days', 0)} días)"
+
+    lines = [header, ""]
+    for rm in rooms:
+        room_info = rm["room"]
+        s = rm["summary"]
+        lines.append(
+            f"  {room_info['code']} ({room_info['category']}):\n"
+            f"    Noches: {s['total_nights']} | Ocupación: {s['occupancy_pct']}% | "
+            f"Ingresos: {s['total_revenue']:,.0f} Gs | "
+            f"Tarifa prom: {s['avg_nightly_rate']:,.0f} Gs | "
+            f"Reservas: {s['reservation_count']}"
+        )
+
+    # Add totals if showing all rooms
+    if len(rooms) > 1:
+        total_nights = sum(r["summary"]["total_nights"] for r in rooms)
+        total_revenue = sum(r["summary"]["total_revenue"] for r in rooms)
+        total_reservations = sum(r["summary"]["reservation_count"] for r in rooms)
+        avg_occ = round(sum(r["summary"]["occupancy_pct"] for r in rooms) / len(rooms), 1)
+        lines.append(f"\n  TOTALES: {total_nights} noches | {avg_occ}% ocupación promedio | {total_revenue:,.0f} Gs ingresos | {total_reservations} reservas")
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# TOOL 10: Get Booking Source Distribution
+# ==========================================
+
+def get_booking_sources(start_date: str, end_date: str) -> str:
+    """
+    Get the distribution of reservation sources (where bookings come from) in a date range.
+    Use this tool when the user asks about booking channels, where reservations come from,
+    or wants to compare sources like Booking.com vs direct reservations.
+
+    Args:
+        start_date: Start of date range in YYYY-MM-DD format (e.g., "2026-03-01").
+        end_date: End of date range in YYYY-MM-DD format (e.g., "2026-03-31").
+
+    Returns:
+        String with reservation count and revenue per booking source.
+
+    Examples:
+        - "¿De dónde vienen las reservas este mes?" → get_booking_sources("2026-03-01", "2026-03-31")
+        - "¿Cuántas reservas de Booking.com tenemos?" → get_booking_sources("2026-01-01", "2026-03-31")
+        - "Distribución de canales de reserva" → get_booking_sources("2026-01-01", "2026-12-31")
+    """
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha de inicio inválida: {start_date}. Usa formato YYYY-MM-DD."
+
+    try:
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha de fin inválida: {end_date}. Usa formato YYYY-MM-DD."
+
+    if end < start:
+        return f"Error: La fecha de fin ({end_date}) debe ser posterior a la de inicio ({start_date})."
+
+    try:
+        sources = ReservationService.get_source_distribution(start, end)
+    except Exception as e:
+        return f"Error al obtener distribución de fuentes: {str(e)}"
+
+    if not sources:
+        return f"No hay reservas en el período {start_date} a {end_date}."
+
+    total_count = sum(s["count"] for s in sources)
+    total_revenue = sum(s["revenue"] for s in sources)
+
+    lines = [
+        f"Distribución de fuentes de reserva ({start.strftime('%d/%m/%Y')} al {end.strftime('%d/%m/%Y')}):",
+        f"Total: {total_count} reservas | {total_revenue:,.0f} Gs\n",
+    ]
+
+    for s in sources:
+        pct = round(s["count"] / total_count * 100, 1) if total_count > 0 else 0
+        lines.append(f"  - {s['source']}: {s['count']} reservas ({pct}%) | {s['revenue']:,.0f} Gs")
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# TOOL 11: Get Parking Usage
+# ==========================================
+
+def get_parking_status(start_date: str, end_date: str) -> str:
+    """
+    Get parking lot usage for a date range showing daily utilization.
+    Use this tool when the user asks about parking availability, parking usage,
+    or how full the parking lot is.
+
+    Args:
+        start_date: Start of date range in YYYY-MM-DD format (e.g., "2026-03-10").
+        end_date: End of date range in YYYY-MM-DD format (e.g., "2026-03-16").
+
+    Returns:
+        String with parking usage summary and daily breakdown.
+
+    Examples:
+        - "¿Cómo está el estacionamiento?" → get_parking_status with today's date range
+        - "Uso del parking esta semana" → get_parking_status("2026-03-10", "2026-03-16")
+        - "¿Hay lugar en el estacionamiento mañana?" → get_parking_status with tomorrow's date
+    """
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha de inicio inválida: {start_date}. Usa formato YYYY-MM-DD."
+
+    try:
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        return f"Fecha de fin inválida: {end_date}. Usa formato YYYY-MM-DD."
+
+    if end < start:
+        return f"Error: La fecha de fin ({end_date}) debe ser posterior a la de inicio ({start_date})."
+
+    try:
+        usage = ReservationService.get_parking_usage(start, end)
+    except Exception as e:
+        return f"Error al obtener uso de estacionamiento: {str(e)}"
+
+    if not usage:
+        return f"No hay datos de estacionamiento para el período {start_date} a {end_date}."
+
+    capacity = usage[0].get("capacity", 0) if usage else 0
+    avg_pct = round(sum(d["pct"] for d in usage) / len(usage), 1) if usage else 0
+    peak = max(usage, key=lambda d: d["used"])
+    today_str = date.today().strftime("%Y-%m-%d")
+    today_data = next((d for d in usage if d["date"] == today_str), None)
+
+    lines = [
+        f"Uso del Estacionamiento ({start.strftime('%d/%m/%Y')} al {end.strftime('%d/%m/%Y')}):",
+        f"  - Capacidad total: {capacity} lugares",
+        f"  - Uso promedio: {avg_pct}%",
+        f"  - Día pico: {peak['date']} ({peak['used']}/{capacity}, {peak['pct']}%)",
+    ]
+
+    if today_data:
+        free = capacity - today_data["used"]
+        lines.append(f"  - HOY: {today_data['used']}/{capacity} ocupados ({today_data['pct']}%) - {free} libres")
+
+    return "\n".join(lines)
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -316,4 +661,9 @@ TOOLS_LIST = [
     search_guest,
     search_reservation,
     get_reservations_report,
+    calculate_price,
+    get_occupancy_for_month,
+    get_room_performance,
+    get_booking_sources,
+    get_parking_status,
 ]

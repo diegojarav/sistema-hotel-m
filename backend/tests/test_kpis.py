@@ -389,3 +389,130 @@ class TestSecurityComplianceKPI:
             details={"status": resp.status_code}
         )
         assert passed, f"{method} {url}: got {resp.status_code}, expected 401/403"
+
+
+# ==========================================
+# KPI 9: AGENT TOOL RELIABILITY
+# ==========================================
+
+@pytest.mark.kpi
+class TestAgentToolsKPI:
+    """Verify all AI agent tools are callable, return strings, and handle errors gracefully."""
+
+    def test_all_tools_callable_and_documented(self, kpi_report):
+        """Every tool in TOOLS_LIST must be callable and have a proper docstring."""
+        from api.v1.endpoints.ai_tools import TOOLS_LIST
+
+        checks_passed = 0
+        checks_total = len(TOOLS_LIST) * 3  # callable + has docstring + has Args section
+
+        for func in TOOLS_LIST:
+            if callable(func):
+                checks_passed += 1
+            if func.__doc__:
+                checks_passed += 1
+                if "Args:" in func.__doc__ or "Returns:" in func.__doc__:
+                    checks_passed += 1
+
+        score = (checks_passed / checks_total) * 100
+        kpi_report.record("Agent Tools - Callable & Documented", score,
+                          tests_passed=checks_passed, tests_total=checks_total,
+                          details={"tool_count": len(TOOLS_LIST)})
+        assert checks_passed == checks_total, f"Tool docs: {checks_passed}/{checks_total}"
+
+    def test_tools_return_strings(self, db_session, seed_rooms, make_reservation, kpi_report):
+        """Each tool must return a non-empty string when called with valid inputs."""
+        from api.v1.endpoints.ai_tools import TOOLS_LIST
+
+        # Seed some data so tools have something to query
+        room = seed_rooms["rooms"][0]
+        today = date.today()
+        make_reservation(
+            room_id=room.id,
+            guest_name="Agent Test Guest",
+            check_in_date=today + timedelta(days=5),
+            stay_days=2,
+            price=200000.0,
+            final_price=200000.0,
+        )
+
+        # Define valid inputs for each tool
+        tomorrow = (today + timedelta(days=5)).strftime("%Y-%m-%d")
+        month_start = today.replace(day=1).strftime("%Y-%m-%d")
+        month_end = (today.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m-%d")
+
+        tool_inputs = {
+            "check_availability": (tomorrow, 1),
+            "get_hotel_rates": (),
+            "get_today_summary": (),
+            "search_guest": ("Agent",),
+            "search_reservation": ("Agent Test",),
+            "get_reservations_report": (month_start, month_end),
+            "calculate_price": ("Estandar", tomorrow, 2),
+            "get_occupancy_for_month": (today.year, today.month),
+            "get_room_performance": (month_start, month_end),
+            "get_booking_sources": (month_start, month_end),
+            "get_parking_status": (tomorrow, tomorrow),
+        }
+
+        checks_passed = 0
+        checks_total = len(TOOLS_LIST)
+        failures = []
+
+        for func in TOOLS_LIST:
+            args = tool_inputs.get(func.__name__, ())
+            try:
+                result = func(*args)
+                if isinstance(result, str) and len(result) > 0:
+                    checks_passed += 1
+                else:
+                    failures.append(f"{func.__name__}: returned {type(result).__name__}")
+            except Exception as e:
+                failures.append(f"{func.__name__}: raised {type(e).__name__}: {e}")
+
+        score = (checks_passed / checks_total) * 100
+        kpi_report.record("Agent Tools - Return Strings", score,
+                          tests_passed=checks_passed, tests_total=checks_total,
+                          details={"failures": failures})
+        assert checks_passed == checks_total, f"String returns: {checks_passed}/{checks_total}. Failures: {failures}"
+
+    def test_tools_handle_invalid_input(self, kpi_report):
+        """Tools must return error messages gracefully for invalid inputs (not raise exceptions)."""
+        from api.v1.endpoints.ai_tools import TOOLS_LIST
+
+        # Invalid inputs for tools that accept parameters
+        invalid_tests = [
+            ("check_availability", ("not-a-date",)),
+            ("check_availability", ("2020-01-01",)),  # past date
+            ("get_reservations_report", ("2026-03-31", "2026-03-01")),  # end before start
+            ("calculate_price", ("NonExistentCategory", "2026-03-15", 2)),
+            ("get_occupancy_for_month", (2026, 13)),  # month 13
+            ("get_room_performance", ("invalid", "2026-03-31")),
+            ("get_booking_sources", ("2026-03-31", "2026-03-01")),  # end before start
+            ("get_parking_status", ("bad-date", "2026-03-31")),
+        ]
+
+        tool_map = {f.__name__: f for f in TOOLS_LIST}
+        checks_passed = 0
+        checks_total = len(invalid_tests)
+        failures = []
+
+        for func_name, args in invalid_tests:
+            func = tool_map.get(func_name)
+            if not func:
+                failures.append(f"{func_name}: not found in TOOLS_LIST")
+                continue
+            try:
+                result = func(*args)
+                if isinstance(result, str) and len(result) > 0:
+                    checks_passed += 1  # Graceful error message
+                else:
+                    failures.append(f"{func_name}: returned non-string for invalid input")
+            except Exception as e:
+                failures.append(f"{func_name}: raised {type(e).__name__} instead of error message")
+
+        score = (checks_passed / checks_total) * 100
+        kpi_report.record("Agent Tools - Error Handling", score,
+                          tests_passed=checks_passed, tests_total=checks_total,
+                          details={"failures": failures})
+        assert checks_passed == checks_total, f"Error handling: {checks_passed}/{checks_total}. Failures: {failures}"
