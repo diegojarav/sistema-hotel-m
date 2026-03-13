@@ -476,7 +476,7 @@ class TestAgentToolsKPI:
                           details={"failures": failures})
         assert checks_passed == checks_total, f"String returns: {checks_passed}/{checks_total}. Failures: {failures}"
 
-    def test_tools_handle_invalid_input(self, kpi_report):
+    def test_tools_handle_invalid_input(self, db_session, kpi_report):
         """Tools must return error messages gracefully for invalid inputs (not raise exceptions)."""
         from api.v1.endpoints.ai_tools import TOOLS_LIST
 
