@@ -19,19 +19,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
-      - name: Run backend tests with coverage
+      - name: Run all backend tests with coverage
         run: |
           cd backend && python -m pytest tests/ -v \
             --cov=services --cov=api \
             --cov-report=term-missing \
-            --cov-fail-under=75 \
-            -k "not kpi and not perf"
-
-      - name: Run KPI evaluation tests
-        run: cd backend && python -m pytest tests/test_kpis.py -v -m kpi
-
-      - name: Run performance benchmarks
-        run: cd backend && python -m pytest tests/test_performance.py -v -m perf
+            --cov-fail-under=75
 
       - name: Upload KPI/Perf reports
         if: always()
