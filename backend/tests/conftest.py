@@ -60,14 +60,33 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(scope="function")
 def db_session() -> Generator:
-    """Creates a fresh database session for a test (clean DB each time)."""
+    """Creates a fresh database session for a test (clean DB each time).
+
+    Also patches SessionLocal in database and services._base so that
+    @with_db decorators (used by AI tools) connect to the same in-memory DB.
+    """
+    import database
+    import services._base as base_module
+    from sqlalchemy.orm import scoped_session
+
     Base.metadata.create_all(bind=engine)
+
+    # Replace SessionLocal globally so @with_db uses test DB
+    original_session_local = database.SessionLocal
+    original_base_session_local = base_module.SessionLocal
+    test_scoped = scoped_session(TestingSessionLocal)
+    database.SessionLocal = test_scoped
+    base_module.SessionLocal = test_scoped
+
     session = TestingSessionLocal()
     try:
         yield session
     finally:
         session.close()
+        test_scoped.remove()
         Base.metadata.drop_all(bind=engine)
+        database.SessionLocal = original_session_local
+        base_module.SessionLocal = original_base_session_local
 
 
 @pytest.fixture(scope="function")
