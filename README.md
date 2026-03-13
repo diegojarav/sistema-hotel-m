@@ -37,8 +37,9 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 
 ### 🤖 Inteligencia Artificial
 
-- **Agente IA Interno:** Asistente con herramientas para consultar disponibilidad, tarifas y resúmenes.
+- **Agente IA con 11 Herramientas:** Asistente inteligente con function calling automático (Gemini 2.5 Flash). Consulta disponibilidad, tarifas, cotizaciones, ocupación mensual, rendimiento por habitación, fuentes de reserva, estacionamiento y más.
 - **OCR Documental:** Extracción automática de datos de documentos usando Google Gemini 2.5 Flash.
+- **Retry con Backoff Exponencial:** Reintentos automáticos ante errores transitorios de la API (429, 503).
 
 ### 🔄 Resiliencia y Recuperacion
 
@@ -62,9 +63,10 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-- **224 tests** en 22 archivos de test.
-- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB.
+- **286 tests** con **82% coverage** en 24 archivos de test.
+- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
+- **CI automático** en GitHub Actions: tests + coverage (75% min) + KPI evaluations + perf benchmarks.
 
 ---
 
@@ -80,7 +82,7 @@ hotel_munich/
 │   │   └── v1/endpoints/      # Endpoints por dominio
 │   │       ├── admin.py       # Gestion remota (backups, logs, system-info)
 │   │       ├── agent.py       # Agente IA con herramientas
-│   │       ├── ai_tools.py    # Herramientas LangChain
+│   │       ├── ai_tools.py    # 11 herramientas IA (Gemini function calling)
 │   │       ├── auth.py        # Autenticacion JWT
 │   │       ├── calendar.py    # Eventos de calendario
 │   │       ├── guests.py      # Gestion de huespedes / check-in
@@ -103,9 +105,9 @@ hotel_munich/
 │   │   ├── pricing_service.py # Motor de precios
 │   │   ├── settings_service.py# Configuracion del hotel
 │   │   └── ical_service.py    # Import/export iCal para OTAs
-│   ├── tests/                 # 224 tests (pytest + SQLite in-memory)
-│   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth)
-│   │   └── test_*.py          # 22 archivos de test
+│   ├── tests/                 # 286 tests (pytest + SQLite in-memory)
+│   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth, SessionLocal patching)
+│   │   └── test_*.py          # 24 archivos de test
 │   ├── logging_config.py      # Configuracion de logging
 │   ├── backup_manager.py      # Sistema de backups
 │   └── requirements.txt       # Dependencias Python
@@ -141,12 +143,17 @@ hotel_munich/
 │
 ├── scripts/                   # Deployment, migracion y operaciones
 │   ├── deploy.py              # Deployment automatizado con rollback
+│   ├── deploy_staging.sh      # Deploy a GCP staging (push + SSH + restart)
 │   ├── seed_monges.py         # Datos iniciales (propiedad, habitaciones, categorias)
+│   ├── seed_client_types.py   # Seed tipos de cliente (idempotente)
 │   ├── seed_test_data.py      # Generador de datos de prueba
+│   ├── run_migrations.py      # Ejecuta migraciones de esquema
+│   ├── reset_local_db.py      # Reset DB local para desarrollo
 │   ├── service_control.bat    # Control de servicios Windows
 │   ├── service_control_linux.sh # Control de servicios Linux (systemd)
 │   ├── setup_gcp_staging.sh   # Provisioning VM en GCP
-│   └── setup_gcp_staging.md   # Guia de staging GCP
+│   ├── setup_gcp_staging.md   # Guia de staging GCP
+│   └── setup_tailscale.md     # Guia de acceso remoto via VPN
 │
 ├── README.md
 └── REQUIREMENTS.md             # Requisitos de negocio
@@ -262,8 +269,10 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 | **Frontend Mobile** | Next.js 16 + React 19 + TypeScript |
 | **Estilos Mobile** | TailwindCSS 4 |
 | **IA/OCR** | Google Gemini 2.5 Flash (google-genai SDK) |
-| **Agente IA** | LangChain Tools |
-| **Logging** | RotatingFileHandler |
+| **Agente IA** | google-genai SDK + automatic function calling |
+| **Logging** | RotatingFileHandler + Discord webhooks |
+| **CI/CD** | GitHub Actions + GCP staging deploy |
+| **Monitoreo** | Healthchecks.io (uptime) + Discord (errores) |
 
 ---
 
@@ -298,7 +307,7 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 - 📷 **OCR Vision:** Extraccion de datos de documentos.
 - 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente.
 - 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
-- 🧪 **224 Tests:** Suite de tests pre-deployment (pytest, SQLite in-memory).
+- 🧪 **286 Tests:** Suite de tests con **82% coverage** (pytest, SQLite in-memory, CI automático).
 
 ---
 
@@ -322,6 +331,6 @@ Documentación interactiva disponible en:
 
 ---
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 
 **Desarrollado por Diego para Hospedaje Los Monges.**

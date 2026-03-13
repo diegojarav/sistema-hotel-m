@@ -15,7 +15,7 @@ backend/          # FastAPI API + services + models
   api/            # Endpoints, deps, middleware, auth
   services/       # Business logic (ReservationService, PricingService, etc.)
   database.py     # SQLAlchemy models + session management
-  tests/          # pytest test suite (281 tests, 78% coverage)
+  tests/          # pytest test suite (286 tests, 82% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
 frontend_mobile/  # Next.js mobile app
@@ -112,7 +112,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → pytest with coverage (75% min) → KPI tests → perf benchmarks → upload reports
+1. **backend-tests**: Install deps → all 286 tests with coverage (75% min, currently 82%) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -122,8 +122,9 @@ Runs on push to `main`/`dev`:
 - Test DB uses in-memory SQLite with StaticPool for thread safety
 - Credentials for testing: admin/admin123, recepcion/recep123
 - Rate limiter is auto-disabled during tests
-- The `@with_db` decorator manages session lifecycle for Streamlit calls
+- The `@with_db` decorator manages session lifecycle for Streamlit calls and AI tool functions
 - FastAPI endpoints use `Depends(get_db)` for session injection
+- `conftest.py` patches `database.SessionLocal` and `services._base.SessionLocal` so `@with_db` uses test DB
 - `PricingService.calculate_price()` requires `client_type_id` (not optional)
 - `database.py` must NOT import pandas (removed — was causing CI failures)
 - `Pillow` is required in `requirements.txt` for `vision.py` OCR endpoint
