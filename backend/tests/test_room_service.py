@@ -80,6 +80,15 @@ class TestGetRoomPrice:
         price = RoomService.get_room_price(db_session, "nonexistent")
         assert price == 0.0
 
+    def test_no_category_no_custom_price(self, db_session, seed_rooms):
+        """Room with no category_id and no custom_price returns 0.0."""
+        room = seed_rooms["rooms"][0]
+        room.custom_price = None
+        room.category_id = None
+        db_session.commit()
+        price = RoomService.get_room_price(db_session, room.id)
+        assert price == 0.0
+
 
 class TestGetAllRooms:
     def test_returns_all_active(self, db_session, seed_rooms):

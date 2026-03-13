@@ -36,6 +36,20 @@ class TestParkingCapacity:
         SettingsService.set_parking_capacity(db_session, 12)
         assert SettingsService.get_parking_capacity(db_session) == 12
 
+    def test_invalid_value_returns_default(self, db_session):
+        """Non-numeric parking_capacity in DB falls back to default 5."""
+        from database import SystemSetting
+        import uuid
+        db_session.add(SystemSetting(
+            id=str(uuid.uuid4()),
+            property_id="los-monges",
+            setting_key="parking_capacity",
+            setting_value="not-a-number"
+        ))
+        db_session.commit()
+        cap = SettingsService.get_parking_capacity(db_session)
+        assert cap == 5
+
 
 class TestPropertySettings:
     def test_defaults_without_property(self, db_session):
