@@ -47,7 +47,7 @@ _main_logger = get_logger("api.main")
 from api.core.config import APP_VERSION, CORS_ORIGINS, HEALTHCHECK_PING_URL, DISCORD_WEBHOOK_URL
 
 # Import routers
-from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin
+from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin, documents
 
 # Track server start time for uptime reporting
 _START_TIME = time.time()
@@ -215,6 +215,7 @@ app.include_router(pricing.router, prefix="/api/v1/pricing", tags=["Pricing"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(ical.router, prefix="/api/v1/ical", tags=["iCal Sync"])
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
 
 
 # ==========================================

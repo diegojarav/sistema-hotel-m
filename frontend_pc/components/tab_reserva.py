@@ -576,6 +576,14 @@ def render_tab_reserva():
                         # Resumen final
                         st.markdown("---")
                         if created_ids:
+                            # Auto-generate PDF confirmations
+                            from services import DocumentService
+                            for rid in created_ids:
+                                try:
+                                    DocumentService.generate_reservation_pdf(rid)
+                                except Exception as pdf_err:
+                                    logger.warning(f"PDF generation failed for {rid}: {pdf_err}")
+
                             force_refresh()
                             st.success(f"🎉 **{len(created_ids)} reserva(s) creada(s) exitosamente**")
                             st.info(f"IDs: {', '.join(created_ids)}")

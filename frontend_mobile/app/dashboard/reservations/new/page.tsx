@@ -18,6 +18,7 @@ import {
     PriceCalculationResponse
 } from '@/services/pricing';
 import { createReservation } from '@/services/reservations';
+import { downloadReservationPdf } from '@/services/documents';
 import { scanDocument } from '@/services/vision';
 import { useAuth } from '@/hooks/useAuth';
 import { getPropertySettings, PropertySettings } from '@/services/settings';
@@ -90,11 +91,15 @@ export default function NewReservationPage() {
     });
 
     // Set default dates on client only (avoids SSR hydration mismatch)
+    // IMPORTANT: Use local date, NOT toISOString() which converts to UTC
+    // and shifts the date back one day in negative UTC offsets (e.g. Paraguay UTC-3/4)
     const datesInitialized = useRef(false);
     useEffect(() => {
         if (!datesInitialized.current) {
-            const today = new Date().toISOString().split('T')[0];
-            const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const tmrw = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+            const tomorrow = `${tmrw.getFullYear()}-${String(tmrw.getMonth() + 1).padStart(2, '0')}-${String(tmrw.getDate()).padStart(2, '0')}`;
             setFormData(prev => ({ ...prev, checkIn: today, checkOut: tomorrow }));
             datesInitialized.current = true;
         }
@@ -345,9 +350,8 @@ export default function NewReservationPage() {
         setSubmitSuccess(true);
         setIsSubmitting(false);
 
-        setTimeout(() => {
-            router.push('/dashboard/calendar');
-        }, 2500);
+        // Scroll to top so the success banner + download buttons are visible
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     if (authLoading || isLoading) {
@@ -390,7 +394,31 @@ export default function NewReservationPage() {
                                 <p>🍳 {propertySettings.breakfast_included ? 'Desayuno incluido' : 'Desayuno no incluido'}</p>
                             </div>
                         )}
-                        <p className="text-sm text-green-600">Redirigiendo al calendario...</p>
+                        <div className="flex flex-wrap gap-2 pt-2 border-t border-green-200">
+                            {createdIds.map(id => (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        downloadReservationPdf(id).catch(() => {});
+                                    }}
+                                    className="flex items-center gap-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                    Descargar PDF
+                                </button>
+                            ))}
+                            <button
+                                type="button"
+                                onClick={() => router.push('/dashboard/calendar')}
+                                className="flex items-center gap-1 px-3 py-2 bg-white text-green-700 text-sm font-medium rounded-lg border border-green-300 hover:bg-green-50 transition-colors"
+                            >
+                                Ir al Calendario
+                            </button>
+                        </div>
                     </div>
                 )}
 

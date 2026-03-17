@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 from database import User
 
 # IMPORT FROM ROOT - Single Source of Truth
-from services import GuestService
+from services import GuestService, DocumentService
 from schemas import CheckInCreate
 
 router = APIRouter()
@@ -92,6 +92,11 @@ def create_checkin(
     """Register a new guest check-in."""
     try:
         checkin_id = GuestService.register_checkin(db, data)
+        # Auto-generate client PDF
+        try:
+            DocumentService.generate_client_pdf(db, checkin_id)
+        except Exception as pdf_err:
+            logger.warning(f"Client PDF generation failed for CheckIn #{checkin_id}: {pdf_err}")
         return {"message": "Check-in registered successfully", "id": checkin_id}
     except Exception as e:
         logger.error(f"Failed to register check-in: {e}", exc_info=True)

@@ -54,3 +54,6 @@ start_all.bat
 # KPI/Perf test reports (generated)
 backend/tests/reports/*.json
 backend/tests/reports/*.md
+
+# Generated hotel documents (PDFs)
+backend/hotel/

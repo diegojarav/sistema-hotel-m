@@ -15,9 +15,13 @@ backend/          # FastAPI API + services + models
   api/            # Endpoints, deps, middleware, auth
   services/       # Business logic (ReservationService, PricingService, etc.)
   database.py     # SQLAlchemy models + session management
-  tests/          # pytest test suite (286 tests, 82% coverage)
+  hotel/          # Generated PDF documents (gitignored)
+    Reservas/     # Reservation confirmation PDFs
+    Clientes/     # Client registration PDFs
+  tests/          # pytest test suite (313 tests, 83% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
+  pages/          # Admin pages (Rooms, Users, Config, Documents, AI Assistant)
 frontend_mobile/  # Next.js mobile app
 ```
 
@@ -85,6 +89,18 @@ Changes to these files MUST be validated with KPI tests:
 - `backend/api/v1/endpoints/calendar.py` - Calendar endpoints
 - `backend/api/v1/endpoints/ai_tools.py` - AI agent tools (11 functions)
 - `backend/api/v1/endpoints/agent.py` - AI agent endpoint + system prompt
+- `backend/services/document_service.py` - PDF document generation
+- `backend/api/v1/endpoints/documents.py` - Document download/list API
+
+## Document Generation System
+
+- **Reservation PDFs**: Auto-generated on creation (both PC and mobile), saved to `backend/hotel/Reservas/`
+- **Client PDFs**: Auto-generated on check-in creation, saved to `backend/hotel/Clientes/`
+- **Filename format**: `{guest_name}_{dd-mm-yy}_{reservation_id}.pdf` (reservations), `{last_name}_{first_name}_{dd-mm-yy}.pdf` (clients)
+- **On-demand generation**: Download endpoints regenerate PDFs if file is missing
+- **Mobile download**: Uses `fetch()` + blob pattern with JWT auth header
+- **PC browse**: Streamlit "Documentos del Hotel" page reads files directly from disk
+- **API endpoints**: `GET /documents/reservations/{id}`, `GET /documents/clients/{id}`, `GET /documents/download/{folder}/{filename}`, `GET /documents/list/{folder}`
 
 ## Monthly Maintenance Workflow
 
@@ -112,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 286 tests with coverage (75% min, currently 82%) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 313 tests with coverage (75% min, currently 83%) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -128,6 +144,10 @@ Runs on push to `main`/`dev`:
 - `PricingService.calculate_price()` requires `client_type_id` (not optional)
 - `database.py` must NOT import pandas (removed — was causing CI failures)
 - `Pillow` is required in `requirements.txt` for `vision.py` OCR endpoint
+- `fpdf2` is required in `requirements.txt` for PDF document generation (`DocumentService`)
+- `DocumentService` uses `@with_db` for dual FastAPI/Streamlit compatibility
+- PDF documents auto-generate on reservation/check-in creation, saved to `backend/hotel/`
+- Streamlit accesses PDF files via direct filesystem read (same machine as backend)
 
 ## Two-Repo Architecture
 

@@ -19,7 +19,7 @@ from logging_config import get_logger
 logger = get_logger(__name__)
 
 # IMPORT FROM ROOT - Single Source of Truth
-from services import ReservationService
+from services import ReservationService, DocumentService
 from schemas import (
     ReservationCreate,
     ReservationDTO,
@@ -99,7 +99,14 @@ def create_reservation(
     Requires authentication.
     """
     try:
-        return ReservationService.create_reservations(db, data)
+        created_ids = ReservationService.create_reservations(db, data)
+        # Auto-generate PDF confirmations
+        for res_id in created_ids:
+            try:
+                DocumentService.generate_reservation_pdf(db, res_id)
+            except Exception as pdf_err:
+                logger.warning(f"PDF generation failed for reservation {res_id}: {pdf_err}")
+        return created_ids
     except Exception as e:
         logger.error(f"Failed to create reservation: {e}", exc_info=True)
         raise HTTPException(
