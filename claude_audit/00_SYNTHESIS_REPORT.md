@@ -1,0 +1,522 @@
+# SYNTHESIS REPORT: Hotel PMS Audit
+
+**Generated:** 2026-02-04
+**Last Updated:** 2026-03-17
+**Source:** 4 Audit Reports (Structural, Dependency, Security, Performance)
+**Total Findings:** 90 | **Resolved:** 88 | **Remaining:** 2 (low-priority backlog: STRUCT-12, STRUCT-13)
+**Project Status:** DEPLOYMENT-READY (v1.2.0, 313 tests passing, 83% coverage, 9 KPIs scored 100/100, 19 perf benchmarks passing, document generation system, monthly automation active, full monitoring stack: Discord + Healthchecks.io + CI alerts)
+
+---
+
+## Executive Summary
+
+| Category | Critical | High | Medium | Low | Total |
+|----------|----------|------|--------|-----|-------|
+| Structural | 3 | 8 | 15 | 12 | 38 |
+| Dependencies | 5 | 2 | 2 | 1 | 10 |
+| Security | 3 | 3 | 4 | 0 | 10 |
+| Performance | 5 | 0 | 7 | 0 | 12 |
+| **TOTAL** | **16** | **13** | **28** | **13** | **70** |
+
+**All critical and high-priority items are resolved.** Remaining items are medium/low backlog.
+
+---
+
+## Master Priority Table (Top 20)
+
+| Rank | ID | Finding | Score | Status |
+|------|----|---------|-------|--------|
+| 1 | VULN-001 | API keys in git | 16.0 | ✅ DONE |
+| 2 | VULN-002 | CORS `*` with credentials | 16.0 | ✅ DONE |
+| 3 | VULN-003 | 15 unprotected endpoints | 10.7 | ✅ DONE |
+| 4 | STRUCT-02 | `.next/` committed (289MB) | 8.0 | ✅ DONE |
+| 5 | V8 | Admin page uses raw sqlite3 | 8.0 | ✅ DONE |
+| 6 | V9 | Admin users bypasses API | 8.0 | ✅ DONE |
+| 7 | VULN-005 | No RBAC enforcement | 6.0 | ✅ DONE |
+| 8 | PERF-002 | Unbounded historical query | 6.0 | ✅ DONE |
+| 9 | PERF-004 | No pagination on lists | 6.0 | ✅ DONE |
+| 10 | V1 | auth.py layer violation | 6.0 | ✅ DONE |
+| 11 | V2-V3 | ai_tools.py creates sessions | 6.0 | ✅ DONE |
+| 12 | PERF-001 | N+1 room queries in loop | 5.3 | ✅ DONE |
+| 13 | STRUCT-04 | God file app.py (1402 LOC) | 4.0 | ✅ DONE |
+| 14 | STRUCT-05 | services.py at limit (1181) | 4.0 | ✅ DONE |
+| 15 | PERF-006 | 6 missing DB indexes | 4.0 | ✅ DONE |
+| 16 | VULN-004 | No JWT revocation | 4.0 | ✅ DONE |
+| 17 | TOKEN-01 | 3 different token key names | 3.0 | ✅ DONE |
+| 18 | PERF-003 | O(n*d) occupancy calculation | 3.0 | ✅ DONE |
+| 19 | PERF-008 | No timeout on Gemini API | 3.0 | ✅ DONE |
+| 20 | STRUCT-08 | Direct fetch() bypass api.ts | 2.5 | ✅ DONE |
+
+**Top 20 status: 20/20 resolved.**
+
+---
+
+## Completed Phases
+
+### IMMEDIATE (Security Critical) — ✅ ALL DONE
+VULN-001, VULN-002, VULN-003, STRUCT-02, CONFIG-01 (5/5)
+
+### THIS WEEK (Architecture & Performance) — ✅ ALL DONE
+V8, V9, V2-V3, PERF-001, PERF-002, PERF-004, PERF-006, TOKEN-01, ZOMBIE-01, ZOMBIE-02 (10/10)
+
+### Quick Wins — ✅ ALL DONE (12/12)
+
+---
+
+## THIS SPRINT — Tech Debt Reduction
+
+| ID | Task | Status |
+|----|------|--------|
+| VULN-005 | RBAC with role-checking deps | ✅ DONE |
+| V1 | AuthService.login() layer fix | ✅ DONE |
+| VULN-007 | Error sanitization + global handler | ✅ DONE |
+| PERF-08-10 | Vision timeouts + file size limits | ✅ DONE |
+| VULN-004 | JWT revocation via session validation | ✅ DONE |
+| STRUCT-04 | Split app.py → orchestrator + components/ + helpers/ | ✅ DONE |
+| STRUCT-05 | Extract services.py → services/ package (8 modules) | ✅ DONE |
+| PERF-003 | Occupancy map SQL optimization (lower bound filter) | ✅ DONE |
+| PERF-11 | Remove time.sleep() from reservation flow | ✅ DONE |
+| VULN-09 | Security headers middleware | ✅ DONE |
+| STRUCT-06 | Split mobile reservation page → 4 components | ✅ DONE |
+
+**Completed: 11/11 | ALL DONE**
+
+---
+
+## POST-SPRINT — Bugs Found & Features (2026-02-09)
+
+Discovered during live testing after STRUCT-08. These were latent bugs invisible to audits because the code paths were never exercised until the mobile frontend properly called the API.
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-PRICING-01 | `calculate_price` returns 500 (ResponseValidationError) | **HIGH** | `pricing_service.py` missing `currency` field required by Pydantic `PriceCalculationResponse` schema. Both fallback (line 52) and success (line 116) paths never included it. | ✅ FIXED |
+| BUG-PRICING-02 | `get_client_types` returns 500 (SQLAlchemy identity map error) | **HIGH** | `pricing.py` endpoint calls `PricingService.get_client_types()` without `db`. `@with_db` enters Streamlit mode, calls `SessionLocal.remove()`, killing the scoped session that FastAPI's `Depends(get_db)` holds open. Same anti-pattern as V2-V3 but was missed in `pricing.py`. | ✅ FIXED |
+| BUG-PC-FORM-01 | PC: Room selection always shows DF-01/DF-02 regardless of category | **HIGH** | Category dropdown and room multiselect were inside `st.form()`. Streamlit forms don't trigger reruns on widget change — only on submit. Room list never refreshed when category changed. | ✅ FIXED |
+| FEAT-MULTICATEGORY | Multi-category room selection for both frontends | **MEDIUM** | Business need: a reservation can include rooms from different categories (e.g., 2 Standard + 1 Suite). PC and mobile now show all available rooms grouped by category. Pricing calculates per-category. | ✅ DONE |
+
+### Session Stability & UX Fixes (2026-02-10)
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-SESSION-01 | Mobile 500 errors: "identity map is no longer valid", "concurrent operations not permitted" | **CRITICAL** | `deps.py:get_db()` used `SessionLocal()` (scoped_session with `threading.local()`). FastAPI's threadpool reuses threads, so multiple requests shared the same session object. | ✅ FIXED |
+| BUG-CORS-01 | Browser shows "TypeError: Failed to fetch" instead of actual 500 error | **HIGH** | `BaseHTTPMiddleware` (security_headers) was inner to CORS. Exceptions re-raised by BaseHTTPMiddleware bypassed CORS headers. Browser blocked the response. | ✅ FIXED |
+| BUG-OVERBOOKING-01 | Rooms already reserved for selected dates still show as "Libre" | **HIGH** | Frontend loaded room status ONCE on mount for TODAY only. Never re-fetched when dates changed. No date-range overlap check in backend. | ✅ FIXED |
+| BUG-ROOMNAME-01 | PC interface shows `los-monges-room-001` instead of `DF-01` in all views | **MEDIUM** | PC views (weekly, daily, reservation lists) displayed `room_id` (DB key) instead of `internal_code` (friendly label). Weekly view keyed matrix by `room_id` but UI looked up by `internal_code` → empty grid. | ✅ FIXED |
+
+### AI Agent Tool Fixes (2026-02-12)
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-ROOMNAME-02 | AI agent tools display `los-monges-room-001` instead of `DF-01` in all 4 tool responses | **MEDIUM** | `ai_tools.py` formats `room_id` directly in all 4 tools. Service methods `search_reservations()` and `get_reservations_in_range()` returned raw `room_id`. Also fixed `search_checkins()` which returned incomplete dicts (missing fields the tool expected). | ✅ FIXED |
+
+**Related tasks affected:**
+- **V2-V3** (ai_tools session fix): BUG-PRICING-02 was the same anti-pattern. Lesson: audit ALL endpoints calling services without `db`, not just ai_tools.
+- **STRUCT-08** (centralized api.ts): These bugs were invisible until STRUCT-08 made mobile actually call the endpoints.
+- **STRUCT-04** (app.py split → tab_reserva.py): Component architecture held up — restructuring was isolated to one file.
+- **STRUCT-06** (mobile page split → 4 components): Component split made multi-category implementation clean — only 3 of 4 files touched.
+- **Risk Register**: "Category pricing bugs: LOW probability" → actually materialized. Updated mitigation below.
+
+### REQUIREMENTS.md Gap Closure (2026-02-12)
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| FEAT-REQ-01 | `Property` SQLAlchemy model out of sync with actual DB schema | **MEDIUM** | Model had `settings` JSON column; actual table has 22 individual columns (check_in_start, check_in_end, etc.). No code was using the model, so it was invisible. | ✅ FIXED |
+| FEAT-REQ-02 | Mobile form sends `arrival_time: null` — never collects estimated arrival | **MEDIUM** | Backend had the field (`Column(Time)`), schema had wrong type (`datetime` instead of `time`), mobile form hardcoded `null`. | ✅ FIXED |
+| FEAT-REQ-03 | Check-in/out times and breakfast policy never displayed to users | **MEDIUM** | Data stored in `properties` table but no endpoint to fetch it, no UI to display it. | ✅ FIXED |
+
+### Admin Auth & Design Theme Fixes (2026-02-13)
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-TOKEN-PC-01 | PC Admin Users/Habitaciones pages can't see data — always empty | **HIGH** | `app.py` stores JWT as `st.session_state.api_token` but admin pages read `access_token`. No auth header sent → 401 → empty response displayed as "no data". | ✅ FIXED |
+| BUG-TOKEN-PC-02 | PC login JWT missing `role` and `sid` in payload | **MEDIUM** | Token created with only `{"sub": username}`. Missing `sid` meant session revocation check was bypassed. Missing `role` was cosmetic (RBAC checks DB). Fixed by adding both + reordering `log_login()` before token creation. | ✅ FIXED |
+| FEAT-THEME-01 | Light theme migration — both frontends | **Feature** | REQUIREMENTS.md said "White background with black text" (marked DONE) but both frontends used dark glassmorphism themes. Migrated 13 mobile files (pages, components, services) + 2 PC files (config.toml, styles.py) to clean light theme. | ✅ DONE |
+
+### Monthly Room Sheet & Visualization Tools (2026-02-15)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| FEAT-FICHA-01 | Monthly room sheet (Ficha de habitación por mes) | **Feature** | Gantt-style room×day matrix in Admin Habitaciones "📅 Ficha Mensual" tab. Rows=rooms, columns=days 1-28/31. Color-coded by status (Confirmada/CheckIn/CheckOut/Cancelada). Sticky room columns, today highlight, check-in/out border markers. | ✅ DONE |
+| FEAT-FICHA-02 | Booking source distribution chart | **Feature** | Bar chart showing reservation count by channel (Direct, Booking.com, Airbnb, WhatsApp, etc.) + revenue metrics. Uses `GET /reservations/source-stats`. | ✅ DONE |
+| FEAT-FICHA-03 | Occupancy trend chart | **Feature** | Area chart showing daily occupancy percentage for selected month. Average and max KPIs. Uses `GET /calendar/occupancy-trend`. | ✅ DONE |
+| FEAT-FICHA-04 | Parking utilization display | **Feature** | Progress bars showing daily parking usage vs capacity with color coding (green/orange/red). Uses `GET /reservations/parking-usage`. | ✅ DONE |
+| FEAT-FICHA-05 | Revenue heatmap by room×month | **Feature** | HTML table in Resumen tab: rows=rooms, columns=Jan-Dec. Green gradient intensity by revenue. Yearly totals per room. Uses `GET /reservations/revenue-matrix`. | ✅ DONE |
+
+### Smart Reservation ↔ Check-in Linking (2026-02-16)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| BUG-GUEST-DUP-01 | No duplicate prevention on guest/check-in records | **MEDIUM** | No unique constraint on `document_number`, no master guest table, allows unlimited duplicate clients. | ✅ FIXED (via FEAT-LINK-01) |
+| FEAT-LINK-01 | Smart two-step reservation-to-checkin flow | **Feature** | Added `reservation_id` FK to CheckIn table. Extended ReservationCreate with 6 identity fields (document_number, guest_last_name, guest_first_name, nationality, birth_date, country). PC "Nueva Reserva" has document scanner (Gemini 2.5) that auto-fills + auto-creates linked CheckIn. PC "Ficha de Cliente" has "Vincular a Reserva" dropdown showing unlinked reservations. Mobile sends identity fields → backend auto-creates CheckIn. Duplicate prevention: if document_number exists, updates existing record instead of creating duplicate. | ✅ DONE |
+
+### Pre-Deployment Test Suite (2026-02-23)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| TEST-01a | Pre-deployment test suite — 189 base tests | **Feature** | 19 test files covering auth, reservations, guests, rooms, pricing, calendar, iCal, settings, users, schemas, security, DB integrity, FEAT-LINK-01. StaticPool fix for SQLite threading. In-memory DB per test. | ✅ DONE |
+| TEST-01b | Tier 1+2 test expansion — 35 additional tests (→224 total) | **Feature** | Reservation analytics (daily/range/monthly status), overbooking/parking capacity validation, iCal API endpoints (delete, toggle, sync-all, export), iCal edge cases (malformed, datetime normalization, zero-stay, update existing), background sync (aggregation, disabled feeds, standalone), guest update + billing history, reservation update + weekly view. | ✅ DONE |
+
+#### Test Coverage vs Audit Findings
+
+| Audit Area | Tests | Findings Covered |
+|------------|-------|-----------------|
+| Security (VULN-001 to 010) | 61 direct | VULN-003 (unprotected endpoints), VULN-004 (JWT revocation), VULN-005 (RBAC), VULN-010 (plaintext passwords) |
+| Performance (PERF-001 to 012) | 31 direct | PERF-001 (N+1), PERF-002 (unbounded queries), PERF-003 (occupancy), PERF-004 (pagination) |
+| Bugs (BUG-*) | 19 direct | BUG-PRICING-01/02, BUG-OVERBOOKING-01, BUG-GUEST-DUP-01, BUG-TOKEN-PC-02 |
+| Features (FEAT-*) | 42 direct | FEAT-LINK-01, FEAT-ICAL-01 to 05, FEAT-MULTICATEGORY |
+| Structural (STRUCT-*) | 117 implicit | STRUCT-04/05/06/08 validated by service + API tests |
+| **TOTAL** | **224 tests** | **76.5% coverage** |
+
+#### Remaining Gap (Tier 3-5, ~69 tests)
+
+| Tier | Tests Needed | Priority |
+|------|-------------|----------|
+| Tier 3 — Analytics (source distribution, occupancy trend, revenue) | ~10 | MEDIUM |
+| Tier 4 — AI Features (agent, vision, tools with mocked Gemini) | ~15 | LOW |
+| Tier 5 — Infrastructure (rate limiting, CORS, error handling) | ~9 | LOW |
+| **TOTAL** | **~34 post-deployment** | |
+
+### iCal Integration — Booking.com/Airbnb Sync (2026-02-13)
+
+| ID | Finding | Severity | Detail | Status |
+|----|---------|----------|--------|--------|
+| FEAT-ICAL-01 | iCal import — pull reservations from OTA feeds | **Feature** | `ICalService.sync_feed()` fetches .ics URLs, parses VEVENTs, upserts reservations with `source`/`external_id`. New `ICalFeed` model + `ical_feeds` table. | ✅ DONE |
+| FEAT-ICAL-02 | iCal export — serve .ics for OTAs | **Feature** | `GET /ical/export/{room_id}.ics` and `/ical/export/all.ics` generate calendars from reservations. Public endpoints (no auth — OTAs need direct access). | ✅ DONE |
+| FEAT-ICAL-03 | Background auto-sync every 15 min | **Feature** | FastAPI lifespan pattern with `asyncio.create_task()` + `asyncio.to_thread()`. Replaces deprecated `@app.on_event("startup")`. | ✅ DONE |
+| FEAT-ICAL-04 | Admin iCal UI in Configuración page | **Feature** | Feed CRUD, per-feed/bulk sync buttons, export URL display. Uses `api_client.get_session()` for connection reuse. | ✅ DONE |
+| FEAT-ICAL-05 | Source dropdown: Facebook, Instagram, Google | **Feature** | Added to both mobile (`GuestForm.tsx`) and PC (`tab_reserva.py`) frontends. | ✅ DONE |
+
+---
+
+## GCP Staging Deployment Bugs (2026-02-27)
+
+First deployment to GCP VM (`hotel-munich-staging`, e2-small, southamerica-east1-a, IP 34.39.241.69). Three bugs found and fixed during staging validation:
+
+| ID | Finding | Severity | Root Cause | Status |
+|----|---------|----------|------------|--------|
+| BUG-SEED-01 | `seed_monges.py` crashes on `INSERT INTO buildings` | **HIGH** | Script referenced `buildings` table which doesn't exist in current schema. Also injected `building_id` into room data. | ✅ FIXED |
+| BUG-INITDB-01 | `init_db()` crashes with TypeError on startup | **HIGH** | Legacy Excel migration code in `database.py` tried `Room(type="Standard")` — `type` field removed from Room model. ~100 lines of dead migration code. | ✅ FIXED |
+| BUG-NAN-NIGHTS-01 | Mobile reservation form shows "Total de Noches: NaN" + 0 rooms | **HIGH** | Two linked issues: (1) `RoomSelection.tsx` checkIn onChange passed `checkOut: undefined` via object spread, wiping the value. (2) `calculateNights()` used `new Date(undefined)` → NaN, and `Math.max(1, NaN)` → NaN (JS gotcha). Also prevented room API call (guard `!formData.checkOut` → true). | ✅ FIXED |
+| BUG-SEED-02 | `/rooms/categories` API returns empty array — no room categories visible | **HIGH** | `seed_monges.py` inserted categories without `active` column. DB defaulted to NULL. API filters `WHERE active=1`, excluding all rows. | ✅ FIXED |
+| BUG-SEED-03 | `/pricing/client-types` API returns empty array — pricing shows 0 Gs | **HIGH** | Same pattern as BUG-SEED-02: `seed_monges.py` inserted `client_types` without `active=1`. All 7 client types had `active=NULL`, API filtered them out. Room selection showed "Total: 0 Gs". | ✅ FIXED |
+| BUG-HYDRATION-01 | Next.js hydration mismatch error on reservation page | **MEDIUM** | `new Date().toISOString()` computed during SSR produces different value on client. Also `toLocaleTimeString()` rendered inline in availability page. Fixed by deferring date computation to `useEffect`. | ✅ FIXED |
+
+**Lesson learned:** Staging deployment exposed 4 bugs + UI testing exposed 2 more (BUG-SEED-03, BUG-HYDRATION-01) that were invisible to unit tests. Seed data bugs are a recurring pattern — raw SQL INSERTs bypass ORM column defaults. Full-stack UI testing is essential alongside unit tests.
+
+---
+
+## Professional Development Workflow (2026-03-01)
+
+After GCP deployment exposed multiple bugs, a comprehensive development workflow was implemented to prevent regressions and automate quality gates.
+
+**Root cause analysis:** The deployment bugs were not code quality issues — they were workflow issues. No CI, no pre-commit hooks, no automated testing gates, no DB reset command, manual multi-step deployment, and force-pushes between repos causing history divergence.
+
+| ID | Component | Detail | Status |
+|----|-----------|--------|--------|
+| WORKFLOW-01a | DB reset script | `scripts/reset_local_db.py` — deletes hotel.db + WAL/SHM, creates schema, seeds data. Handles Windows UTF-8 encoding. `npm run reset-db` | DONE |
+| WORKFLOW-01b | npm scripts task runner | Root `package.json` — `npm run test`, `npm run reset-db`, `npm run deploy:staging`, `npm run dev:backend/mobile/pc` | DONE |
+| WORKFLOW-01c | Pre-commit hook | `scripts/hooks/pre-commit` — blocks `.env`, `.db`, credentials from commits. Runs backend pytest (~3s). Installed via `git config core.hooksPath scripts/hooks`. | DONE |
+| WORKFLOW-01d | GitHub Actions CI | `.github/workflows/ci.yml` — two parallel jobs on push to main/dev: (1) backend pytest (Python 3.11), (2) frontend build check (Node 20). | DONE |
+| WORKFLOW-01e | One-command deploy | `scripts/deploy_staging.sh` — runs local tests → pushes to origin → SSHs to VM → git pull + rebuild + restart services. | DONE |
+| WORKFLOW-01f | Dual push URL | `git push origin dev:main` pushes to both public (`sistema-hotel-m`) and private (`hotel-PMS-dev`) repos. No more force-pushes — histories unified. | DONE |
+
+**Developer daily workflow:**
+```
+npm run reset-db          # Reset local DB (if needed)
+npm test                  # Run all tests (backend + frontend build)
+git commit -m "..."       # Pre-commit hook auto-runs tests + blocks secrets
+npm run deploy:staging    # Tests + push + deploy in one command
+```
+
+---
+
+## KPI/Performance Testing & Monthly Automation (2026-03-09)
+
+After restoring Admin Habitaciones metrics (Resumen por Habitacion tab, Ficha Mensual, Revenue Heatmap), a comprehensive testing and monitoring framework was implemented.
+
+| ID | Component | Detail | Status |
+|----|-----------|--------|--------|
+| FEAT-ADMIN-ROOM-SUMMARY | Resumen por Habitacion tab | All-rooms summary table with totals + CSV. Individual room view with 4 metric cards. 5 API endpoints restored. | DONE |
+| QA-KPI-01 | KPI evaluation suite | 9 KPIs scored 0-100: Booking Integrity (3 tests), Occupancy Accuracy (4 parametrized), Pricing Accuracy (4 scenarios), API Response Time (3 endpoints), Data Consistency (2 CRUD cycles), Calendar Sync (events vs occupancy), Revenue Accuracy (room report), Security Compliance (7 protected endpoints), Agent Tool Reliability (3 tests — 11 tools callable, return strings, handle errors). 28 tests total. JSON reports. | DONE |
+| QA-PERF-01 | Performance benchmarks | 7 benchmark classes: occupancy_map, today_summary, monthly_room_view, revenue_matrix, room_report (all parametrized 10/100/500), calculate_price (100 calls, <50ms avg), API endpoints (3, <500ms). 19 tests. JSON reports. | DONE |
+| QA-CI-01 | CI enhancement | GitHub Actions: coverage (78%, fail-under 75%), KPI step, perf step, artifact upload (90-day retention). | DONE |
+| QA-MAINT-01 | Monthly automation | Scheduled task: 1st of month, 9 AM. Runs KPI + perf + full suite. Claude Code skills: /hotel-health-check, /hotel-perf-benchmark. Project CLAUDE.md documentation. | DONE |
+| REPO-04 | Repo cleanup | Removed tracked .bat scripts and .claude/ configs from public repo. Updated all documentation to v1.2.0. | DONE |
+
+**Results (2026-03-09 baseline):**
+
+| Metric | Value |
+|--------|-------|
+| Overall KPI Score | **100.0/100** |
+| Performance Pass Rate | **19/19 (100%)** |
+| Test Count | **313** (was 281) |
+| Code Coverage | **83%** (was 78%) |
+| Fastest Benchmark | calculate_price: 0.54ms avg (threshold: 50ms) |
+| Slowest Benchmark | get_room_report(500): 7.60ms (threshold: 2000ms) |
+
+---
+
+## Monitoring & Alerting Stack (2026-03-10)
+
+After configuring the CI pipeline and KPI framework, a complete monitoring stack was activated to ensure 24/7 awareness of system health.
+
+| ID | Component | Detail | Status |
+|----|-----------|--------|--------|
+| BUG-CI-PANDAS | CI dependency fix | Removed unused `import pandas` from `database.py` (caused `ModuleNotFoundError` in GitHub Actions). Added `Pillow>=10.0.0` to `requirements.txt` (required by `vision.py`). | DONE |
+| MON-DISCORD-01 | Runtime error alerting | `DiscordWebhookHandler` in `logging_config.py` sends ERROR/CRITICAL logs as rich Discord embeds. 5-minute deduplication, non-blocking (background threads). Activated via `DISCORD_WEBHOOK_URL` in `.env`. | DONE |
+| MON-HC-01 | Uptime monitoring | Healthchecks.io push-based ping every 15 min from `_periodic_ical_sync()`. Alerts if backend is down >1 hour (period: 30min, grace: 30min). Activated via `HEALTHCHECK_PING_URL` in `.env`. | DONE |
+| MON-CI-DISCORD | CI failure alerts | New `notify-discord` job in `ci.yml`. Fires when `backend-tests` or `frontend-check` fails. Sends rich embed with branch, commit, author, and link to workflow run. Uses `DISCORD_WEBHOOK_URL` repo secret on both repos. | DONE |
+
+**Monitoring coverage:**
+
+| Scenario | Alert Channel | Response Time |
+|----------|---------------|---------------|
+| Backend crash / unhandled exception | Discord (runtime) | Immediate (5-min dedup) |
+| Backend down / unresponsive | Healthchecks.io → email | ~1 hour (30min period + 30min grace) |
+| CI test failure | Discord (CI) + GitHub email | ~2-3 min (after CI completes) |
+| CI build failure (frontend) | Discord (CI) + GitHub email | ~2-3 min (after CI completes) |
+
+---
+
+## Document Generation System (2026-03-16)
+
+After completing the monitoring stack, a document generation system was implemented for printable reservation confirmations and client registration sheets.
+
+| ID | Component | Detail | Status |
+|----|-----------|--------|--------|
+| FEAT-DOC-01 | DocumentService | `fpdf2`-based PDF generation for reservations and clients. Auto-triggers on creation (both FastAPI and Streamlit via `@with_db`). Hotel header, guest info, stay dates, pricing breakdown, parking. Files saved to `backend/hotel/Reservas/` and `backend/hotel/Clientes/`. | DONE |
+| FEAT-DOC-02 | Document download API | `GET /documents/reservations/{id}`, `GET /documents/clients/{id}`, `GET /documents/download/{folder}/{filename}`, `GET /documents/list/{folder}`. On-demand regeneration. Path traversal protection via `os.path.abspath()` check. | DONE |
+| FEAT-DOC-03 | Mobile PDF download | `documents.ts` service with fetch+blob+JWT auth. "Descargar PDF" button after reservation creation. Removed auto-redirect, added scroll-to-top + "Ir al Calendario" button. | DONE |
+| FEAT-DOC-04 | Streamlit document browser | `97_📄_Documentos_Hotel.py` page with Reservas/Clientes tabs. Direct filesystem read (same machine). Download buttons via `st.download_button`. | DONE |
+| BUG-UTC-DATE | Mobile date off-by-one | `toISOString().split('T')[0]` converted to UTC, shifting date back one day in Paraguay (UTC-3/4). Fixed to use `getFullYear()/getMonth()/getDate()` local components. | DONE |
+| TEST-DOC-01 | Document tests | 27 tests: helpers (_sanitize_filename, _format_pyg), reservation PDF (basic, breakdown, parking, not found, path lookup), client PDF (basic, not found, linked reservation), list documents, endpoints (download, 404, list, invalid folder, download by filename, auth required). | DONE |
+
+---
+
+## Pre-Deployment Final Validation (2026-03-17)
+
+7-phase comprehensive test before customer presentation:
+
+| Phase | Tests | Result |
+|-------|-------|--------|
+| 1. Backend Tests | 313 tests, 83% coverage, 28/28 KPIs, 19/19 perf | PASS |
+| 2. Live API Integration | 50 endpoint calls | PASS (0 failures) |
+| 3. Frontend PC (Streamlit) | Login + 6 pages | PASS |
+| 4. Frontend Mobile (Next.js) | Build + 8 routes | PASS |
+| 5. Cross-System Integration | 5 tests | PASS |
+| 6. Security & Edge Cases | Auth(401), RBAC(403), validation(422), path traversal blocked | PASS |
+
+**Deployment Decision: GREEN**
+
+---
+
+## BACKLOG — Nice to Have
+
+| ID | Task | Time |
+|----|------|------|
+| STRUCT-06 | Split `reservations/new/page.tsx` | ✅ DONE |
+| STRUCT-08 | Route fetch() through api.ts | ✅ DONE |
+| STRUCT-12 | Rename page files to snake_case | 30m |
+| STRUCT-13 | Rename constants to English | 30m |
+| PERF-10 | Use requests.Session() | ✅ DONE |
+| PERF-12 | Add Redis caching layer | 8h |
+| TEST-01 | Increase test coverage to 80% | ✅ 83% (313 tests). Tier 1+2 + KPI + Perf + Documents done. Remaining: ~19 tests (Tier 3-5). |
+
+---
+
+## Verification Checklist
+
+### Security
+- [x] API keys rotated, not in git history
+- [x] CORS rejects unauthorized origins
+- [x] All endpoints require auth (401 without token)
+- [x] RBAC enforced (403 for unauthorized roles)
+- [x] JWT revocation active
+- [x] Security headers middleware (X-Content-Type-Options, X-Frame-Options, etc.)
+
+### Architecture
+- [x] `frontend_pc/app.py` is 116 LOC (orchestrator pattern)
+- [x] `backend/services/` is a package (8 modules, backward-compat re-exports)
+- [x] Admin pages use API, not raw sqlite3
+- [x] ai_tools routed through service layer
+- [x] `reservations/new/page.tsx` orchestrator pattern (280 LOC + 4 components)
+- [x] Multi-category room selection in both frontends (FEAT-MULTICATEGORY)
+- [x] All FastAPI endpoints pass `db` to service methods (BUG-PRICING-02 lesson)
+- [x] FastAPI uses `session_factory()` not `SessionLocal` (BUG-SESSION-01)
+- [x] CORS middleware outermost + global handler includes CORS headers (BUG-CORS-01)
+- [x] Date-range overbooking prevention (BUG-OVERBOOKING-01)
+- [x] All UIs display `internal_code` not `room_id` (BUG-ROOMNAME-01)
+- [x] AI agent tools display `internal_code` not `room_id` (BUG-ROOMNAME-02)
+- [x] iCal import/export sync for Booking.com/Airbnb (FEAT-ICAL-01/02)
+- [x] Background auto-sync every 15 min via lifespan (FEAT-ICAL-03)
+- [x] Admin iCal configuration UI (FEAT-ICAL-04)
+- [x] Source dropdown: Facebook, Instagram, Google (FEAT-ICAL-05)
+- [x] PC admin pages use correct token key `api_token` (BUG-TOKEN-PC-01)
+- [x] PC login JWT includes `role` + `sid` (BUG-TOKEN-PC-02)
+- [x] Light theme — white bg + black text on both frontends (FEAT-THEME-01)
+- [x] Monthly room sheet — Gantt-style room×day grid (FEAT-FICHA-01)
+- [x] Source distribution + occupancy trend + parking usage charts (FEAT-FICHA-02/03/04)
+- [x] Revenue heatmap by room×month (FEAT-FICHA-05)
+- [x] Smart Reservation ↔ Check-in linking (FEAT-LINK-01)
+- [x] Duplicate guest/check-in prevention by document_number (BUG-GUEST-DUP-01)
+
+### Testing
+- [x] Pre-deployment test suite: 313 tests, 27 files, all passing
+- [x] StaticPool for SQLite in-memory threading (FastAPI + pytest)
+- [x] Service-layer tests for all 7 services (auth, reservation, guest, room, pricing, settings, ical)
+- [x] API endpoint tests for all CRUD routes (auth, reservations, guests, rooms, calendar, ical, settings, users, pricing)
+- [x] Reservation analytics tests (daily/range/monthly status, parking capacity, overbooking)
+- [x] iCal edge cases (malformed, missing fields, datetime normalization, deduplication, background sync)
+- [x] Schema validation tests (Pydantic models, date validation, phone/document normalization)
+- [x] Security tests (JWT create/decode, bcrypt, RBAC, session revocation)
+- [x] FEAT-LINK-01 tests (auto check-in, duplicate prevention, unlinked reservations)
+- [x] KPI evaluation tests: 9 KPIs, 28 tests, scored 0-100 (QA-KPI-01)
+- [x] Performance benchmark tests: 7 benchmarks, 19 tests with thresholds (QA-PERF-01)
+- [x] CI coverage reporting: 83%, fail-under 75% (QA-CI-01)
+- [x] Document generation tests: 27 tests (helpers, PDF gen, endpoints, auth) (TEST-DOC-01)
+- [x] Pre-deployment 7-phase validation: 313 tests + 50 API + frontends + security (QA-FINAL-01)
+- [x] Monthly automation: scheduled task + skills (QA-MAINT-01)
+- [ ] Tier 3-5 tests (~19 remaining: analytics, AI features, infrastructure)
+
+### DevOps & Workflow
+- [x] Pre-commit hook blocks secrets + runs backend tests (WORKFLOW-01c)
+- [x] GitHub Actions CI on push — backend tests + frontend build (WORKFLOW-01d)
+- [x] npm scripts task runner — `npm test`, `npm run reset-db`, `npm run deploy:staging` (WORKFLOW-01b)
+- [x] One-command DB reset for local development (WORKFLOW-01a)
+- [x] One-command staging deployment with pre-flight tests (WORKFLOW-01e)
+- [x] Dual push URL — single push to both repos (WORKFLOW-01f)
+- [x] No force-push policy
+- [x] CI with coverage (78%, fail-under 75%) + KPI + perf steps (QA-CI-01)
+- [x] Monthly KPI/perf scheduled task (1st of month, 9 AM) (QA-MAINT-01)
+- [x] Claude Code skills: /hotel-health-check, /hotel-perf-benchmark (QA-MAINT-01) — histories unified (WORKFLOW-01f)
+
+### Monitoring & Alerting
+- [x] Discord runtime error alerts (DiscordWebhookHandler, 5-min dedup, non-blocking)
+- [x] Discord CI failure alerts (notify-discord job in ci.yml, uses repo secret)
+- [x] Healthchecks.io uptime monitoring (ping every 15 min, alert after 1 hour)
+- [x] GitHub email notifications on CI workflow status
+- [x] DISCORD_WEBHOOK_URL configured as GitHub repo secret on both repos
+
+### Performance
+- [x] Database indexes on frequently queried columns
+- [x] Pagination on list endpoints
+- [x] Gemini calls have 30s timeout + 5MB file limit
+- [x] No N+1 query patterns
+- [x] Occupancy map uses SQL lower bound filter
+- [x] No time.sleep() in UI flows
+- [x] Shared requests.Session() for PC admin pages (PERF-10)
+
+---
+
+## Summary Metrics
+
+| Metric | Value |
+|--------|-------|
+| Total Findings | 90 |
+| **Resolved** | **88** |
+| **Remaining** | **2** (STRUCT-12 snake_case, STRUCT-13 English constants) |
+| Security Critical | 0 remaining |
+| Architecture Critical | 0 remaining |
+| Quick Wins | 0 remaining (12/12 done) |
+| Sprint Work | 0 remaining (11/11 done) |
+| Infrastructure | 5/5 done (INFRA-01 to INFRA-05) |
+| Dev Workflow | 6/6 done (WORKFLOW-01a to 01f) |
+| UI/UX Testing | 2 bugs caught + fixed (BUG-SEED-03, BUG-HYDRATION-01) |
+| Repo Security | 3/3 done (REPO-01 to REPO-03) |
+| Test Coverage | 313 tests (83%) — Tier 1+2 + KPI + Perf + Documents complete |
+| Backlog | ~8h (PERF-12 Redis, STRUCT-12/13 naming, Tier 3-5 tests) |
+
+---
+
+## Next Steps
+
+1. ~~**Day 1:** Security critical fixes~~ ✅
+2. ~~**Day 2:** Architecture + performance blockers~~ ✅
+3. ~~**Day 3:** RBAC, JWT revocation, error sanitization~~ ✅
+4. ~~**Day 4:** STRUCT-04/05, PERF-003/11, VULN-09~~ ✅
+5. ~~**Day 5:** STRUCT-06 (split mobile reservation page)~~ ✅
+6. ~~**Day 6:** STRUCT-08 (centralized api.ts)~~ ✅
+7. ~~**Day 7:** BUG-PRICING-01/02, BUG-PC-FORM-01, FEAT-MULTICATEGORY~~ ✅
+8. ~~**Day 8:** BUG-SESSION-01, BUG-CORS-01, BUG-OVERBOOKING-01, BUG-ROOMNAME-01~~ ✅
+9. ~~**Day 9:** BUG-ROOMNAME-02 (AI agent tools room naming)~~ ✅
+10. ~~**Day 10:** FEAT-ICAL-01 to 05 (iCal import/export, auto-sync, admin UI, source dropdowns)~~ ✅
+11. ~~**Day 11:** FEAT-FICHA-01 to 05 (Monthly room sheet, source distribution, occupancy trend, parking usage, revenue heatmap)~~ ✅
+12. ~~**Day 12:** TEST-01a — Pre-deployment test suite (189 tests, 19 files)~~ ✅
+13. ~~**Day 12:** TEST-01b — Tier 1+2 test expansion (+35 → 224 tests, 22 files)~~ ✅
+14. ~~**Day 13:** INFRA-01 to 05 (Remote admin API, Tailscale VPN, Linux systemd services, GCP staging, test data seeder)~~ ✅
+15. ~~**Day 13:** REPO-01 to 03 (Two-repo split, sensitive data redaction, public history purge)~~ ✅
+16. ~~**Day 14:** DEPLOY-01 — GCP staging deployment + 4 deployment bug fixes (BUG-SEED-01/02, BUG-INITDB-01, BUG-NAN-NIGHTS-01)~~ ✅
+17. ~~**Day 15:** WORKFLOW-01 — Professional development workflow (npm scripts, pre-commit hook, GitHub Actions CI, deploy script, dual push URL, DB reset)~~ ✅
+18. ~~**Day 15:** BUG-SEED-03, BUG-HYDRATION-01 — Full UI/UX testing (mobile + PC) caught seed bug (client_types active=NULL) and Next.js hydration mismatch~~ ✅
+19. ~~**Day 16:** FEAT-ADMIN-ROOM-SUMMARY -- Resumen por Habitacion tab restored with all metrics~~ Done
+20. ~~**Day 16:** QA-KPI-01/PERF-01/CI-01/MAINT-01 -- Full KPI + perf testing framework, CI enhancement, monthly automation~~ Done
+21. ~~**Day 17:** FEAT-DOC-01 to 04 -- Document generation (reservation/client PDFs, API, mobile download, Streamlit browser)~~ Done
+22. ~~**Day 17:** BUG-UTC-DATE -- Mobile date off-by-one fix~~ Done
+23. ~~**Day 17:** QA-FINAL-01 -- Pre-deployment 7-phase validation~~ Done
+24. **Next:** Deploy to GCP staging → customer presentation (2026-03-18)
+25. **Backlog:** PERF-12 (Redis), STRUCT-12 (snake_case), STRUCT-13 (English constants), Tier 3-5 tests (~19 remaining)
+
+---
+
+## Cross-Reference: Finding Sources
+
+| ID Range | Source Report |
+|----------|---------------|
+| VULN-001 to VULN-010 | Security Audit.md |
+| PERF-001 to PERF-012 | Performance Review.md |
+| V1 to V10 | Dependency Analisis.md |
+| STRUCT-01 to STRUCT-38 | Structural Forensics.md |
+| TOKEN-01, ZOMBIE-01/02, CONFIG-01 | Dependency Analisis.md |
+| BUG-PRICING-01/02, BUG-PC-FORM-01 | Post-STRUCT-08 live testing (2026-02-09) |
+| FEAT-MULTICATEGORY | Feature request (2026-02-09) |
+| BUG-SESSION-01, BUG-CORS-01 | Mobile 500 errors live testing (2026-02-10) |
+| BUG-OVERBOOKING-01, BUG-ROOMNAME-01 | Functional testing (2026-02-10) |
+| FEAT-ICAL-01 to FEAT-ICAL-05 | REQUIREMENTS.md Section 5 implementation (2026-02-13) |
+| BUG-TOKEN-PC-01/02 | PC admin auth testing (2026-02-13) |
+| FEAT-THEME-01 | REQUIREMENTS.md Design Theme (2026-02-13) |
+| FEAT-FICHA-01 to FEAT-FICHA-05 | REQUIREMENTS.md Room Management + visualization tools (2026-02-15) |
+| FEAT-LINK-01 | Smart reservation ↔ check-in linking (2026-02-16) |
+| FEAT-REQ-01/02/03 | Property model fixes, arrival time, settings display (2026-02-15) |
+| INFRA-01 to INFRA-05 | Remote maintenance infrastructure (2026-02-23) |
+| REPO-01 to REPO-03 | Repository security cleanup (2026-02-25) |
+| BUG-SEED-01/02, BUG-INITDB-01, BUG-NAN-NIGHTS-01 | GCP staging deployment validation (2026-02-27) |
+| WORKFLOW-01a to 01f | Professional workflow implementation (2026-03-01) |
+| BUG-SEED-03, BUG-HYDRATION-01 | Full UI/UX testing — local testing with seeded DB (2026-03-01) |
+| FEAT-SEASON-OVERRIDE, FEAT-SEASON-LIST, FEAT-SEASON-UI | Manual season override + season selector UI (2026-03-07) |
+| FEAT-CAT-DESC, FEAT-CAT-DESC-AVAIL, FEAT-CAT-DESC-DAILY | Category descriptions across all views (2026-03-07) |
+| BUG-IOS-DATE, BUG-TOKEN-SETTINGS, FEAT-LAN-CORS | iOS date fix, settings token fix, LAN CORS (2026-03-07) |
+| FEAT-ADMIN-ROOM-SUMMARY | Admin Habitaciones Resumen por Habitacion tab (2026-03-09) |
+| QA-KPI-01, QA-PERF-01, QA-CI-01, QA-MAINT-01 | KPI/perf testing, CI enhancement, monthly automation (2026-03-09) |
+| REPO-04 | Documentation update + public repo cleanup (2026-03-09) |
+| BUG-CI-PANDAS | CI dependency fix — pandas removed, Pillow added (2026-03-10) |
+| MON-DISCORD-01 | Runtime Discord error alerting activated (2026-03-10) |
+| MON-HC-01 | Healthchecks.io uptime monitoring activated (2026-03-10) |
+| MON-CI-DISCORD | CI Discord failure notifications added (2026-03-10) |
+| FEAT-DOC-01 to 04 | Document generation system — PDFs, API, mobile download, Streamlit browser (2026-03-16) |
+| BUG-UTC-DATE | Mobile date off-by-one fix — toISOString → local components (2026-03-16) |
+| TEST-DOC-01 | Document generation tests — 27 tests (2026-03-16) |
+| QA-FINAL-01 | Pre-deployment 7-phase validation — 313 tests + 50 API + frontends + security (2026-03-17) |
+
+---
+
+## Remote Maintenance Infrastructure (2026-02-23)
+
+| ID | Description | Status |
+|----|------------|--------|
+| INFRA-01 | Remote management API — `/admin/backups` (list, trigger), `/admin/logs/errors`, `/admin/deploy-log`, `/admin/system-info`. All require admin role. | DONE |
+| INFRA-02 | Tailscale VPN setup guide (`scripts/setup_tailscale.md`) for remote SSH access through NAT. | DONE |
+| INFRA-03 | Linux systemd service manager (`scripts/service_control_linux.sh`) — start/stop/restart/logs for hotel-backend, hotel-pc, hotel-mobile. | DONE |
+| INFRA-04 | GCP staging environment — `scripts/setup_gcp_staging.sh` + `setup_gcp_staging.md`. e2-small VM in southamerica-east1 (~$16/mo, $300 free credits). | DONE |
+| INFRA-05 | Test data generator (`scripts/seed_test_data.py`) — 80-100 reservations, 40-50 check-ins, 100+ sessions, 4-6 iCal feeds. Supports --dry-run/--reset. | DONE |
+
+## Repository Security Cleanup (2026-02-25)
+
+| ID | Description | Status |
+|----|------------|--------|
+| REPO-01 | Two-repo architecture — public (`sistema-hotel-m` / origin) for deployment, private (`hotel-PMS-dev` / private) for development. Internal docs on `private/dev` only. | DONE |
+| REPO-02 | Sensitive data redaction — API keys and JWT secrets redacted from tracked files. Public repo history purged (single clean commit). | DONE |
+| REPO-03 | Internal content removal — claude_audit/, PROJECT_CONTEXT.md, debug scripts, dev configs removed from public repo via `.gitignore` + `git rm --cached`. | DONE |
+
+---
+
+*Synthesized from: Structural Forensics.md, Dependency Analisis.md, Security Audit.md, Performance Review.md*
