@@ -174,21 +174,19 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
             {/* Client Type Selection */}
             <div className="mt-4">
                 <label className="text-gray-600 text-xs mb-2 block">🏷️ Tipo de Cliente</label>
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                <select
+                    value={selectedClientType?.id ?? ''}
+                    onChange={(e) => {
+                        const ct = clientTypes.find(c => c.id === e.target.value);
+                        if (ct) onClientTypeChange(ct);
+                    }}
+                    className="w-full p-3 rounded-xl border border-gray-300 bg-white text-gray-900 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                >
+                    <option value="" disabled>Seleccionar tipo de cliente</option>
                     {clientTypes.map(ct => (
-                        <button
-                            key={ct.id}
-                            type="button"
-                            onClick={() => onClientTypeChange(ct)}
-                            className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all ${selectedClientType?.id === ct.id
-                                ? 'bg-amber-500 text-white font-semibold shadow-lg shadow-amber-500/20'
-                                : 'bg-gray-50 text-gray-700 border border-gray-300 hover:bg-gray-100'
-                                }`}
-                        >
-                            {ct.name}
-                        </button>
+                        <option key={ct.id} value={ct.id}>{ct.name}</option>
                     ))}
-                </div>
+                </select>
             </div>
         </>
     );
