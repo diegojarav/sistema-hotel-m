@@ -386,5 +386,7 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
             st.write(f"**Huésped:** {guest}")
             if st.button(f"❌ Cancelar", key=f"cancel_{res_id}_{day_key}"):
                 if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
+                    from frontend_services.cache_service import force_refresh
+                    force_refresh()
                     st.success("Reserva cancelada")
                     st.rerun()

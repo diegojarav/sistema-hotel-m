@@ -17,11 +17,37 @@ export interface Reservation {
     check_out: string; // ISO date string
 }
 
+export interface ReservationDetail extends Reservation {
+    price: number;
+    stay_days: number;
+    room_type: string;
+    contact_phone: string;
+    reserved_by: string;
+    received_by: string;
+    arrival_time: string | null;
+    source: string;
+    parking_needed: boolean;
+    vehicle_model: string | null;
+    vehicle_plate: string | null;
+    category_id: string | null;
+    client_type_id: string | null;
+    created_at: string | null;
+    cancellation_reason: string | null;
+    cancelled_by: string | null;
+}
+
 /**
  * Fetch all reservations.
  */
 export async function getAllReservations(): Promise<Reservation[]> {
     return apiGet<Reservation[]>('/reservations');
+}
+
+/**
+ * Fetch a single reservation by ID.
+ */
+export async function getReservationById(id: string): Promise<ReservationDetail> {
+    return apiGet<ReservationDetail>(`/reservations/${id}`);
 }
 
 /**

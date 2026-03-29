@@ -183,12 +183,13 @@ export default function CalendarPage() {
                             <div className="space-y-3">
                                 {visibleReservations.map((res) => {
                                     const badge = getStatusBadge(res.status);
-                                    const checkIn = new Date(res.check_in);
+                                    const checkIn = parseLocalDate(res.check_in);
 
                                     return (
-                                        <div
+                                        <Link
                                             key={res.id}
-                                            className="bg-white border border-gray-200 rounded-2xl p-4 hover:bg-gray-50 transition-all shadow-sm"
+                                            href={`/dashboard/calendar/${res.id}`}
+                                            className="block bg-white border border-gray-200 rounded-2xl p-4 hover:bg-gray-50 active:scale-[0.98] transition-all shadow-sm"
                                         >
                                             <div className="flex justify-between items-start mb-2">
                                                 <div className="flex items-center gap-3">
@@ -212,7 +213,7 @@ export default function CalendarPage() {
                                                     {badge.label}
                                                 </span>
                                             </div>
-                                        </div>
+                                        </Link>
                                     );
                                 })}
 

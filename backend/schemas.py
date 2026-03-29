@@ -143,6 +143,25 @@ class ReservationDTO(BaseModel):
     price: float
 
 
+class ReservationDetailDTO(ReservationDTO):
+    """Schema de salida detallada para una reserva individual."""
+    stay_days: int = 0
+    room_type: str = ""
+    contact_phone: str = ""
+    reserved_by: str = ""
+    received_by: str = ""
+    arrival_time: Optional[time] = None
+    source: str = ""
+    parking_needed: bool = False
+    vehicle_model: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    category_id: Optional[str] = None
+    client_type_id: Optional[str] = None
+    created_at: Optional[datetime] = None
+    cancellation_reason: Optional[str] = None
+    cancelled_by: Optional[str] = None
+
+
 class CalendarEventDTO(BaseModel):
     """
     Schema para eventos de calendario (FullCalendar compatible).

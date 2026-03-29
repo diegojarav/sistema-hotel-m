@@ -36,11 +36,11 @@ if not SECRET_KEY:
 # JWT Algorithm
 ALGORITHM: str = "HS256"
 
-# Access token expires in 30 minutes
-ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+# Access token expires in 365 days (hotel runs 24/7, manual logout only)
+ACCESS_TOKEN_EXPIRE_MINUTES: int = 525600
 
-# Refresh token expires in 7 days (for biometric persistence)
-REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+# Refresh token expires in 365 days
+REFRESH_TOKEN_EXPIRE_DAYS: int = 365
 
 
 # ==========================================

@@ -23,6 +23,7 @@ from services import ReservationService, DocumentService
 from schemas import (
     ReservationCreate,
     ReservationDTO,
+    ReservationDetailDTO,
     CalendarEventDTO,
     TodaySummaryDTO
 )
@@ -216,14 +217,14 @@ def get_reservation(
     current_user = Depends(get_current_user)
 ):
     """Get reservation details by ID."""
-    reservation = ReservationService.get_reservation(db, reservation_id)
-    
+    reservation = ReservationService.get_reservation_detail(db, reservation_id)
+
     if not reservation:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reservation {reservation_id} not found"
         )
-    
+
     return reservation
 
 

@@ -377,6 +377,41 @@ class ReservationService:
 
     @staticmethod
     @with_db
+    def get_reservation_detail(db: Session, res_id: str) -> Optional["ReservationDetailDTO"]:
+        from schemas import ReservationDetailDTO
+        r = db.query(Reservation).filter(Reservation.id == res_id).first()
+        if not r:
+            return None
+        room = db.query(Room).filter(Room.id == r.room_id).first()
+        room_code = room.internal_code if room else r.room_id
+        return ReservationDetailDTO(
+            id=r.id,
+            room_id=r.room_id,
+            room_internal_code=room_code,
+            guest_name=r.guest_name,
+            status=r.status,
+            check_in=r.check_in_date,
+            check_out=r.check_in_date + timedelta(days=r.stay_days),
+            price=r.price or 0.0,
+            stay_days=r.stay_days,
+            room_type=r.room_type or "",
+            contact_phone=r.contact_phone or "",
+            reserved_by=r.reserved_by or "",
+            received_by=r.received_by or "",
+            arrival_time=r.arrival_time,
+            source=r.source or "",
+            parking_needed=r.parking_needed or False,
+            vehicle_model=r.vehicle_model,
+            vehicle_plate=r.vehicle_plate,
+            category_id=r.category_id,
+            client_type_id=r.client_type_id,
+            created_at=r.created_at,
+            cancellation_reason=r.cancellation_reason,
+            cancelled_by=r.cancelled_by,
+        )
+
+    @staticmethod
+    @with_db
     def search_reservations(db: Session, query: str) -> List[Dict]:
         """
         Search reservations by guest name, ID, or document number.
