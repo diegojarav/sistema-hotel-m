@@ -43,6 +43,12 @@ export default function CalendarPage() {
         fetchReservations();
     }, [authLoading]);
 
+    // Parse "YYYY-MM-DD" as local date (not UTC)
+    const parseLocalDate = (dateStr: string): Date => {
+        const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+        return new Date(y, m - 1, d);
+    };
+
     // Get filtered list based on selected date or upcoming
     const getDisplayedReservations = useCallback(() => {
         const today = new Date();
@@ -51,23 +57,20 @@ export default function CalendarPage() {
         let filtered: Reservation[];
 
         if (selectedDate) {
+            const selTime = selectedDate.getTime();
             filtered = reservations.filter(res => {
-                const checkIn = new Date(res.check_in);
-                const checkOut = new Date(res.check_out);
-                checkIn.setHours(0, 0, 0, 0);
-                checkOut.setHours(0, 0, 0, 0);
-                const selectedTime = selectedDate.getTime();
-                return selectedTime >= checkIn.getTime() && selectedTime <= checkOut.getTime();
+                const checkIn = parseLocalDate(res.check_in);
+                const checkOut = parseLocalDate(res.check_out);
+                return selTime >= checkIn.getTime() && selTime <= checkOut.getTime();
             });
         } else {
             filtered = reservations.filter(res => {
-                const checkIn = new Date(res.check_in);
-                checkIn.setHours(0, 0, 0, 0);
+                const checkIn = parseLocalDate(res.check_in);
                 return checkIn >= today && res.status.toLowerCase() !== 'cancelada';
             });
         }
 
-        filtered.sort((a, b) => new Date(a.check_in).getTime() - new Date(b.check_in).getTime());
+        filtered.sort((a, b) => parseLocalDate(a.check_in).getTime() - parseLocalDate(b.check_in).getTime());
 
         return filtered;
     }, [reservations, selectedDate]);
@@ -78,7 +81,7 @@ export default function CalendarPage() {
 
     const tileContent = ({ date, view }: { date: Date; view: string }) => {
         if (view !== 'month') return null;
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
         if (datesWithReservations.has(dateStr)) {
             return (
                 <div className="flex justify-center mt-1">

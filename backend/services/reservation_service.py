@@ -369,7 +369,7 @@ class ReservationService:
             room_ids=[r.room_id], # Original stored single, but DTO expects list
             room_type=r.room_type or "",
             price=r.price,
-            arrival_time=datetime.combine(date.today(), r.arrival_time) if r.arrival_time else None,
+            arrival_time=r.arrival_time if r.arrival_time else None,
             reserved_by=r.reserved_by or "",
             contact_phone=r.contact_phone or "",
             received_by=r.received_by or ""

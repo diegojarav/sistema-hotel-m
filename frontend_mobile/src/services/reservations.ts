@@ -77,16 +77,28 @@ export async function getReservationsForDate(targetDate: Date): Promise<Reservat
 /**
  * Get dates that have reservations (for calendar dots).
  */
+/**
+ * Parse "YYYY-MM-DD" as local date (avoids UTC shift).
+ */
+function parseLocalDate(dateStr: string): Date {
+    const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
+
+function formatLocalDate(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 export function getDatesWithReservations(reservations: Reservation[]): Set<string> {
     const dates = new Set<string>();
 
     reservations.forEach(res => {
-        const checkIn = new Date(res.check_in);
-        const checkOut = new Date(res.check_out);
+        const checkIn = parseLocalDate(res.check_in);
+        const checkOut = parseLocalDate(res.check_out);
 
         const current = new Date(checkIn);
         while (current <= checkOut) {
-            dates.add(current.toISOString().split('T')[0]);
+            dates.add(formatLocalDate(current));
             current.setDate(current.getDate() + 1);
         }
     });

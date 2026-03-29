@@ -85,7 +85,7 @@ def render_tab_reserva():
         d_nomb = res_data.guest_name
         d_habs = res_data.room_ids
         d_precio = res_data.price
-        if res_data.arrival_time: d_hora = res_data.arrival_time.time()
+        if res_data.arrival_time: d_hora = res_data.arrival_time if isinstance(res_data.arrival_time, time) else res_data.arrival_time.time()
         d_tel = res_data.contact_phone
         d_reservado = res_data.reserved_by
         d_parking = res_data.parking_needed
@@ -458,7 +458,7 @@ def render_tab_reserva():
 
             if not has_errors:
                 try:
-                    arrival_dt = datetime.combine(check_in, hora)
+                    arrival_dt = hora
                     estadia = (check_out - check_in).days
 
                     if res_id_load:
