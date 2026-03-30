@@ -88,10 +88,10 @@ def render_tab_calendario():
                     return ["background-color: #ffcdd2; color: #b71c1c"] * len(row)
                 elif status == "Confirmada":
                     return ["background-color: #c8e6c9; color: #1b5e20"] * len(row)
-                elif status == "CheckIn":
-                    return ["background-color: #bbdefb; color: #0d47a1"] * len(row)
-                elif status == "CheckOut":
-                    return ["background-color: #e1bee7; color: #4a148c"] * len(row)
+                elif status == "Pendiente":
+                    return ["background-color: #fff9c4; color: #f57f17"] * len(row)
+                elif status == "Completada":
+                    return ["background-color: #e0e0e0; color: #424242"] * len(row)
                 else:
                     return [""] * len(row)
 
@@ -103,7 +103,7 @@ def render_tab_calendario():
                 height=400
             )
 
-            st.caption(f"📊 Total: {len(df_reservas)} reservas | 🔴 Cancelada | 🟢 Confirmada | 🔵 CheckIn | 🟣 CheckOut")
+            st.caption(f"📊 Total: {len(df_reservas)} reservas | 🟢 Confirmada | 🟡 Pendiente | ⚪ Completada | 🔴 Cancelada")
         else:
             st.info("No hay reservas registradas para este período.")
 

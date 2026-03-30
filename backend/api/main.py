@@ -162,6 +162,15 @@ async def _periodic_ical_sync():
         except Exception as e:
             _main_logger.error(f"iCal auto-sync error: {e}")
 
+        # Auto-complete past reservations
+        try:
+            from services import ReservationService
+            count = await asyncio.to_thread(ReservationService.auto_complete_reservations)
+            if count > 0:
+                _main_logger.info(f"Auto-completed {count} past reservation(s)")
+        except Exception as e:
+            _main_logger.error(f"Auto-complete error: {e}")
+
         # Heartbeat ping to healthchecks.io (push-based uptime monitoring)
         if HEALTHCHECK_PING_URL:
             try:

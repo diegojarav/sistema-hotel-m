@@ -24,6 +24,7 @@ from schemas import (
     ReservationCreate,
     ReservationDTO,
     ReservationDetailDTO,
+    StatusUpdateRequest,
     CalendarEventDTO,
     TodaySummaryDTO
 )
@@ -274,3 +275,28 @@ def cancel_reservation(
         )
     
     return {"message": "Reservation cancelled successfully", "id": reservation_id}
+
+
+@router.put(
+    "/{reservation_id}/status",
+    summary="Update Reservation Status",
+    description="Change reservation status. Valid: Pendiente, Confirmada, Completada, Cancelada."
+)
+def update_reservation_status(
+    reservation_id: str,
+    data: StatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Update reservation status."""
+    success = ReservationService.update_status(
+        db, reservation_id, data.status, data.reason, current_user.username
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No se pudo cambiar el estado de la reserva {reservation_id}. Verifique que existe y que el cambio es valido."
+        )
+
+    return {"message": f"Estado actualizado a {data.status}", "id": reservation_id}

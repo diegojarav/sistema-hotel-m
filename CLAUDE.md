@@ -64,7 +64,7 @@ cd backend && python -m pytest tests/ -v -k "not perf"
 6. **Calendar Sync** - Views agree with each other
 7. **Revenue Accuracy** - Revenue sums match manual calculations
 8. **Security Compliance** - Protected endpoints reject unauthenticated
-9. **Agent Tool Reliability** - All 11 AI tools callable, return strings, handle errors
+9. **Agent Tool Reliability** - All 12 AI tools callable, return strings, handle errors
 
 ## Performance Baselines (test_performance.py)
 
@@ -87,7 +87,7 @@ Changes to these files MUST be validated with KPI tests:
 - `backend/api/v1/endpoints/reservations.py` - Reservation API
 - `backend/api/v1/endpoints/pricing.py` - Pricing API
 - `backend/api/v1/endpoints/calendar.py` - Calendar endpoints
-- `backend/api/v1/endpoints/ai_tools.py` - AI agent tools (11 functions)
+- `backend/api/v1/endpoints/ai_tools.py` - AI agent tools (12 functions)
 - `backend/api/v1/endpoints/agent.py` - AI agent endpoint + system prompt
 - `backend/services/document_service.py` - PDF document generation
 - `backend/api/v1/endpoints/documents.py` - Document download/list API
@@ -148,6 +148,45 @@ Runs on push to `main`/`dev`:
 - `DocumentService` uses `@with_db` for dual FastAPI/Streamlit compatibility
 - PDF documents auto-generate on reservation/check-in creation, saved to `backend/hotel/`
 - Streamlit accesses PDF files via direct filesystem read (same machine as backend)
+
+## Reservation Status Lifecycle
+
+4 statuses: **Pendiente** → **Confirmada** → **Completada** | **Cancelada**
+
+| Status | How it's set | Blocks rooms? |
+|--------|-------------|---------------|
+| Pendiente | Created without payment (paid=false) | Yes |
+| Confirmada | Created with payment (paid=true) | Yes |
+| Completada | Automatic — check-out date passed (background task every 15 min) | No (past) |
+| Cancelada | Manual — admin/reception cancels | No |
+
+- Mobile shows payment popup ("¿Pagado?") after clicking "Confirmar Reserva"
+- `PUT /reservations/{id}/status` endpoint for admin status changes
+- `auto_complete_reservations()` runs in `_periodic_ical_sync()` every 15 min
+- All queries use `status.in_(["Confirmada", "Pendiente"])` for active reservation checks
+
+## Session & Auth Configuration
+
+- JWT access token TTL: **365 days** (hotel runs 24/7, manual logout only)
+- JWT refresh token TTL: **365 days**
+- `BeaconLogout` removed from layout (no auto-logout on tab close)
+- Sessions persist until "Cerrar Sesion" button is clicked
+- Config in `backend/api/core/config.py` (ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS)
+
+## AI Agent Tools (12 functions in ai_tools.py)
+
+1. `check_availability` — Room availability for date/stay
+2. `get_hotel_rates` — Pricing by category
+3. `get_today_summary` — Today's occupancy snapshot
+4. `search_guest` — Find guest by name/document
+5. `search_reservation` — Find reservation by ID/name
+6. `get_reservations_report` — Date range reservation list
+7. `calculate_price` — Price calculation with modifiers
+8. `get_occupancy_for_month` — Monthly occupancy stats
+9. `get_room_performance` — Room revenue/occupancy report
+10. `get_booking_sources` — Channel distribution (Direct, Booking, Airbnb, etc.)
+11. `get_parking_status` — Parking utilization
+12. `get_revenue_summary` — Daily/weekly/monthly/yearly income with breakdown
 
 ## Two-Repo Architecture
 

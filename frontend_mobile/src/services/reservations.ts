@@ -157,19 +157,19 @@ export function getStatusBadge(status: string): {
                 textClass: 'text-amber-600',
                 label: 'Pendiente',
             };
+        case 'completada':
+        case 'completed':
+            return {
+                bgClass: 'bg-gray-500/20',
+                textClass: 'text-gray-600',
+                label: 'Completada',
+            };
         case 'cancelada':
         case 'cancelled':
             return {
                 bgClass: 'bg-red-500/20',
                 textClass: 'text-red-600',
                 label: 'Cancelada',
-            };
-        case 'ocupada':
-        case 'checked_in':
-            return {
-                bgClass: 'bg-blue-500/20',
-                textClass: 'text-blue-600',
-                label: 'Hospedado',
             };
         default:
             return {

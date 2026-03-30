@@ -92,9 +92,9 @@ class RoomService:
         categories = db.query(RoomCategory).filter(RoomCategory.property_id == prop_id).all()
         cat_map = {c.id: c for c in categories}
 
-        # Get all confirmed reservations that might conflict
+        # Get all active reservations that might conflict (both paid and pending block rooms)
         confirmed_reservations = db.query(Reservation).filter(
-            Reservation.status == "Confirmada"
+            Reservation.status.in_(["Confirmada", "Pendiente"])
         ).all()
 
         # Build set of room IDs that are occupied during our date range

@@ -90,6 +90,7 @@ class ReservationCreate(BaseModel):
     vehicle_plate: Optional[str] = Field(default=None, description="Chapa/Patente del vehículo")
     source: Optional[str] = Field(default="Direct", description="Origen de la reserva (ej. Direct, Booking.com)")
     external_id: Optional[str] = Field(default=None, description="ID externo de la reserva (ej. de OTA)")
+    paid: Optional[bool] = Field(default=True, description="Si el huesped ya pago. True=Confirmada, False=Pendiente")
 
     # Identity fields (from document scan) - used to auto-create CheckIn
     document_number: Optional[str] = Field(default="", description="Número de documento del huésped")
@@ -129,6 +130,12 @@ class ReservationCreate(BaseModel):
         if self.check_in_date < date.today():
             raise ValueError('La fecha de entrada no puede ser anterior a hoy')
         return self
+
+
+class StatusUpdateRequest(BaseModel):
+    """Schema para cambiar el estado de una reserva."""
+    status: str = Field(..., description="Nuevo estado: Pendiente, Confirmada, Completada, Cancelada")
+    reason: Optional[str] = Field(default=None, description="Razon del cambio (requerido para cancelacion)")
 
 
 class ReservationDTO(BaseModel):

@@ -651,6 +651,135 @@ def get_parking_status(start_date: str, end_date: str) -> str:
 
 
 # ==========================================
+# TOOL 12: Get Revenue Summary
+# ==========================================
+
+def get_revenue_summary(period: str = "month", custom_start: Optional[str] = None, custom_end: Optional[str] = None) -> str:
+    """
+    Get total income/revenue for a time period.
+    Use this tool when the user asks about money, income, revenue, earnings,
+    how much the hotel made, daily/weekly/monthly sales, or financial summaries.
+
+    Args:
+        period: One of "today", "week", "month", "year", or "custom".
+                - "today": revenue for today only
+                - "week": revenue for the current week (Monday to Sunday)
+                - "month": revenue for the current month
+                - "year": revenue for the current year
+                - "custom": uses custom_start and custom_end dates
+        custom_start: Start date in YYYY-MM-DD format. Required only when period="custom".
+        custom_end: End date in YYYY-MM-DD format. Required only when period="custom".
+
+    Returns:
+        String with total revenue, reservation count, and breakdown by status.
+
+    Examples:
+        - "¿Cuánto ganamos hoy?" → get_revenue_summary("today")
+        - "¿Cuánto hicimos esta semana?" → get_revenue_summary("week")
+        - "Ingresos del mes" → get_revenue_summary("month")
+        - "¿Cuánto facturamos este año?" → get_revenue_summary("year")
+        - "Ingresos de enero a marzo" → get_revenue_summary("custom", "2026-01-01", "2026-03-31")
+        - "¿Cuánta plata entró hoy?" → get_revenue_summary("today")
+    """
+    today = date.today()
+
+    if period == "today":
+        start = today
+        end = today
+        period_label = f"Hoy ({today.strftime('%d/%m/%Y')})"
+    elif period == "week":
+        start = today - timedelta(days=today.weekday())  # Monday
+        end = start + timedelta(days=6)  # Sunday
+        period_label = f"Esta semana ({start.strftime('%d/%m')} al {end.strftime('%d/%m/%Y')})"
+    elif period == "month":
+        start = today.replace(day=1)
+        if today.month == 12:
+            end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        period_label = f"{today.strftime('%B %Y')}"
+    elif period == "year":
+        start = today.replace(month=1, day=1)
+        end = today.replace(month=12, day=31)
+        period_label = f"Año {today.year}"
+    elif period == "custom":
+        if not custom_start or not custom_end:
+            return "Error: Para período 'custom' se requieren custom_start y custom_end en formato YYYY-MM-DD."
+        try:
+            start = datetime.strptime(custom_start, "%Y-%m-%d").date()
+            end = datetime.strptime(custom_end, "%Y-%m-%d").date()
+        except ValueError:
+            return "Error: Formato de fecha inválido. Usa YYYY-MM-DD."
+        period_label = f"{start.strftime('%d/%m/%Y')} al {end.strftime('%d/%m/%Y')}"
+    else:
+        return f"Período inválido: '{period}'. Usa: today, week, month, year, o custom."
+
+    # Get all reservations in the period
+    results = ReservationService.get_reservations_in_range(start, end)
+
+    if not results:
+        return f"Ingresos {period_label}: No hay reservas en este período."
+
+    # Calculate totals
+    total_revenue = 0
+    confirmed_revenue = 0
+    cancelled_count = 0
+    confirmed_count = 0
+
+    for r in results:
+        price = r.get("price", 0) or 0
+        status = (r.get("status", "") or "").lower()
+        if status == "cancelada":
+            cancelled_count += 1
+        else:
+            total_revenue += price
+            confirmed_count += 1
+            if status in ("confirmada", "checkin"):
+                confirmed_revenue += price
+
+    # Format output
+    def fmt(amount):
+        return f"{amount:,.0f} Gs"
+
+    lines = [
+        f"💰 Ingresos — {period_label}",
+        f"",
+        f"Total: {fmt(total_revenue)}",
+        f"Reservas activas: {confirmed_count}",
+    ]
+
+    if cancelled_count > 0:
+        lines.append(f"Canceladas: {cancelled_count} (no incluidas en el total)")
+
+    # Breakdown by source if there are multiple
+    sources = {}
+    for r in results:
+        if (r.get("status", "") or "").lower() == "cancelada":
+            continue
+        source = r.get("source", "Direct") or "Direct"
+        price = r.get("price", 0) or 0
+        if source not in sources:
+            sources[source] = {"count": 0, "revenue": 0}
+        sources[source]["count"] += 1
+        sources[source]["revenue"] += price
+
+    if len(sources) > 1:
+        lines.append("")
+        lines.append("Por canal:")
+        for src, data in sorted(sources.items(), key=lambda x: x[1]["revenue"], reverse=True):
+            pct = (data["revenue"] / total_revenue * 100) if total_revenue > 0 else 0
+            lines.append(f"  • {src}: {data['count']} reservas — {fmt(data['revenue'])} ({pct:.0f}%)")
+
+    # Average per reservation
+    if confirmed_count > 0:
+        avg = total_revenue / confirmed_count
+        lines.append(f"")
+        lines.append(f"Promedio por reserva: {fmt(avg)}")
+
+    return "\n".join(lines)
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -666,4 +795,5 @@ TOOLS_LIST = [
     get_room_performance,
     get_booking_sources,
     get_parking_status,
+    get_revenue_summary,
 ]

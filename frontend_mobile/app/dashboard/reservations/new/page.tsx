@@ -70,6 +70,9 @@ export default function NewReservationPage() {
     const [isScanning, setIsScanning] = useState(false);
     const [scanError, setScanError] = useState('');
 
+    // Payment confirmation modal
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+
     // Form state — dates initialized empty to avoid SSR hydration mismatch,
     // then set to today/tomorrow on client mount via useEffect below.
     const [formData, setFormData] = useState({
@@ -293,11 +296,18 @@ export default function NewReservationPage() {
             return;
         }
 
+        // Show payment confirmation modal
+        setShowPaymentModal(true);
+    };
+
+    const submitReservation = async (paid: boolean) => {
+        setShowPaymentModal(false);
         setIsSubmitting(true);
         setSubmitError('');
         setSubmitProgress({ current: 0, total: selectedRooms.length });
         setCreatedIds([]);
 
+        const nights = calculateNights();
         const guestName = `${formData.nombres} ${formData.apellidos}`.trim() || 'Sin nombre';
         const allCreatedIds: string[] = [];
 
@@ -327,6 +337,7 @@ export default function NewReservationPage() {
                 vehicle_model: formData.vehicleModel || null,
                 vehicle_plate: formData.vehiclePlate || null,
                 source: formData.source,
+                paid: paid,
                 // FEAT-LINK-01: Identity fields from document scan (auto-creates CheckIn)
                 document_number: formData.documento || '',
                 guest_last_name: formData.apellidos || '',
@@ -467,6 +478,40 @@ export default function NewReservationPage() {
                     />
                 </form>
             </main>
+
+            {/* Payment Confirmation Modal */}
+            {showPaymentModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
+                            ¿El huesped ya pago?
+                        </h3>
+                        <p className="text-gray-500 text-sm text-center mb-6">
+                            Esto define el estado inicial de la reserva
+                        </p>
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => submitReservation(true)}
+                                className="w-full py-3 px-4 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl transition-colors text-lg"
+                            >
+                                ✅ Si, pagado
+                            </button>
+                            <button
+                                onClick={() => submitReservation(false)}
+                                className="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors text-lg"
+                            >
+                                ⏳ No, pendiente
+                            </button>
+                            <button
+                                onClick={() => setShowPaymentModal(false)}
+                                className="w-full py-2 px-4 text-gray-500 hover:text-gray-700 text-sm transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
