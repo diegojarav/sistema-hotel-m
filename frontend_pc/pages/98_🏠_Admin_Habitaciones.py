@@ -16,7 +16,7 @@ V8 FIX: Refactored to use API calls instead of direct sqlite3 access.
 
 import streamlit as st
 import requests
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import io
 import csv
 import pandas as pd
@@ -311,6 +311,9 @@ with tab_inventory:
         if selected_category != "Todas":
             rooms = [r for r in rooms if r.get('category_name') == selected_category]
 
+        # Sort by floor then code
+        rooms = sorted(rooms, key=lambda r: (r.get('floor') or 0, r.get('internal_code') or ''))
+
         if rooms:
             # Create display dataframe
             room_data = []
@@ -358,6 +361,41 @@ with tab_inventory:
             col2.metric("✅ Activas", active)
             col3.metric("🟢 Disponibles", available)
             col4.metric("🔴 Ocupadas", sum(1 for r in rooms if r['status'] == 'occupied'))
+
+            # Download buttons
+            dl_data = []
+            for r in rooms:
+                dl_data.append({
+                    "Codigo": r['internal_code'] or "",
+                    "Categoria": r['category_name'] or "",
+                    "Piso": r['floor'] or "",
+                    "Estado": ROOM_STATUSES.get(r['status'], r['status']),
+                    "Precio Base": r['base_price'] or 0,
+                })
+            dl_col1, dl_col2 = st.columns(2)
+            inv_csv = io.StringIO()
+            inv_writer = csv.DictWriter(inv_csv, fieldnames=list(dl_data[0].keys()))
+            inv_writer.writeheader()
+            for row in dl_data:
+                inv_writer.writerow(row)
+            dl_col1.download_button(
+                "📥 Descargar CSV",
+                data=inv_csv.getvalue(),
+                file_name=f"inventario_habitaciones_{date.today()}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+            inv_df = pd.DataFrame(dl_data)
+            inv_buf = io.BytesIO()
+            with pd.ExcelWriter(inv_buf, engine="openpyxl") as writer:
+                inv_df.to_excel(writer, index=False, sheet_name="Inventario")
+            dl_col2.download_button(
+                "📥 Descargar Excel",
+                data=inv_buf.getvalue(),
+                file_name=f"inventario_habitaciones_{date.today()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
         else:
             st.info(f"No hay habitaciones en la categoria '{selected_category}'")
     else:
@@ -401,7 +439,7 @@ with tab_add:
             with col2:
                 floor = st.selectbox(
                     "Piso *",
-                    options=[1, 2, 3, 4, 5],
+                    options=[1, 2],
                     help="Piso donde se ubican las habitaciones"
                 )
 
@@ -409,6 +447,24 @@ with tab_add:
                 selected_cat = category_options[selected_cat_label]
                 current_count = get_room_count_by_category(selected_cat['id'])
                 st.info(f"📊 Habitaciones actuales en esta categoria: **{current_count}**")
+
+            # Bed configuration display
+            import json as _json
+            bed_config = selected_cat.get('bed_configuration', '[]')
+            max_cap = selected_cat.get('max_capacity', 0)
+            description = selected_cat.get('description', '')
+            try:
+                beds = _json.loads(bed_config) if bed_config else []
+                bed_str = ", ".join(f"{b['qty']} {b['type']}" for b in beds) if beds else "No configurado"
+            except Exception:
+                bed_str = "No configurado"
+
+            st.markdown(f"""
+> **{selected_cat['name']}**
+> {description}
+>
+> 👥 max {max_cap} pers. • 🛏️ {bed_str}
+""")
 
             st.divider()
 
@@ -463,16 +519,44 @@ with tab_manage:
 
         selected_room = room_options[selected_room_label]
 
+        # Quick status info
+        current_status = selected_room['status']
+        status_emoji = {'available': '🟢', 'occupied': '🔴', 'maintenance': '🟠', 'cleaning': '🔵', 'out_of_service': '⚫'}.get(current_status, '⚪')
+        st.info(f"Estado actual: {status_emoji} **{ROOM_STATUSES.get(current_status, current_status)}**")
+
+        # Quick action buttons
+        st.markdown("#### Acciones Rapidas")
+        qcol1, qcol2, qcol3, qcol4 = st.columns(4)
+        with qcol1:
+            if st.button("🟢 Disponible", key="quick_available", use_container_width=True, disabled=(current_status == "available")):
+                success, msg = update_room_status(selected_room['id'], "available")
+                if success:
+                    st.rerun()
+        with qcol2:
+            if st.button("🔵 Limpieza", key="quick_cleaning", use_container_width=True, disabled=(current_status == "cleaning")):
+                success, msg = update_room_status(selected_room['id'], "cleaning")
+                if success:
+                    st.rerun()
+        with qcol3:
+            if st.button("🟠 Mantenimiento", key="quick_maint", use_container_width=True, disabled=(current_status == "maintenance")):
+                success, msg = update_room_status(selected_room['id'], "maintenance")
+                if success:
+                    st.rerun()
+        with qcol4:
+            if st.button("⚫ Fuera de Servicio", key="quick_oos", use_container_width=True, disabled=(current_status == "out_of_service")):
+                success, msg = update_room_status(selected_room['id'], "out_of_service")
+                if success:
+                    st.rerun()
+
         st.divider()
 
         col1, col2 = st.columns(2)
 
         with col1:
-            st.markdown("### Cambiar Estado")
+            st.markdown("### Cambiar Estado (con motivo)")
 
             with st.form("change_status_form"):
-                current_status = selected_room['status']
-                st.info(f"Estado actual: **{ROOM_STATUSES.get(current_status, current_status)}**")
+                st.caption("Use este formulario si necesita registrar un motivo del cambio")
 
                 new_status = st.selectbox(
                     "Nuevo Estado",
@@ -601,6 +685,55 @@ with tab_summary:
                 for s in stats
             ])
             st.bar_chart(chart_data.set_index("Categoria"))
+
+        # Download buttons for summary
+        st.divider()
+        dl_summary = []
+        for s in stats:
+            dl_summary.append({
+                "Categoria": s['category_name'],
+                "Precio Base": s['base_price'] or 0,
+                "Total": s['total_rooms'] or 0,
+                "Activas": s['active_rooms'] or 0,
+                "Disponibles": s['available'] or 0,
+                "Ocupadas": s['occupied'] or 0,
+                "Mantenimiento": s['maintenance'] or 0,
+                "Limpieza": s['cleaning'] or 0,
+            })
+        dl_summary.append({
+            "Categoria": "TOTAL",
+            "Precio Base": "",
+            "Total": total_rooms,
+            "Activas": sum(s['active_rooms'] or 0 for s in stats),
+            "Disponibles": total_available,
+            "Ocupadas": total_occupied,
+            "Mantenimiento": sum(s['maintenance'] or 0 for s in stats),
+            "Limpieza": sum(s['cleaning'] or 0 for s in stats),
+        })
+        sc1, sc2 = st.columns(2)
+        sc_csv = io.StringIO()
+        sc_writer = csv.DictWriter(sc_csv, fieldnames=list(dl_summary[0].keys()))
+        sc_writer.writeheader()
+        for row in dl_summary:
+            sc_writer.writerow(row)
+        sc1.download_button(
+            "📥 Descargar CSV (Resumen)",
+            data=sc_csv.getvalue(),
+            file_name=f"resumen_categorias_{date.today()}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+        sc_df = pd.DataFrame(dl_summary)
+        sc_buf = io.BytesIO()
+        with pd.ExcelWriter(sc_buf, engine="openpyxl") as writer:
+            sc_df.to_excel(writer, index=False, sheet_name="Resumen")
+        sc2.download_button(
+            "📥 Descargar Excel (Resumen)",
+            data=sc_buf.getvalue(),
+            file_name=f"resumen_categorias_{date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
     else:
         st.info("No hay datos de habitaciones disponibles")
         st.warning("💡 Ejecute el script de migracion y seed para crear el inventario inicial:")
@@ -783,6 +916,8 @@ with tab_ficha:
     source_data = None
     trend_data = None
     parking_data = None
+    month_revenue = 0
+    month_reservations = 0
 
     try:
         r1 = _s.get(
@@ -793,6 +928,9 @@ with tab_ficha:
         )
         if r1.ok:
             source_data = r1.json()
+            for s in source_data:
+                month_revenue += s.get("revenue", 0)
+                month_reservations += s.get("count", 0)
     except Exception:
         pass
 
@@ -819,6 +957,13 @@ with tab_ficha:
     except Exception:
         pass
 
+    # Revenue summary metrics
+    m_col1, m_col2, m_col3 = st.columns(3)
+    m_col1.metric("💰 Ingresos del Mes", f"{month_revenue:,.0f} Gs")
+    m_col2.metric("📋 Total Reservas", month_reservations)
+    m_col3.metric("📈 Promedio/Reserva", f"{month_revenue / month_reservations:,.0f} Gs" if month_reservations > 0 else "—")
+
+    st.divider()
     col_src, col_trend = st.columns(2)
 
     with col_src:
@@ -858,7 +1003,7 @@ with tab_ficha:
     if parking_data:
         park_df = pd.DataFrame(parking_data)
         if not park_df.empty:
-            display_days = park_df.head(min(7, len(park_df)))
+            display_days = park_df
             for _, row in display_days.iterrows():
                 pct = row.get("pct", 0)
                 cap = row.get("capacity", 0)
@@ -927,11 +1072,12 @@ with tab_room_detail:
             rd_start = date(rd_year, rd_month, 1)
             rd_end = date(rd_year, rd_month, rd_num_days)
         elif rd_period == "Semanal":
-            rd_start = date(rd_year, rd_month, 1)
-            rd_end = date(rd_year, rd_month, min(7, rd_num_days))
-        else:
-            rd_start = date(rd_year, rd_month, 1)
-            rd_end = date(rd_year, rd_month, 1)
+            _today = date.today()
+            rd_start = _today - timedelta(days=_today.weekday())  # Monday
+            rd_end = rd_start + timedelta(days=6)  # Sunday
+        else:  # Diario
+            rd_start = date.today()
+            rd_end = date.today()
 
         st.caption(f"Periodo: {rd_start.isoformat()} a {rd_end.isoformat()}")
 

@@ -4,7 +4,7 @@
  * Handles reservation data fetching and creation.
  */
 
-import { apiGet, apiPost } from './api';
+import { apiGet, apiPost, apiPut } from './api';
 
 // Types
 export interface Reservation {
@@ -48,6 +48,13 @@ export async function getAllReservations(): Promise<Reservation[]> {
  */
 export async function getReservationById(id: string): Promise<ReservationDetail> {
     return apiGet<ReservationDetail>(`/reservations/${id}`);
+}
+
+/**
+ * Update reservation status (Pendiente → Confirmada, any → Cancelada, etc.)
+ */
+export async function updateReservationStatus(id: string, status: string, reason?: string): Promise<{ message: string }> {
+    return apiPut<{ message: string }>(`/reservations/${id}/status`, { status, reason });
 }
 
 /**

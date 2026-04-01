@@ -202,8 +202,8 @@ def render_monthly_room_grid(data: dict, year: int, month: int):
     # Color mapping by status
     status_colors = {
         "Confirmada": {"bg": "#dcfce7", "text": "#166534"},
-        "CheckIn": {"bg": "#dbeafe", "text": "#1e40af"},
-        "CheckOut": {"bg": "#fef3c7", "text": "#92400e"},
+        "Pendiente": {"bg": "#fef9c3", "text": "#854d0e"},
+        "Completada": {"bg": "#e5e7eb", "text": "#374151"},
         "Cancelada": {"bg": "#fee2e2", "text": "#991b1b"},
     }
     default_color = {"bg": "#f3f4f6", "text": "#374151"}
@@ -380,13 +380,29 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
 
     st.markdown(f"### 📅 Reservas del {selected_date.strftime('%d/%m/%Y')}")
 
+    statuses = day_data.get("statuses", [])
     for i, (res_id, guest) in enumerate(zip(day_data["ids"], day_data["guests"])):
-        with st.expander(f"🏠 {guest}", expanded=(i == 0)):
+        res_status = statuses[i] if i < len(statuses) else "Confirmada"
+        status_emoji = {"Pendiente": "🟡", "Confirmada": "🟢", "Completada": "⚪", "Cancelada": "🔴"}.get(res_status, "⚪")
+        with st.expander(f"🏠 {guest} {status_emoji} {res_status}", expanded=(i == 0)):
             st.write(f"**ID Reserva:** {res_id}")
             st.write(f"**Huésped:** {guest}")
-            if st.button(f"❌ Cancelar", key=f"cancel_{res_id}_{day_key}"):
-                if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
-                    from frontend_services.cache_service import force_refresh
-                    force_refresh()
-                    st.success("Reserva cancelada")
-                    st.rerun()
+            st.write(f"**Estado:** {status_emoji} {res_status}")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if res_status == "Pendiente":
+                    if st.button(f"✅ Confirmar Pago", key=f"confirm_{res_id}_{day_key}"):
+                        if ReservationService.update_status(res_id, "Confirmada", user=st.session_state.user.username):
+                            from frontend_services.cache_service import force_refresh
+                            force_refresh()
+                            st.success("Reserva confirmada como pagada")
+                            st.rerun()
+            with col2:
+                if res_status in ("Pendiente", "Confirmada"):
+                    if st.button(f"❌ Cancelar", key=f"cancel_{res_id}_{day_key}"):
+                        if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
+                            from frontend_services.cache_service import force_refresh
+                            force_refresh()
+                            st.success("Reserva cancelada")
+                            st.rerun()

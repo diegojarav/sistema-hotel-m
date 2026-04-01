@@ -715,6 +715,9 @@ class ReservationService:
                     occupancy_map[day_key]["count"] += 1
                     occupancy_map[day_key]["ids"].append(res.id)
                     occupancy_map[day_key]["guests"].append(res.guest_name)
+                    if "statuses" not in occupancy_map[day_key]:
+                        occupancy_map[day_key]["statuses"] = []
+                    occupancy_map[day_key]["statuses"].append(res.status)
                 day += timedelta(days=1)
 
         # Calcular status basado en count

@@ -7,7 +7,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 import { useAuth } from '@/hooks/useAuth';
-import { getReservationById, getStatusBadge, ReservationDetail } from '@/services/reservations';
+import { getReservationById, getStatusBadge, updateReservationStatus, ReservationDetail } from '@/services/reservations';
 import { downloadReservationPdf } from '@/services/documents';
 
 function parseLocalDate(dateStr: string): Date {
@@ -27,6 +27,8 @@ export default function ReservationDetailPage() {
     const [reservation, setReservation] = useState<ReservationDetail | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
     useEffect(() => {
         if (authLoading || !id) return;
@@ -44,6 +46,21 @@ export default function ReservationDetailPage() {
 
         fetchDetail();
     }, [authLoading, id]);
+
+    const handleStatusChange = async (newStatus: string, reason?: string) => {
+        if (!reservation) return;
+        setIsUpdating(true);
+        try {
+            await updateReservationStatus(reservation.id, newStatus, reason);
+            const updated = await getReservationById(reservation.id);
+            setReservation(updated);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al cambiar estado');
+        } finally {
+            setIsUpdating(false);
+            setShowCancelConfirm(false);
+        }
+    };
 
     const loading = authLoading || isLoading;
 
@@ -213,8 +230,57 @@ export default function ReservationDetailPage() {
                     >
                         Descargar PDF
                     </button>
+
+                    {reservation.status.toLowerCase() === 'pendiente' && (
+                        <button
+                            onClick={() => handleStatusChange('Confirmada')}
+                            disabled={isUpdating}
+                            className="w-full py-3 px-4 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                        >
+                            {isUpdating ? 'Actualizando...' : 'Marcar como Pagado'}
+                        </button>
+                    )}
+
+                    {['pendiente', 'confirmada'].includes(reservation.status.toLowerCase()) && (
+                        <button
+                            onClick={() => setShowCancelConfirm(true)}
+                            disabled={isUpdating}
+                            className="w-full py-3 px-4 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                        >
+                            Cancelar Reserva
+                        </button>
+                    )}
                 </div>
             </main>
+
+            {/* Cancel Confirmation Modal */}
+            {showCancelConfirm && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
+                            ¿Cancelar esta reserva?
+                        </h3>
+                        <p className="text-gray-500 text-sm text-center mb-6">
+                            {reservation.guest_name} — {reservation.room_internal_code}
+                        </p>
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => handleStatusChange('Cancelada', 'Cancelado desde app movil')}
+                                disabled={isUpdating}
+                                className="w-full py-3 px-4 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors"
+                            >
+                                {isUpdating ? 'Cancelando...' : 'Si, cancelar'}
+                            </button>
+                            <button
+                                onClick={() => setShowCancelConfirm(false)}
+                                className="w-full py-2 px-4 text-gray-500 hover:text-gray-700 text-sm transition-colors"
+                            >
+                                No, volver
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
