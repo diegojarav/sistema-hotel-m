@@ -161,7 +161,10 @@ Runs on push to `main`/`dev`:
 | Cancelada | Manual — admin/reception cancels | No |
 
 - Mobile shows payment popup ("¿Pagado?") after clicking "Confirmar Reserva"
+- PC shows payment radio ("¿El huesped ya pago?") inside the reservation form
 - `PUT /reservations/{id}/status` endpoint for admin status changes
+- Status change buttons on mobile detail page (Marcar como Pagado / Cancelar)
+- Status change buttons on PC calendar daily view (Confirmar Pago / Cancelar)
 - `auto_complete_reservations()` runs in `_periodic_ical_sync()` every 15 min
 - All queries use `status.in_(["Confirmada", "Pendiente"])` for active reservation checks
 

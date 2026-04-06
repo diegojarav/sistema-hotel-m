@@ -438,6 +438,20 @@ def render_tab_reserva():
         recibido = st.session_state.user.username
 
         st.markdown("---")
+
+        # Payment status (only for new reservations)
+        if not res_id_load:
+            paid_option = st.radio(
+                "💰 ¿El huesped ya pago?",
+                options=["Si, pagado (Confirmada)", "No, pendiente (Pendiente)"],
+                index=0,
+                horizontal=True,
+                key="paid_radio"
+            )
+            is_paid = paid_option.startswith("Si")
+        else:
+            is_paid = True  # Updates keep existing status
+
         btn_txt = "🔄 Actualizar Reserva" if res_id_load else "✅ Guardar Reserva"
 
         if st.form_submit_button(btn_txt, type="primary", use_container_width=True):
@@ -551,6 +565,7 @@ def render_tab_reserva():
                                     vehicle_model=v_model,
                                     vehicle_plate=v_plate,
                                     source=source,
+                                    paid=is_paid,
                                     # Identity fields from document scan (FEAT-LINK-01)
                                     document_number=ia_data.get("Nro_Documento", ""),
                                     guest_last_name=ia_data.get("Apellidos", ""),
@@ -578,19 +593,37 @@ def render_tab_reserva():
                         if created_ids:
                             # Auto-generate PDF confirmations
                             from services import DocumentService
+                            from services.document_service import RESERVAS_DIR
+                            import os
+
+                            pdf_paths = {}
                             for rid in created_ids:
                                 try:
-                                    DocumentService.generate_reservation_pdf(rid)
+                                    path = DocumentService.generate_reservation_pdf(rid)
+                                    if path and os.path.exists(path):
+                                        pdf_paths[rid] = path
                                 except Exception as pdf_err:
                                     logger.warning(f"PDF generation failed for {rid}: {pdf_err}")
 
                             force_refresh()
-                            st.success(f"🎉 **{len(created_ids)} reserva(s) creada(s) exitosamente**")
+                            status_text = "Confirmada" if is_paid else "Pendiente"
+                            st.success(f"🎉 **{len(created_ids)} reserva(s) creada(s) — Estado: {status_text}**")
                             st.info(f"IDs: {', '.join(created_ids)}")
                             logger.info(f"Reservas creadas: {created_ids} por {recibido}")
-                            st.balloons()
-                            st.info("🔄 Actualizando calendario...")
-                            st.rerun()
+
+                            # PDF download buttons
+                            if pdf_paths:
+                                st.markdown("#### 📄 Documentos generados")
+                                for rid, path in pdf_paths.items():
+                                    with open(path, "rb") as f:
+                                        st.download_button(
+                                            f"📥 Descargar PDF — Reserva {rid}",
+                                            data=f.read(),
+                                            file_name=os.path.basename(path),
+                                            mime="application/pdf",
+                                            key=f"pdf_dl_{rid}",
+                                            use_container_width=True
+                                        )
 
                         if errors:
                             st.warning(f"⚠️ Hubo {len(errors)} error(es) durante el proceso")

@@ -63,7 +63,7 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-- **286 tests** con **82% coverage** en 24 archivos de test.
+- **313 tests** con **83% coverage** en 24 archivos de test.
 - Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
 - **CI automático** en GitHub Actions: tests + coverage (75% min) + KPI evaluations + perf benchmarks.
@@ -105,7 +105,7 @@ hotel_munich/
 │   │   ├── pricing_service.py # Motor de precios
 │   │   ├── settings_service.py# Configuracion del hotel
 │   │   └── ical_service.py    # Import/export iCal para OTAs
-│   ├── tests/                 # 286 tests (pytest + SQLite in-memory)
+│   ├── tests/                 # 313 tests (pytest + SQLite in-memory)
 │   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth, SessionLocal patching)
 │   │   └── test_*.py          # 24 archivos de test
 │   ├── logging_config.py      # Configuracion de logging
@@ -307,7 +307,7 @@ La primera vez que inicies el sistema, se crearán estos usuarios automáticamen
 - 📷 **OCR Vision:** Extraccion de datos de documentos.
 - 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente.
 - 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
-- 🧪 **286 Tests:** Suite de tests con **82% coverage** (pytest, SQLite in-memory, CI automático).
+- 🧪 **313 Tests:** Suite de tests con **83% coverage** (pytest, SQLite in-memory, CI automático).
 
 ---
 
@@ -331,6 +331,7 @@ Documentación interactiva disponible en:
 
 ---
 
-**Version:** 1.2.0
+**Version:** 1.3.0
+**Last Updated:** 2026-04-06
 
 **Desarrollado por Diego para Hospedaje Los Monges.**
