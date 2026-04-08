@@ -63,6 +63,7 @@ def render_tab_checkin():
 
     st.markdown("---")
 
+    c_obj = None
     def_apellidos = ia.get("Apellidos", "")
     def_nombres = ia.get("Nombres", "")
     def_doc = ia.get("Nro_Documento", "")
@@ -129,10 +130,10 @@ def render_tab_checkin():
 
         st.markdown("### 📞 Contacto")
         c_tel, c_email = st.columns(2)
-        def_phone = getattr(c_obj, 'contact_phone', '') or '' if c_obj else ''
-        def_email = getattr(c_obj, 'contact_email', '') or '' if c_obj else ''
+        def_phone = (getattr(c_obj, 'contact_phone', '') or '') if c_obj else ''
+        def_email_val = (getattr(c_obj, 'contact_email', '') or '') if c_obj else ''
         contact_phone_val = c_tel.text_input("Teléfono", value=def_phone, placeholder="0981...")
-        contact_email_val = c_email.text_input("Email", value=def_email, placeholder="correo@ejemplo.com")
+        contact_email_val = c_email.text_input("Email", value=def_email_val, placeholder="correo@ejemplo.com")
 
         st.markdown("### 🧾 Datos de Facturación")
 
