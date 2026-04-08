@@ -130,6 +130,7 @@ class Reservation(Base):
 
     reserved_by = Column(String) # Reservado_Por
     contact_phone = Column(String) # Telefono
+    contact_email = Column(String, nullable=True) # Email
     received_by = Column(String) # Recibido_Por
 
     status = Column(String, index=True) # Confirmada, Cancelada
@@ -174,12 +175,15 @@ class CheckIn(Base):
     document_number = Column(String, index=True)
     country = Column(String)
     
+    contact_phone = Column(String, nullable=True) # Telefono
+    contact_email = Column(String, nullable=True) # Email
+
     billing_name = Column(String) # Facturacion_Nombre
     billing_ruc = Column(String) # Facturacion_RUC
-    
+
     vehicle_model = Column(String)
     vehicle_plate = Column(String)
-    
+
     digital_signature = Column(String) # Base64 o "Pendiente"
 
 

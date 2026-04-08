@@ -64,6 +64,8 @@ class GuestService:
             civil_status=data.civil_status,
             document_number=data.document_number,
             country=data.country,
+            contact_phone=getattr(data, 'contact_phone', '') or '',
+            contact_email=getattr(data, 'contact_email', '') or '',
             billing_name=data.billing_name,
             billing_ruc=data.billing_ruc,
             vehicle_model=data.vehicle_model,
@@ -228,7 +230,7 @@ class GuestService:
         # Query unlinked reservations
         unlinked = db.query(Reservation).filter(
             Reservation.status.in_(["Confirmada", "CheckIn"]),
-            ~Reservation.id.in_(linked_ids_subq)
+            ~Reservation.id.in_(linked_ids_subq.select())
         ).order_by(Reservation.check_in_date.desc()).limit(50).all()
 
         return [

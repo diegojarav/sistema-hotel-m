@@ -131,6 +131,7 @@ class ReservationService:
                 arrival_time=data.arrival_time if data.arrival_time else None,
                 reserved_by=data.reserved_by,
                 contact_phone=data.contact_phone,
+                contact_email=getattr(data, 'contact_email', '') or '',
                 received_by=data.received_by,
                 status="Confirmada" if getattr(data, 'paid', True) else "Pendiente",
 
@@ -440,6 +441,7 @@ class ReservationService:
             stay_days=r.stay_days,
             room_type=r.room_type or "",
             contact_phone=r.contact_phone or "",
+            contact_email=r.contact_email or "",
             reserved_by=r.reserved_by or "",
             received_by=r.received_by or "",
             arrival_time=r.arrival_time,

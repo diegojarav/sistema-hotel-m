@@ -186,6 +186,8 @@ class DocumentService:
         pdf.section_title("Datos del Huesped")
         pdf.field_row("Nombre", reservation.guest_name or "")
         pdf.field_row("Telefono", reservation.contact_phone or "")
+        if getattr(reservation, 'contact_email', None):
+            pdf.field_row("Email", reservation.contact_email)
         pdf.field_row("Reservado por", reservation.reserved_by or "")
         pdf.ln(3)
 

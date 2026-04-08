@@ -74,6 +74,7 @@ class ReservationCreate(BaseModel):
     price: float = Field(default=0.0, ge=0, description="Precio total (>= 0)")
     arrival_time: Optional[time] = Field(default=None, description="Hora estimada de llegada")
     contact_phone: str = Field(default="", description="Teléfono de contacto")
+    contact_email: str = Field(default="", description="Email de contacto")
     reserved_by: str = Field(default="", description="Quién solicitó la reserva")
     received_by: str = Field(default="", description="Recepcionista que tomó la reserva")
     
@@ -155,6 +156,7 @@ class ReservationDetailDTO(ReservationDTO):
     stay_days: int = 0
     room_type: str = ""
     contact_phone: str = ""
+    contact_email: str = ""
     reserved_by: str = ""
     received_by: str = ""
     arrival_time: Optional[time] = None
@@ -221,7 +223,11 @@ class CheckInCreate(BaseModel):
     civil_status: str = Field(default="", description="Estado civil")
     document_number: str = Field(default="", description="Número de documento")
     country: str = Field(default="", description="País")
-    
+
+    # Contacto
+    contact_phone: str = Field(default="", description="Teléfono de contacto")
+    contact_email: str = Field(default="", description="Email de contacto")
+
     # Datos de facturación
     billing_name: str = Field(default="", description="Razón social para facturación")
     billing_ruc: str = Field(default="", description="RUC para facturación")

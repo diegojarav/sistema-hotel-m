@@ -22,6 +22,7 @@ export interface ReservationDetail extends Reservation {
     stay_days: number;
     room_type: string;
     contact_phone: string;
+    contact_email: string;
     reserved_by: string;
     received_by: string;
     arrival_time: string | null;

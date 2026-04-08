@@ -146,6 +146,12 @@ export default function ReservationDetailPage() {
                             <a href={`tel:${reservation.contact_phone}`} className="text-amber-600 font-medium">{reservation.contact_phone}</a>
                         </div>
                     )}
+                    {reservation.contact_email && (
+                        <div className="flex items-center gap-2 text-gray-600 text-sm mt-1">
+                            <span>Email:</span>
+                            <a href={`mailto:${reservation.contact_email}`} className="text-amber-600 font-medium">{reservation.contact_email}</a>
+                        </div>
+                    )}
                     {reservation.reserved_by && (
                         <p className="text-gray-500 text-sm mt-1">Reservado por: {reservation.reserved_by}</p>
                     )}

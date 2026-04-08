@@ -127,6 +127,13 @@ def render_tab_checkin():
         estado_civil = c_ec.text_input("Estado Civil", value=def_ec)
         pais = c_pais.text_input("País", value=def_pais)
 
+        st.markdown("### 📞 Contacto")
+        c_tel, c_email = st.columns(2)
+        def_phone = getattr(c_obj, 'contact_phone', '') or '' if c_obj else ''
+        def_email = getattr(c_obj, 'contact_email', '') or '' if c_obj else ''
+        contact_phone_val = c_tel.text_input("Teléfono", value=def_phone, placeholder="0981...")
+        contact_email_val = c_email.text_input("Email", value=def_email, placeholder="correo@ejemplo.com")
+
         st.markdown("### 🧾 Datos de Facturación")
 
         billing_profiles = GuestService.get_all_billing_profiles()
@@ -177,6 +184,8 @@ def render_tab_checkin():
                     civil_status=estado_civil,
                     document_number=doc,
                     country=pais,
+                    contact_phone=contact_phone_val,
+                    contact_email=contact_email_val,
                     billing_name=fac_n,
                     billing_ruc=fac_r,
                     vehicle_model=vehiculo_modelo,

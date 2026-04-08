@@ -67,6 +67,7 @@ def render_tab_reserva():
     d_precio = 0.0
     d_hora = datetime.strptime("12:00", "%H:%M").time()
     d_tel = ""
+    d_email = ""
     d_reservado = ""
     d_parking = False
     d_vehicle_model = ""
@@ -87,6 +88,7 @@ def render_tab_reserva():
         d_precio = res_data.price
         if res_data.arrival_time: d_hora = res_data.arrival_time if isinstance(res_data.arrival_time, time) else res_data.arrival_time.time()
         d_tel = res_data.contact_phone
+        d_email = getattr(res_data, 'contact_email', '') or ''
         d_reservado = res_data.reserved_by
         d_parking = res_data.parking_needed
         d_vehicle_model = res_data.vehicle_model or ""
@@ -402,7 +404,9 @@ def render_tab_reserva():
 
             nombre = nombre_final
 
-            tel = st.text_input("📞 Teléfono", value=d_tel)
+            c_tel_email = st.columns(2)
+            tel = c_tel_email[0].text_input("📞 Teléfono", value=d_tel)
+            email_input = c_tel_email[1].text_input("📧 Email", value=d_email, placeholder="correo@ejemplo.com")
             reservado = st.text_input("📝 Reservado Por", value=d_reservado)
 
         with c2:
@@ -454,7 +458,7 @@ def render_tab_reserva():
 
         btn_txt = "🔄 Actualizar Reserva" if res_id_load else "✅ Guardar Reserva"
 
-        if st.form_submit_button(btn_txt, type="primary", use_container_width=True):
+        if st.form_submit_button(btn_txt, type="primary", width="stretch"):
             # === VALIDACIONES ===
             has_errors = False
 
@@ -499,6 +503,7 @@ def render_tab_reserva():
                             arrival_time=arrival_dt,
                             reserved_by=reservado,
                             contact_phone=tel,
+                            contact_email=email_input,
                             received_by=recibido,
                             category_id=first_cat_id,
                             client_type_id=client_type_id,
@@ -557,6 +562,7 @@ def render_tab_reserva():
                                     arrival_time=arrival_dt,
                                     reserved_by=reservado,
                                     contact_phone=tel,
+                                    contact_email=email_input,
                                     received_by=recibido,
                                     category_id=room_cat_id,
                                     client_type_id=client_type_id,
@@ -622,7 +628,7 @@ def render_tab_reserva():
                                             file_name=os.path.basename(path),
                                             mime="application/pdf",
                                             key=f"pdf_dl_{rid}",
-                                            use_container_width=True
+                                            width="stretch"
                                         )
 
                         if errors:

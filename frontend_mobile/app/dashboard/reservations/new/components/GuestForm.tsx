@@ -10,6 +10,7 @@ interface FormData {
     pais: string;
     fechaNacimiento: string;
     telefono: string;
+    email: string;
     arrivalTime: string;
     checkIn: string;
     checkOut: string;
@@ -90,6 +91,18 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                         placeholder="0981..."
                     />
                 </div>
+                <div>
+                    <label className="text-gray-600 text-xs mb-1 block">Email</label>
+                    <input
+                        type="email"
+                        value={formData.email || ''}
+                        onChange={(e) => onFormChange({ email: e.target.value })}
+                        className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        placeholder="correo@ejemplo.com"
+                    />
+                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
                 <div>
                     <label className="text-gray-600 text-xs mb-1 block">Hora de Llegada</label>
                     <input
