@@ -146,6 +146,14 @@ class CajaService:
 
     @staticmethod
     @with_db
+    def list_open_sessions(db: Session) -> List[CajaSesion]:
+        """Return all currently ABIERTA sessions across all users, newest first."""
+        return db.query(CajaSesion).filter(
+            CajaSesion.status == "ABIERTA"
+        ).order_by(CajaSesion.opened_at.desc()).all()
+
+    @staticmethod
+    @with_db
     def get_session_transactions(db: Session, session_id: int) -> List[Transaccion]:
         """Return all transactions (voided or not) for a session."""
         return db.query(Transaccion).filter(

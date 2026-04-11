@@ -490,6 +490,10 @@ class TestAgentToolsKPI:
             ("get_room_performance", ("invalid", "2026-03-31")),
             ("get_booking_sources", ("2026-03-31", "2026-03-01")),  # end before start
             ("get_parking_status", ("bad-date", "2026-03-31")),
+            # v1.4.0 Caja/Transaccion tools — must also return strings on invalid input
+            ("get_revenue_summary", ("invalid-period",)),
+            ("resumen_ingresos_por_metodo", ("invalid-period",)),
+            ("resumen_ingresos_por_metodo", ("custom", "not-a-date", "2026-12-31")),
         ]
 
         tool_map = {f.__name__: f for f in TOOLS_LIST}

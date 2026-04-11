@@ -16,7 +16,6 @@ from typing import Optional
 
 # Import services from root (Hybrid Monolith)
 from services import ReservationService, CajaService, TransaccionService
-from database import session_factory, Transaccion, User, CajaSesion
 
 
 # ==========================================
@@ -800,34 +799,32 @@ def consultar_caja() -> str:
         - "¿Esta abierta la caja?" → consultar_caja()
         - "Estado de la caja actual" → consultar_caja()
     """
-    db = session_factory()
     try:
-        open_sessions = db.query(CajaSesion).filter(
-            CajaSesion.status == "ABIERTA"
-        ).order_by(CajaSesion.opened_at.desc()).all()
+        open_sessions = CajaService.list_open_sessions()
 
         if not open_sessions:
-            # Show today's closed sessions summary instead
+            # Fallback: show today's closed sessions summary
+            recent = CajaService.list_sessions(limit=100)
             today_start = datetime.combine(date.today(), datetime.min.time())
-            today_end = datetime.combine(date.today(), datetime.max.time())
-            closed_today = db.query(CajaSesion).filter(
-                CajaSesion.status == "CERRADA",
-                CajaSesion.closed_at >= today_start,
-                CajaSesion.closed_at <= today_end,
-            ).all()
+            closed_today = [
+                s for s in recent
+                if s.status == "CERRADA" and s.closed_at and s.closed_at >= today_start
+            ]
 
             if not closed_today:
                 return "No hay ninguna sesion de caja abierta en este momento, y no se cerro ninguna caja hoy."
 
-            lines = [f"No hay sesiones de caja abiertas ahora."]
+            lines = ["No hay sesiones de caja abiertas ahora."]
             lines.append(f"Sesiones cerradas hoy: {len(closed_today)}")
             for s in closed_today:
-                user = db.query(User).filter(User.id == s.user_id).first()
-                uname = user.username if user else "?"
+                summary = CajaService.get_session_summary(s.id) or {}
+                uname = summary.get("user_name", "?")
                 diff = s.difference if s.difference is not None else 0
-                diff_label = "✓ cuadrada" if abs(diff) < 1 else (f"faltante {abs(diff):,.0f} Gs" if diff < 0 else f"sobrante {diff:,.0f} Gs")
+                diff_label = "✓ cuadrada" if abs(diff) < 1 else (
+                    f"faltante {abs(diff):,.0f} Gs" if diff < 0 else f"sobrante {diff:,.0f} Gs"
+                )
                 lines.append(
-                    f"  • {uname}: abrio {s.opening_balance:,.0f} Gs → "
+                    f"  • {uname}: abrio {(s.opening_balance or 0):,.0f} Gs → "
                     f"cerro {(s.closing_balance_declared or 0):,.0f} Gs ({diff_label})"
                 )
             return "\n".join(lines)
@@ -836,23 +833,21 @@ def consultar_caja() -> str:
         total_efectivo_en_caja = 0.0
 
         for s in open_sessions:
-            user = db.query(User).filter(User.id == s.user_id).first()
-            uname = user.username if user else "?"
-
-            # Compute efectivo movements in this session
-            transactions = db.query(Transaccion).filter(
-                Transaccion.caja_sesion_id == s.id,
-                Transaccion.payment_method == "EFECTIVO",
-                Transaccion.voided == False,
-            ).all()
-            total_efectivo = sum(t.amount for t in transactions)
-            expected = (s.opening_balance or 0) + total_efectivo
+            summary = CajaService.get_session_summary(s.id) or {}
+            uname = summary.get("user_name", "?")
+            opening = summary.get("opening_balance", 0) or 0
+            total_efectivo = summary.get("total_efectivo", 0) or 0
+            num_trans = len([
+                t for t in summary.get("transactions", [])
+                if t.payment_method == "EFECTIVO" and not t.voided
+            ])
+            expected = opening + total_efectivo
             total_efectivo_en_caja += expected
 
             opened_at_str = s.opened_at.strftime("%d/%m %H:%M") if s.opened_at else "?"
             lines.append(f"Sesion #{s.id} — {uname} (abierta {opened_at_str})")
-            lines.append(f"  Balance inicial: {(s.opening_balance or 0):,.0f} Gs")
-            lines.append(f"  Movimientos efectivo: {len(transactions)} transaccion(es) = {total_efectivo:,.0f} Gs")
+            lines.append(f"  Balance inicial: {opening:,.0f} Gs")
+            lines.append(f"  Movimientos efectivo: {num_trans} transaccion(es) = {total_efectivo:,.0f} Gs")
             lines.append(f"  Total esperado en caja: {expected:,.0f} Gs")
             if s.notes:
                 lines.append(f"  Notas: {s.notes}")
@@ -862,8 +857,8 @@ def consultar_caja() -> str:
             lines.append(f"TOTAL esperado entre todas las cajas: {total_efectivo_en_caja:,.0f} Gs")
 
         return "\n".join(lines).rstrip()
-    finally:
-        db.close()
+    except Exception as e:
+        return f"Error al consultar el estado de caja: {e}"
 
 
 # ==========================================
@@ -929,16 +924,16 @@ def resumen_ingresos_por_metodo(period: str = "month", custom_start: Optional[st
     else:
         return f"Período inválido: '{period}'. Usa: today, week, month, year, o custom."
 
-    db = session_factory()
     try:
         start_dt = datetime.combine(start, datetime.min.time())
         end_dt = datetime.combine(end, datetime.max.time())
 
-        transactions = db.query(Transaccion).filter(
-            Transaccion.created_at >= start_dt,
-            Transaccion.created_at <= end_dt,
-            Transaccion.voided == False,
-        ).all()
+        transactions = TransaccionService.list_transactions(
+            date_from=start_dt,
+            date_to=end_dt,
+            include_voided=False,
+            limit=10000,
+        )
 
         if not transactions:
             return f"Ingresos por metodo — {period_label}: No hay transacciones registradas en este periodo."
@@ -976,8 +971,8 @@ def resumen_ingresos_por_metodo(period: str = "month", custom_start: Optional[st
             lines.append(f"Promedio por transaccion: {promedio:,.0f} Gs")
 
         return "\n".join(lines)
-    finally:
-        db.close()
+    except Exception as e:
+        return f"Error al consultar ingresos por metodo: {e}"
 
 
 # ==========================================
