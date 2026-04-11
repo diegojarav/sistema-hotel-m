@@ -9,6 +9,8 @@ import { es } from 'date-fns/locale';
 import { useAuth } from '@/hooks/useAuth';
 import { getReservationById, getStatusBadge, updateReservationStatus, ReservationDetail } from '@/services/reservations';
 import { downloadReservationPdf } from '@/services/documents';
+import { getSaldoReserva, SaldoReserva, paymentMethodEmoji, paymentMethodLabel } from '@/services/transacciones';
+import RegistrarPagoModal from '@/components/caja/RegistrarPagoModal';
 
 function parseLocalDate(dateStr: string): Date {
     const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
@@ -25,10 +27,21 @@ export default function ReservationDetailPage() {
     const id = params.id as string;
 
     const [reservation, setReservation] = useState<ReservationDetail | null>(null);
+    const [saldo, setSaldo] = useState<SaldoReserva | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [showPagoModal, setShowPagoModal] = useState(false);
+
+    const loadSaldo = async () => {
+        try {
+            const s = await getSaldoReserva(id);
+            setSaldo(s);
+        } catch {
+            // Saldo is optional — ignore errors
+        }
+    };
 
     useEffect(() => {
         if (authLoading || !id) return;
@@ -37,6 +50,12 @@ export default function ReservationDetailPage() {
             try {
                 const data = await getReservationById(id);
                 setReservation(data);
+                try {
+                    const s = await getSaldoReserva(id);
+                    setSaldo(s);
+                } catch {
+                    // Saldo is optional
+                }
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Error al cargar la reserva');
             } finally {
@@ -46,6 +65,23 @@ export default function ReservationDetailPage() {
 
         fetchDetail();
     }, [authLoading, id]);
+
+    const handlePagoRegistrado = async () => {
+        setShowPagoModal(false);
+        // Refresh both reservation (status may have changed) and saldo
+        if (reservation) {
+            try {
+                const [updated, updatedSaldo] = await Promise.all([
+                    getReservationById(reservation.id),
+                    getSaldoReserva(reservation.id),
+                ]);
+                setReservation(updated);
+                setSaldo(updatedSaldo);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Error al refrescar');
+            }
+        }
+    };
 
     const handleStatusChange = async (newStatus: string, reason?: string) => {
         if (!reservation) return;
@@ -195,6 +231,41 @@ export default function ReservationDetailPage() {
                     </div>
                 </div>
 
+                {/* Saldo de Pagos */}
+                {saldo && (
+                    <div className="bg-white border border-gray-200 rounded-2xl p-4">
+                        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Estado de Pago</h2>
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                            <div className="text-center p-2 bg-gray-50 rounded-lg">
+                                <p className="text-xs text-gray-400">Total</p>
+                                <p className="text-sm font-bold text-gray-900">{formatPrice(saldo.total)}</p>
+                            </div>
+                            <div className="text-center p-2 bg-green-50 rounded-lg">
+                                <p className="text-xs text-gray-400">Pagado</p>
+                                <p className="text-sm font-bold text-green-700">{formatPrice(saldo.paid)}</p>
+                            </div>
+                            <div className="text-center p-2 bg-amber-50 rounded-lg">
+                                <p className="text-xs text-gray-400">Saldo</p>
+                                <p className="text-sm font-bold text-amber-700">{formatPrice(saldo.pending)}</p>
+                            </div>
+                        </div>
+                        {saldo.transacciones.length > 0 && (
+                            <div className="space-y-1 border-t border-gray-100 pt-2 mt-2">
+                                <p className="text-xs text-gray-400 uppercase">Pagos registrados</p>
+                                {saldo.transacciones.map((t) => (
+                                    <div key={t.id} className="flex justify-between items-center text-sm">
+                                        <span className="text-gray-700">
+                                            {paymentMethodEmoji(t.payment_method)} {paymentMethodLabel(t.payment_method)}
+                                            {t.reference_number ? ` (${t.reference_number})` : ''}
+                                        </span>
+                                        <span className="font-medium text-gray-900">{formatPrice(t.amount)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Source */}
                 {reservation.source && (
                     <div className="bg-white border border-gray-200 rounded-2xl p-4">
@@ -237,17 +308,18 @@ export default function ReservationDetailPage() {
                         Descargar PDF
                     </button>
 
-                    {reservation.status.toLowerCase() === 'pendiente' && (
+                    {/* Registrar Pago — shown for all active states with pending balance */}
+                    {['pendiente', 'reservada', 'señada', 'senada', 'confirmada'].includes(reservation.status.toLowerCase()) && saldo && saldo.pending > 0 && (
                         <button
-                            onClick={() => handleStatusChange('Confirmada')}
+                            onClick={() => setShowPagoModal(true)}
                             disabled={isUpdating}
-                            className="w-full py-3 px-4 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                            className="w-full py-3 px-4 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
                         >
-                            {isUpdating ? 'Actualizando...' : 'Marcar como Pagado'}
+                            💰 Registrar Pago
                         </button>
                     )}
 
-                    {['pendiente', 'confirmada'].includes(reservation.status.toLowerCase()) && (
+                    {['pendiente', 'reservada', 'señada', 'senada', 'confirmada'].includes(reservation.status.toLowerCase()) && (
                         <button
                             onClick={() => setShowCancelConfirm(true)}
                             disabled={isUpdating}
@@ -258,6 +330,17 @@ export default function ReservationDetailPage() {
                     )}
                 </div>
             </main>
+
+            {/* Registrar Pago Modal */}
+            {showPagoModal && reservation && saldo && (
+                <RegistrarPagoModal
+                    reservaId={reservation.id}
+                    guestName={reservation.guest_name}
+                    saldoPendiente={saldo.pending}
+                    onClose={() => setShowPagoModal(false)}
+                    onSuccess={handlePagoRegistrado}
+                />
+            )}
 
             {/* Cancel Confirmation Modal */}
             {showCancelConfirm && (

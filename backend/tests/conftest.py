@@ -32,7 +32,8 @@ from sqlalchemy.pool import StaticPool
 from database import (
     Base, User, SessionLog, RoomCategory, Room, Reservation,
     CheckIn, Property, ClientType, ClientContract, PricingSeason,
-    SystemSetting, ICalFeed, PriceCalculation
+    SystemSetting, ICalFeed, PriceCalculation,
+    CajaSesion, Transaccion,
 )
 
 # ==========================================
@@ -543,6 +544,43 @@ def perf_report():
     report = PerfReport()
     yield report
     report.save()
+
+
+# ==========================================
+# CAJA & TRANSACCION FIXTURES (v1.4.0 — Phase 1)
+# ==========================================
+
+@pytest.fixture
+def open_caja_session(db_session, seed_full):
+    """Create an open caja session for the admin user."""
+    admin = seed_full["admin"]
+    sesion = CajaSesion(
+        user_id=admin.id,
+        opening_balance=100000.0,
+        status="ABIERTA",
+        notes="test session",
+    )
+    db_session.add(sesion)
+    db_session.commit()
+    db_session.refresh(sesion)
+    return sesion
+
+
+@pytest.fixture
+def reserva_con_pago_parcial(db_session, seed_full, make_reservation, open_caja_session):
+    """Create a reservation with one partial EFECTIVO payment (SEÑADA state)."""
+    from services import TransaccionService
+    res = make_reservation(price=200000.0, status="RESERVADA")
+    TransaccionService.registrar_pago(
+        db_session,
+        reserva_id=res.id,
+        amount=100000.0,
+        payment_method="EFECTIVO",
+        created_by="admin",
+        user_id=seed_full["admin"].id,
+    )
+    db_session.refresh(res)
+    return res
 
 
 @pytest.fixture

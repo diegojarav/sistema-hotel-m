@@ -13,6 +13,8 @@ from services.pricing_service import PricingService
 from services.room_service import RoomService
 from services.ical_service import ICalService
 from services.document_service import DocumentService
+from services.caja_service import CajaService, CajaSessionError
+from services.transaccion_service import TransaccionService, TransaccionError
 
 # Backward compat: app.py imports schemas through services
 from schemas import ReservationCreate, CheckInCreate, UserDTO
@@ -22,5 +24,7 @@ __all__ = [
     "AuthService", "ReservationService", "GuestService",
     "SettingsService", "PricingService", "RoomService",
     "ICalService", "DocumentService",
+    "CajaService", "CajaSessionError",
+    "TransaccionService", "TransaccionError",
     "ReservationCreate", "CheckInCreate", "UserDTO",
 ]

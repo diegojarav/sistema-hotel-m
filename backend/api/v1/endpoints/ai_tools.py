@@ -15,7 +15,8 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 # Import services from root (Hybrid Monolith)
-from services import ReservationService
+from services import ReservationService, CajaService, TransaccionService
+from database import session_factory, Transaccion, User, CajaSesion
 
 
 # ==========================================
@@ -780,6 +781,206 @@ def get_revenue_summary(period: str = "month", custom_start: Optional[str] = Non
 
 
 # ==========================================
+# TOOL 13: Consultar Caja (Cash Register Status)
+# ==========================================
+
+def consultar_caja() -> str:
+    """
+    Consultar el estado de las sesiones de caja abiertas del hotel.
+    Use cuando el usuario pregunte cuanto hay en caja, el balance actual,
+    cuanto entro hoy en efectivo, o informacion sobre sesiones de caja en curso.
+
+    Returns:
+        String describiendo sesiones abiertas, balance inicial, movimientos de
+        efectivo y total esperado en caja. Si no hay sesiones abiertas lo indica.
+
+    Examples:
+        - "¿Cuanto hay en caja?" → consultar_caja()
+        - "¿Cuanto entro hoy en efectivo?" → consultar_caja()
+        - "¿Esta abierta la caja?" → consultar_caja()
+        - "Estado de la caja actual" → consultar_caja()
+    """
+    db = session_factory()
+    try:
+        open_sessions = db.query(CajaSesion).filter(
+            CajaSesion.status == "ABIERTA"
+        ).order_by(CajaSesion.opened_at.desc()).all()
+
+        if not open_sessions:
+            # Show today's closed sessions summary instead
+            today_start = datetime.combine(date.today(), datetime.min.time())
+            today_end = datetime.combine(date.today(), datetime.max.time())
+            closed_today = db.query(CajaSesion).filter(
+                CajaSesion.status == "CERRADA",
+                CajaSesion.closed_at >= today_start,
+                CajaSesion.closed_at <= today_end,
+            ).all()
+
+            if not closed_today:
+                return "No hay ninguna sesion de caja abierta en este momento, y no se cerro ninguna caja hoy."
+
+            lines = [f"No hay sesiones de caja abiertas ahora."]
+            lines.append(f"Sesiones cerradas hoy: {len(closed_today)}")
+            for s in closed_today:
+                user = db.query(User).filter(User.id == s.user_id).first()
+                uname = user.username if user else "?"
+                diff = s.difference if s.difference is not None else 0
+                diff_label = "✓ cuadrada" if abs(diff) < 1 else (f"faltante {abs(diff):,.0f} Gs" if diff < 0 else f"sobrante {diff:,.0f} Gs")
+                lines.append(
+                    f"  • {uname}: abrio {s.opening_balance:,.0f} Gs → "
+                    f"cerro {(s.closing_balance_declared or 0):,.0f} Gs ({diff_label})"
+                )
+            return "\n".join(lines)
+
+        lines = [f"💰 Caja — {len(open_sessions)} sesion(es) abierta(s)", ""]
+        total_efectivo_en_caja = 0.0
+
+        for s in open_sessions:
+            user = db.query(User).filter(User.id == s.user_id).first()
+            uname = user.username if user else "?"
+
+            # Compute efectivo movements in this session
+            transactions = db.query(Transaccion).filter(
+                Transaccion.caja_sesion_id == s.id,
+                Transaccion.payment_method == "EFECTIVO",
+                Transaccion.voided == False,
+            ).all()
+            total_efectivo = sum(t.amount for t in transactions)
+            expected = (s.opening_balance or 0) + total_efectivo
+            total_efectivo_en_caja += expected
+
+            opened_at_str = s.opened_at.strftime("%d/%m %H:%M") if s.opened_at else "?"
+            lines.append(f"Sesion #{s.id} — {uname} (abierta {opened_at_str})")
+            lines.append(f"  Balance inicial: {(s.opening_balance or 0):,.0f} Gs")
+            lines.append(f"  Movimientos efectivo: {len(transactions)} transaccion(es) = {total_efectivo:,.0f} Gs")
+            lines.append(f"  Total esperado en caja: {expected:,.0f} Gs")
+            if s.notes:
+                lines.append(f"  Notas: {s.notes}")
+            lines.append("")
+
+        if len(open_sessions) > 1:
+            lines.append(f"TOTAL esperado entre todas las cajas: {total_efectivo_en_caja:,.0f} Gs")
+
+        return "\n".join(lines).rstrip()
+    finally:
+        db.close()
+
+
+# ==========================================
+# TOOL 14: Resumen Ingresos Por Metodo
+# ==========================================
+
+def resumen_ingresos_por_metodo(period: str = "month", custom_start: Optional[str] = None, custom_end: Optional[str] = None) -> str:
+    """
+    Resumen de ingresos agrupado por metodo de pago (efectivo, transferencia, POS).
+    Use cuando el usuario pregunte cuanto se cobro por un metodo especifico,
+    comparacion entre metodos, o distribucion de pagos.
+
+    Args:
+        period: Uno de "today", "week", "month", "year", o "custom".
+                - "today": ingresos de hoy
+                - "week": semana actual (lunes a domingo)
+                - "month": mes actual
+                - "year": año actual
+                - "custom": usa custom_start y custom_end
+        custom_start: Fecha inicio YYYY-MM-DD. Requerido si period="custom".
+        custom_end: Fecha fin YYYY-MM-DD. Requerido si period="custom".
+
+    Returns:
+        String con totales por metodo (EFECTIVO, TRANSFERENCIA, POS) con conteos
+        y porcentajes.
+
+    Examples:
+        - "¿Cuanto se cobro esta semana por transferencia?" → resumen_ingresos_por_metodo("week")
+        - "Ingresos en efectivo de marzo" → resumen_ingresos_por_metodo("custom", "2026-03-01", "2026-03-31")
+        - "¿Como se distribuyeron los pagos hoy?" → resumen_ingresos_por_metodo("today")
+        - "Cobros del año por metodo de pago" → resumen_ingresos_por_metodo("year")
+    """
+    today = date.today()
+
+    if period == "today":
+        start = today
+        end = today
+        period_label = f"Hoy ({today.strftime('%d/%m/%Y')})"
+    elif period == "week":
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+        period_label = f"Esta semana ({start.strftime('%d/%m')} al {end.strftime('%d/%m/%Y')})"
+    elif period == "month":
+        start = today.replace(day=1)
+        if today.month == 12:
+            end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        period_label = f"{today.strftime('%B %Y')}"
+    elif period == "year":
+        start = today.replace(month=1, day=1)
+        end = today.replace(month=12, day=31)
+        period_label = f"Año {today.year}"
+    elif period == "custom":
+        if not custom_start or not custom_end:
+            return "Error: Para período 'custom' se requieren custom_start y custom_end en formato YYYY-MM-DD."
+        try:
+            start = datetime.strptime(custom_start, "%Y-%m-%d").date()
+            end = datetime.strptime(custom_end, "%Y-%m-%d").date()
+        except ValueError:
+            return "Error: Formato de fecha inválido. Usa YYYY-MM-DD."
+        period_label = f"{start.strftime('%d/%m/%Y')} al {end.strftime('%d/%m/%Y')}"
+    else:
+        return f"Período inválido: '{period}'. Usa: today, week, month, year, o custom."
+
+    db = session_factory()
+    try:
+        start_dt = datetime.combine(start, datetime.min.time())
+        end_dt = datetime.combine(end, datetime.max.time())
+
+        transactions = db.query(Transaccion).filter(
+            Transaccion.created_at >= start_dt,
+            Transaccion.created_at <= end_dt,
+            Transaccion.voided == False,
+        ).all()
+
+        if not transactions:
+            return f"Ingresos por metodo — {period_label}: No hay transacciones registradas en este periodo."
+
+        totales = {"EFECTIVO": 0.0, "TRANSFERENCIA": 0.0, "POS": 0.0}
+        conteos = {"EFECTIVO": 0, "TRANSFERENCIA": 0, "POS": 0}
+
+        for t in transactions:
+            if t.payment_method in totales:
+                totales[t.payment_method] += t.amount
+                conteos[t.payment_method] += 1
+
+        total_general = sum(totales.values())
+        total_count = sum(conteos.values())
+
+        lines = [
+            f"💰 Ingresos por metodo — {period_label}",
+            "",
+            f"Total general: {total_general:,.0f} Gs ({total_count} transaccion(es))",
+            "",
+        ]
+
+        emoji_map = {"EFECTIVO": "💵", "TRANSFERENCIA": "🏦", "POS": "💳"}
+        for metodo in ("EFECTIVO", "TRANSFERENCIA", "POS"):
+            pct = (totales[metodo] / total_general * 100) if total_general > 0 else 0
+            emoji = emoji_map[metodo]
+            lines.append(
+                f"{emoji} {metodo}: {totales[metodo]:,.0f} Gs "
+                f"({conteos[metodo]} transaccion(es), {pct:.0f}%)"
+            )
+
+        if total_count > 0:
+            promedio = total_general / total_count
+            lines.append("")
+            lines.append(f"Promedio por transaccion: {promedio:,.0f} Gs")
+
+        return "\n".join(lines)
+    finally:
+        db.close()
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -796,4 +997,6 @@ TOOLS_LIST = [
     get_booking_sources,
     get_parking_status,
     get_revenue_summary,
+    consultar_caja,
+    resumen_ingresos_por_metodo,
 ]

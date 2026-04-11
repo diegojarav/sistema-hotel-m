@@ -229,6 +229,41 @@ def get_reservation(
     return reservation
 
 
+@router.get(
+    "/{reservation_id}/saldo",
+    summary="Saldo de pagos de una reserva",
+    description="Retorna total, pagado, pendiente y listado de transacciones activas."
+)
+def get_reservation_saldo(
+    reservation_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get payment balance for a reservation."""
+    from services import TransaccionService
+    saldo = TransaccionService.get_saldo(db, reservation_id)
+    if not saldo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Reservation {reservation_id} not found"
+        )
+    # Serialize transactions
+    saldo["transacciones"] = [
+        {
+            "id": t.id,
+            "amount": t.amount,
+            "payment_method": t.payment_method,
+            "reference_number": t.reference_number,
+            "description": t.description,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "created_by": t.created_by,
+            "voided": t.voided,
+        }
+        for t in saldo["transacciones"]
+    ]
+    return saldo
+
+
 @router.put(
     "/{reservation_id}",
     summary="Update Reservation",

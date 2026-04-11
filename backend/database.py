@@ -187,6 +187,39 @@ class CheckIn(Base):
     digital_signature = Column(String) # Base64 o "Pendiente"
 
 
+class CajaSesion(Base):
+    """Cash register session. Tracks open/close of cash till per user."""
+    __tablename__ = "caja_sesion"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    opened_at = Column(DateTime, default=datetime.now, nullable=False)
+    closed_at = Column(DateTime, nullable=True)
+    opening_balance = Column(Float, nullable=False, default=0.0)
+    closing_balance_declared = Column(Float, nullable=True)
+    closing_balance_expected = Column(Float, nullable=True)
+    difference = Column(Float, nullable=True)
+    status = Column(String, default="ABIERTA", index=True)  # ABIERTA | CERRADA
+    notes = Column(String, nullable=True)
+
+
+class Transaccion(Base):
+    """Immutable payment transaction. Voided=True is the only way to nullify."""
+    __tablename__ = "transaccion"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reserva_id = Column(String, ForeignKey("reservations.id"), nullable=True, index=True)
+    caja_sesion_id = Column(Integer, ForeignKey("caja_sesion.id"), nullable=True, index=True)
+    amount = Column(Float, nullable=False)
+    payment_method = Column(String, nullable=False, index=True)  # EFECTIVO | TRANSFERENCIA | POS
+    reference_number = Column(String, nullable=True)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_by = Column(String, nullable=True)
+    voided = Column(Boolean, default=False, index=True)
+    void_reason = Column(String, nullable=True)
+    voided_at = Column(DateTime, nullable=True)
+    voided_by = Column(String, nullable=True)
+
+
 class SystemSetting(Base):
     """System settings per property (Los Monges MVP)."""
     __tablename__ = "system_settings"

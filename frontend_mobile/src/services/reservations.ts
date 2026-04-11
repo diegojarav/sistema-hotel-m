@@ -142,15 +142,32 @@ export function getDatesWithReservations(reservations: Reservation[]): Set<strin
 
 /**
  * Get status badge styling.
+ * Supports both legacy (Pendiente/Confirmada/Completada/Cancelada) and new v1.4.0
+ * (RESERVADA/SEÑADA/CONFIRMADA/COMPLETADA/CANCELADA) statuses.
  */
 export function getStatusBadge(status: string): {
     bgClass: string;
     textClass: string;
     label: string;
 } {
-    const normalizedStatus = status.toLowerCase();
+    const normalizedStatus = status.toLowerCase().replace('ñ', 'n');
 
     switch (normalizedStatus) {
+        // NEW lifecycle (v1.4.0)
+        case 'reservada':
+        case 'reserved':
+            return {
+                bgClass: 'bg-gray-500/20',
+                textClass: 'text-gray-600',
+                label: 'Reservada',
+            };
+        case 'senada':
+            return {
+                bgClass: 'bg-amber-500/20',
+                textClass: 'text-amber-600',
+                label: 'Señada',
+            };
+        // LEGACY + NEW CONFIRMADA
         case 'confirmada':
         case 'confirmed':
             return {
@@ -168,8 +185,8 @@ export function getStatusBadge(status: string): {
         case 'completada':
         case 'completed':
             return {
-                bgClass: 'bg-gray-500/20',
-                textClass: 'text-gray-600',
+                bgClass: 'bg-blue-500/20',
+                textClass: 'text-blue-600',
                 label: 'Completada',
             };
         case 'cancelada':

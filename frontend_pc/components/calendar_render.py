@@ -199,12 +199,17 @@ def render_monthly_room_grid(data: dict, year: int, month: int):
         st.warning("No hay habitaciones activas.")
         return
 
-    # Color mapping by status
+    # Color mapping by status (supports legacy + v1.4.0 new values)
     status_colors = {
         "Confirmada": {"bg": "#dcfce7", "text": "#166534"},
+        "CONFIRMADA": {"bg": "#dcfce7", "text": "#166534"},
         "Pendiente": {"bg": "#fef9c3", "text": "#854d0e"},
-        "Completada": {"bg": "#e5e7eb", "text": "#374151"},
+        "RESERVADA": {"bg": "#e5e7eb", "text": "#374151"},
+        "SEÑADA": {"bg": "#fef9c3", "text": "#854d0e"},
+        "Completada": {"bg": "#dbeafe", "text": "#1e40af"},
+        "COMPLETADA": {"bg": "#dbeafe", "text": "#1e40af"},
         "Cancelada": {"bg": "#fee2e2", "text": "#991b1b"},
+        "CANCELADA": {"bg": "#fee2e2", "text": "#991b1b"},
     }
     default_color = {"bg": "#f3f4f6", "text": "#374151"}
 
@@ -381,25 +386,41 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
     st.markdown(f"### 📅 Reservas del {selected_date.strftime('%d/%m/%Y')}")
 
     statuses = day_data.get("statuses", [])
+    # Emoji mapping supports both legacy (Pendiente/Confirmada) and new v1.4.0 (RESERVADA/SEÑADA/CONFIRMADA)
+    status_emoji_map = {
+        "Pendiente": "🟡", "RESERVADA": "⚪", "SEÑADA": "🟡",
+        "Confirmada": "🟢", "CONFIRMADA": "🟢",
+        "Completada": "🔵", "COMPLETADA": "🔵",
+        "Cancelada": "🔴", "CANCELADA": "🔴",
+    }
+    active_states = ("Pendiente", "Confirmada", "RESERVADA", "SEÑADA", "CONFIRMADA")
+
     for i, (res_id, guest) in enumerate(zip(day_data["ids"], day_data["guests"])):
         res_status = statuses[i] if i < len(statuses) else "Confirmada"
-        status_emoji = {"Pendiente": "🟡", "Confirmada": "🟢", "Completada": "⚪", "Cancelada": "🔴"}.get(res_status, "⚪")
+        status_emoji = status_emoji_map.get(res_status, "⚪")
         with st.expander(f"🏠 {guest} {status_emoji} {res_status}", expanded=(i == 0)):
             st.write(f"**ID Reserva:** {res_id}")
             st.write(f"**Huésped:** {guest}")
             st.write(f"**Estado:** {status_emoji} {res_status}")
 
+            # Show saldo (uses backend /saldo endpoint via TransaccionService)
+            try:
+                from services import TransaccionService
+                saldo = TransaccionService.get_saldo(reserva_id=res_id)
+                if saldo:
+                    col_t, col_p, col_s = st.columns(3)
+                    col_t.metric("Total", f"{saldo['total']:,.0f} Gs".replace(",", "."))
+                    col_p.metric("Pagado", f"{saldo['paid']:,.0f} Gs".replace(",", "."))
+                    col_s.metric("Saldo", f"{saldo['pending']:,.0f} Gs".replace(",", "."))
+            except Exception:
+                pass
+
             col1, col2 = st.columns(2)
             with col1:
-                if res_status == "Pendiente":
-                    if st.button(f"✅ Confirmar Pago", key=f"confirm_{res_id}_{day_key}"):
-                        if ReservationService.update_status(res_id, "Confirmada", user=st.session_state.user.username):
-                            from frontend_services.cache_service import force_refresh
-                            force_refresh()
-                            st.success("Reserva confirmada como pagada")
-                            st.rerun()
+                if res_status in active_states:
+                    st.info("💡 Para registrar pagos, usa la pagina **💰 Caja** o el asistente IA.")
             with col2:
-                if res_status in ("Pendiente", "Confirmada"):
+                if res_status in active_states:
                     if st.button(f"❌ Cancelar", key=f"cancel_{res_id}_{day_key}"):
                         if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
                             from frontend_services.cache_service import force_refresh

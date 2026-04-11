@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 313 tests with coverage (75% min, currently 83%) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 369 tests (v1.4.0: 313 legacy + 56 new caja/transaccion) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -149,24 +149,61 @@ Runs on push to `main`/`dev`:
 - PDF documents auto-generate on reservation/check-in creation, saved to `backend/hotel/`
 - Streamlit accesses PDF files via direct filesystem read (same machine as backend)
 
-## Reservation Status Lifecycle
+## Reservation Status Lifecycle (v1.4.0 — payment-aware)
 
-4 statuses: **Pendiente** → **Confirmada** → **Completada** | **Cancelada**
+5 statuses with auto-transitions based on payments:
 
-| Status | How it's set | Blocks rooms? |
-|--------|-------------|---------------|
-| Pendiente | Created without payment (paid=false) | Yes |
-| Confirmada | Created with payment (paid=true) | Yes |
-| Completada | Automatic — check-out date passed (background task every 15 min) | No (past) |
-| Cancelada | Manual — admin/reception cancels | No |
+```
+RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA
+    └───────┴──────────┴──→ CANCELADA
+```
 
-- Mobile shows payment popup ("¿Pagado?") after clicking "Confirmar Reserva"
-- PC shows payment radio ("¿El huesped ya pago?") inside the reservation form
-- `PUT /reservations/{id}/status` endpoint for admin status changes
-- Status change buttons on mobile detail page (Marcar como Pagado / Cancelar)
-- Status change buttons on PC calendar daily view (Confirmar Pago / Cancelar)
-- `auto_complete_reservations()` runs in `_periodic_ical_sync()` every 15 min
-- All queries use `status.in_(["Confirmada", "Pendiente"])` for active reservation checks
+| Status | How it's set | Blocks rooms? | Color |
+|--------|-------------|---------------|-------|
+| RESERVADA | Created with zero payments | Yes | Gray |
+| SEÑADA | 0 < sum(active transactions) < total | Yes | Amber |
+| CONFIRMADA | sum(active transactions) >= total | Yes | Green |
+| COMPLETADA | Automatic — check-out date passed (every 15 min) | No (past) | Blue |
+| CANCELADA | Manual — admin/reception cancels | No | Red |
+
+- Status is **derived from transactions** — recalculated automatically in `TransaccionService._recalcular_status_reserva()` on every pago registered or voided
+- Terminal states (CANCELADA, COMPLETADA) are NEVER auto-changed
+- `auto_complete_reservations()` filters on all active states: `["RESERVADA", "SEÑADA", "CONFIRMADA", "Confirmada", "Pendiente"]` for backward compatibility
+- `update_status()` endpoint still allows manual overrides
+
+### Backward compatibility
+The system supports **both** legacy values (`Pendiente`, `Confirmada`, `Completada`, `Cancelada`) AND new values (`RESERVADA`, `SEÑADA`, `CONFIRMADA`, `COMPLETADA`, `CANCELADA`) simultaneously. All status filters use expanded `.in_()` lists. Migration script `scripts/migrate_caja_transacciones.py` renames existing values in place and creates synthetic TRANSFERENCIA transactions for historical CONFIRMADA reservations.
+
+## Cash Register (Caja) & Transactions (v1.4.0)
+
+### Tables
+- `caja_sesion` — cash session per user (opening_balance, closing_balance_declared, closing_balance_expected, difference, status ABIERTA|CERRADA)
+- `transaccion` — immutable payment records (amount, payment_method EFECTIVO|TRANSFERENCIA|POS, reserva_id, caja_sesion_id, voided)
+
+### Business rules
+- Only one ABIERTA session per user at a time
+- EFECTIVO payments REQUIRE an open caja session (hard reject with 400 if none)
+- TRANSFERENCIA and POS do NOT require an open session
+- Transactions are immutable — only voided, never deleted or updated
+- Void requires reason ≥ 3 chars; both admin and recepcion can void
+- Closing a session: `expected = opening + sum(EFECTIVO in session)`, `difference = declared - expected`
+
+### Services
+- `CajaService` (`backend/services/caja_service.py`) — abrir_sesion, cerrar_sesion, get_current_session, list_sessions, get_session_summary
+- `TransaccionService` (`backend/services/transaccion_service.py`) — registrar_pago, anular_transaccion, get_saldo, list_transactions, _recalcular_status_reserva
+- Both exported from `services/__init__.py`
+
+### API endpoints
+- `POST/GET /api/v1/caja/*` — abrir, cerrar, actual, historial, {session_id}
+- `POST/GET /api/v1/transacciones/*` — register, anular, list, reserva/{id}
+- `GET /api/v1/reservations/{id}/saldo` — total/paid/pending + transactions
+- `GET /api/v1/reportes/ingresos-diarios?fecha=YYYY-MM-DD`
+- `GET /api/v1/reportes/transferencias?desde=&hasta=`
+- `GET /api/v1/reportes/resumen-periodo?desde=&hasta=`
+
+### Frontend pages
+- **Mobile**: `/dashboard/caja` (open/close/transactions), `RegistrarPagoModal` component on reservation detail
+- **PC**: `frontend_pc/pages/96_💰_Caja.py` with tabs Sesion Actual / Historial / Reportes Financieros
 
 ## Session & Auth Configuration
 
@@ -176,7 +213,7 @@ Runs on push to `main`/`dev`:
 - Sessions persist until "Cerrar Sesion" button is clicked
 - Config in `backend/api/core/config.py` (ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS)
 
-## AI Agent Tools (12 functions in ai_tools.py)
+## AI Agent Tools (14 functions in ai_tools.py)
 
 1. `check_availability` — Room availability for date/stay
 2. `get_hotel_rates` — Pricing by category
@@ -190,6 +227,8 @@ Runs on push to `main`/`dev`:
 10. `get_booking_sources` — Channel distribution (Direct, Booking, Airbnb, etc.)
 11. `get_parking_status` — Parking utilization
 12. `get_revenue_summary` — Daily/weekly/monthly/yearly income with breakdown
+13. `consultar_caja` — Current cash register session status (balance, movements) — **v1.4.0**
+14. `resumen_ingresos_por_metodo` — Income breakdown by payment method — **v1.4.0**
 
 ## Two-Repo Architecture
 

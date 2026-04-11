@@ -37,9 +37,17 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 
 ### 🤖 Inteligencia Artificial
 
-- **Agente IA con 11 Herramientas:** Asistente inteligente con function calling automático (Gemini 2.5 Flash). Consulta disponibilidad, tarifas, cotizaciones, ocupación mensual, rendimiento por habitación, fuentes de reserva, estacionamiento y más.
+- **Agente IA con 14 Herramientas:** Asistente inteligente con function calling automático (Gemini 2.5 Flash). Consulta disponibilidad, tarifas, cotizaciones, ocupación mensual, rendimiento por habitación, fuentes de reserva, estacionamiento, ingresos financieros, estado de caja y más.
 - **OCR Documental:** Extracción automática de datos de documentos usando Google Gemini 2.5 Flash.
 - **Retry con Backoff Exponencial:** Reintentos automáticos ante errores transitorios de la API (429, 503).
+
+### 💰 Gestión Financiera (v1.4.0)
+
+- **Sistema de Caja (Cash Register):** Apertura/cierre de sesiones por usuario con reconciliación declarado vs esperado.
+- **Transacciones Inmutables:** Pagos registrados como EFECTIVO, TRANSFERENCIA o POS — con referencias bancarias/voucher. Solo se pueden anular (voided=True con razón obligatoria), nunca modificar o eliminar.
+- **Ciclo de vida de Reservas basado en Pagos:** Los estados `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA` se calculan automáticamente a partir de la suma de pagos vs el total de la reserva. Permite registrar señas y pagos parciales.
+- **Reportes Financieros:** Ingresos del día por método, lista de transferencias para conciliación bancaria (con CSV export), resumen por período agrupado por método de pago.
+- **RBAC:** Solo admin/supervisor pueden ver todas las sesiones; recepción ve solo las propias; anulación requiere razón auditada.
 
 ### 🔄 Resiliencia y Recuperacion
 
@@ -63,8 +71,8 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-- **313 tests** con **83% coverage** en 24 archivos de test.
-- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**.
+- **369 tests** con **83% coverage** en 27 archivos de test.
+- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**, **caja & transacciones (56 tests nuevos)**.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
 - **CI automático** en GitHub Actions: tests + coverage (75% min) + KPI evaluations + perf benchmarks.
 

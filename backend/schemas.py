@@ -321,3 +321,84 @@ class ClientTypeDTO(BaseModel):
     default_discount_percent: float
     color: str
     icon: str
+
+
+# ==========================================
+# CAJA & TRANSACCIONES (Phase 1)
+# ==========================================
+
+class CajaAbrirRequest(BaseModel):
+    """Request para abrir una sesion de caja."""
+    opening_balance: float = Field(..., ge=0, description="Balance inicial en efectivo")
+    notes: str = Field(default="", description="Notas opcionales")
+
+
+class CajaCerrarRequest(BaseModel):
+    """Request para cerrar una sesion de caja."""
+    session_id: int = Field(..., description="ID de la sesion a cerrar")
+    closing_balance_declared: float = Field(..., ge=0, description="Monto declarado por el recepcionista")
+    notes: str = Field(default="", description="Notas opcionales del cierre")
+
+
+class CajaSesionDTO(BaseModel):
+    """Schema de salida para una sesion de caja."""
+    id: int
+    user_id: int
+    user_name: str = ""
+    opened_at: datetime
+    closed_at: Optional[datetime] = None
+    opening_balance: float
+    closing_balance_declared: Optional[float] = None
+    closing_balance_expected: Optional[float] = None
+    difference: Optional[float] = None
+    status: str
+    notes: Optional[str] = None
+    total_efectivo: float = 0.0
+
+
+class TransaccionCreate(BaseModel):
+    """Request para registrar un pago."""
+    reserva_id: str = Field(..., description="ID de la reserva")
+    amount: float = Field(..., gt=0, description="Monto del pago (mayor a 0)")
+    payment_method: str = Field(..., description="EFECTIVO | TRANSFERENCIA | POS")
+    reference_number: Optional[str] = Field(default=None, description="Numero de referencia (transfer/POS)")
+    description: Optional[str] = Field(default=None, description="Descripcion opcional")
+
+    @field_validator('payment_method')
+    @classmethod
+    def validate_method(cls, v: str) -> str:
+        v = v.upper()
+        if v not in ("EFECTIVO", "TRANSFERENCIA", "POS"):
+            raise ValueError("payment_method debe ser EFECTIVO, TRANSFERENCIA o POS")
+        return v
+
+
+class TransaccionDTO(BaseModel):
+    """Schema de salida para una transaccion."""
+    id: int
+    reserva_id: Optional[str] = None
+    caja_sesion_id: Optional[int] = None
+    amount: float
+    payment_method: str
+    reference_number: Optional[str] = None
+    description: Optional[str] = None
+    created_at: datetime
+    created_by: Optional[str] = None
+    voided: bool
+    void_reason: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    voided_by: Optional[str] = None
+
+
+class AnularTransaccionRequest(BaseModel):
+    """Request para anular una transaccion."""
+    reason: str = Field(..., min_length=3, description="Razon de la anulacion (mandatory)")
+
+
+class SaldoReservaDTO(BaseModel):
+    """Schema con el estado de pagos de una reserva."""
+    reserva_id: str
+    total: float
+    paid: float
+    pending: float
+    transacciones: List[TransaccionDTO] = []

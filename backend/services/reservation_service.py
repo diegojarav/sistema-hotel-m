@@ -64,7 +64,7 @@ class ReservationService:
              req_end = data.check_in_date + timedelta(days=data.stay_days)
 
              existing_parking_count = db.query(Reservation).filter(
-                 Reservation.status.in_(["Confirmada", "Pendiente"]),
+                 Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
                  Reservation.parking_needed == True,
                  Reservation.check_in_date < req_end,
              ).all()
@@ -208,7 +208,10 @@ class ReservationService:
     @with_db
     def update_status(db: Session, res_id: str, new_status: str, reason: str = None, user: str = None) -> bool:
         """Update reservation status with validation."""
-        VALID_STATUSES = ["Pendiente", "Confirmada", "Completada", "Cancelada"]
+        VALID_STATUSES = [
+            "Pendiente", "Confirmada", "Completada", "Cancelada",
+            "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA", "CANCELADA",
+        ]
         if new_status not in VALID_STATUSES:
             return False
 
@@ -216,12 +219,12 @@ class ReservationService:
         if not res:
             return False
 
-        # Don't allow changing Completada back (except to Cancelada by admin)
-        if res.status == "Completada" and new_status not in ("Cancelada",):
+        # Don't allow changing terminal states (Completada) except to Cancelada
+        if res.status in ("Completada", "COMPLETADA") and new_status not in ("Cancelada", "CANCELADA"):
             return False
 
         res.status = new_status
-        if new_status == "Cancelada":
+        if new_status in ("Cancelada", "CANCELADA"):
             res.cancellation_reason = reason or ""
             res.cancelled_by = user or ""
         db.commit()
@@ -233,7 +236,7 @@ class ReservationService:
         """Mark past reservations as Completada. Returns count updated."""
         today = date.today()
         active = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.check_in_date.isnot(None)
         ).all()
 
@@ -263,7 +266,7 @@ class ReservationService:
 
         # Fetch active reservations overlapping this week
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.check_in_date <= end_date,
         ).all()
 
@@ -316,7 +319,7 @@ class ReservationService:
         max_stay_days = 365
         earliest_checkin = specific_date - timedelta(days=max_stay_days)
         reservations = db.query(Reservation).filter(
-             Reservation.status.in_(["Confirmada", "Pendiente"]),
+             Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
              Reservation.check_in_date <= specific_date,
              Reservation.check_in_date >= earliest_checkin  # Lower bound
         ).all()
@@ -358,7 +361,7 @@ class ReservationService:
         max_stay_days = 365
         earliest_checkin = check_in - timedelta(days=max_stay_days)
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.check_in_date >= earliest_checkin,
             Reservation.check_in_date < check_out,
         ).all()
@@ -479,7 +482,7 @@ class ReservationService:
                     Reservation.id == padded_id,
                     Reservation.id.like(f"%{query_clean}")
                 ),
-                Reservation.status.in_(["Confirmada", "Pendiente"])
+                Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"])
             ).all()
             results.extend(res_by_id)
 
@@ -491,7 +494,7 @@ class ReservationService:
             for ci in checkin_matches:
                 res_by_name = db.query(Reservation).filter(
                     Reservation.guest_name.ilike(f"%{ci.last_name}%"),
-                    Reservation.status.in_(["Confirmada", "Pendiente"])
+                    Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"])
                 ).all()
                 for r in res_by_name:
                     if r not in results:
@@ -508,7 +511,7 @@ class ReservationService:
 
                 res_by_name = db.query(Reservation).filter(
                     or_(*conditions),
-                    Reservation.status.in_(["Confirmada", "Pendiente"])
+                    Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"])
                 ).order_by(Reservation.check_in_date).limit(10).all()
 
                 for r in res_by_name:
@@ -542,7 +545,7 @@ class ReservationService:
         V2-V3 FIX: Moved from ai_tools.py to service layer.
         """
         query = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "Cancelada"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "Cancelada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA", "CANCELADA"]),
             Reservation.check_in_date.isnot(None)
         )
 
@@ -612,7 +615,7 @@ class ReservationService:
 
         # Buscar reservas que toquen este mes
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.check_in_date <= last_day
         ).all()
 
@@ -694,7 +697,7 @@ class ReservationService:
         earliest_checkin = first_day - timedelta(days=max_stay_days)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.check_in_date <= last_day,
             Reservation.check_in_date >= earliest_checkin
         ).all()
@@ -750,7 +753,7 @@ class ReservationService:
         # 2. Llegadas hoy (reservas que inician hoy)
         llegadas = db.query(func.count(Reservation.id)).filter(
             Reservation.check_in_date == today,
-            Reservation.status.in_(["Confirmada", "Pendiente"])
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"])
         ).scalar() or 0
 
         # 3. Salidas hoy (reservas que terminan hoy)
@@ -759,7 +762,7 @@ class ReservationService:
         earliest_checkin = today - timedelta(days=max_stay_days)
         salidas = 0
         reservas_activas = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.check_in_date >= earliest_checkin  # Lower bound
         ).all()
 
@@ -834,7 +837,7 @@ class ReservationService:
         earliest_checkin = first_day - timedelta(days=max_stay_days)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "Completada"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= last_day,
             Reservation.check_in_date >= earliest_checkin,
         ).all()
@@ -888,7 +891,7 @@ class ReservationService:
         earliest_checkin = start_date - timedelta(days=max_stay_days)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "Completada"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= end_date,
             Reservation.check_in_date >= earliest_checkin,
         ).all()
@@ -927,7 +930,7 @@ class ReservationService:
         earliest_checkin = first_day - timedelta(days=max_stay_days)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "Completada"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= last_day,
             Reservation.check_in_date >= earliest_checkin,
         ).all()
@@ -976,7 +979,7 @@ class ReservationService:
         last_day = date(year, 12, 31)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "Completada"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date >= first_day,
             Reservation.check_in_date <= last_day,
         ).all()
@@ -1009,7 +1012,7 @@ class ReservationService:
         earliest_checkin = start_date - timedelta(days=max_stay_days)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
             Reservation.parking_needed == True,
             Reservation.check_in_date <= end_date,
             Reservation.check_in_date >= earliest_checkin,
@@ -1073,7 +1076,7 @@ class ReservationService:
         earliest_checkin = start_date - timedelta(days=max_stay_days)
 
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "Completada"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= end_date,
             Reservation.check_in_date >= earliest_checkin,
         ).all()
