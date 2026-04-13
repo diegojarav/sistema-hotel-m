@@ -243,7 +243,7 @@ with tab_list:
         # Display table
         st.dataframe(
             user_data,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "ID": st.column_config.NumberColumn("ID", width="small"),
@@ -301,7 +301,7 @@ with tab_create:
         
         st.divider()
         
-        submitted = st.form_submit_button("✅ Crear Usuario", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("✅ Crear Usuario", type="primary", width="stretch")
         
         if submitted:
             # Validation
@@ -354,7 +354,7 @@ with tab_reset:
             
             st.divider()
             
-            submitted = st.form_submit_button("🔄 Resetear Contraseña", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("🔄 Resetear Contraseña", type="primary", width="stretch")
             
             if submitted:
                 if not new_pwd or not confirm_pwd:
@@ -424,7 +424,7 @@ with tab_sessions:
 
         st.dataframe(
             session_data,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "Usuario": st.column_config.TextColumn("Usuario", width="medium"),
@@ -469,7 +469,7 @@ with tab_config:
         
         st.divider()
         
-        submitted = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("💾 Guardar Cambios", type="primary", width="stretch")
         
         if submitted:
             if not new_hotel_name or len(new_hotel_name.strip()) < 2:

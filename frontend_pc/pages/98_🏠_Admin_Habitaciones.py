@@ -338,7 +338,7 @@ with tab_inventory:
 
             st.dataframe(
                 room_data,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_config={
                     "Codigo": st.column_config.TextColumn("Codigo", width="small"),
@@ -383,7 +383,7 @@ with tab_inventory:
                 data=inv_csv.getvalue(),
                 file_name=f"inventario_habitaciones_{date.today()}.csv",
                 mime="text/csv",
-                use_container_width=True
+                width="stretch"
             )
             inv_df = pd.DataFrame(dl_data)
             inv_buf = io.BytesIO()
@@ -394,7 +394,7 @@ with tab_inventory:
                 data=inv_buf.getvalue(),
                 file_name=f"inventario_habitaciones_{date.today()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                width="stretch"
             )
         else:
             st.info(f"No hay habitaciones en la categoria '{selected_category}'")
@@ -477,7 +477,7 @@ with tab_add:
                 preview_codes.append("...")
             st.code(", ".join(preview_codes))
 
-            submitted = st.form_submit_button("➕ Crear Habitaciones", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("➕ Crear Habitaciones", type="primary", width="stretch")
 
             if submitted:
                 success, message = create_rooms(
@@ -528,22 +528,22 @@ with tab_manage:
         st.markdown("#### Acciones Rapidas")
         qcol1, qcol2, qcol3, qcol4 = st.columns(4)
         with qcol1:
-            if st.button("🟢 Disponible", key="quick_available", use_container_width=True, disabled=(current_status == "available")):
+            if st.button("🟢 Disponible", key="quick_available", width="stretch", disabled=(current_status == "available")):
                 success, msg = update_room_status(selected_room['id'], "available")
                 if success:
                     st.rerun()
         with qcol2:
-            if st.button("🔵 Limpieza", key="quick_cleaning", use_container_width=True, disabled=(current_status == "cleaning")):
+            if st.button("🔵 Limpieza", key="quick_cleaning", width="stretch", disabled=(current_status == "cleaning")):
                 success, msg = update_room_status(selected_room['id'], "cleaning")
                 if success:
                     st.rerun()
         with qcol3:
-            if st.button("🟠 Mantenimiento", key="quick_maint", use_container_width=True, disabled=(current_status == "maintenance")):
+            if st.button("🟠 Mantenimiento", key="quick_maint", width="stretch", disabled=(current_status == "maintenance")):
                 success, msg = update_room_status(selected_room['id'], "maintenance")
                 if success:
                     st.rerun()
         with qcol4:
-            if st.button("⚫ Fuera de Servicio", key="quick_oos", use_container_width=True, disabled=(current_status == "out_of_service")):
+            if st.button("⚫ Fuera de Servicio", key="quick_oos", width="stretch", disabled=(current_status == "out_of_service")):
                 success, msg = update_room_status(selected_room['id'], "out_of_service")
                 if success:
                     st.rerun()
@@ -571,7 +571,7 @@ with tab_manage:
                     help="Opcional - se registra en el historial"
                 )
 
-                if st.form_submit_button("💾 Guardar Estado", use_container_width=True):
+                if st.form_submit_button("💾 Guardar Estado", width="stretch"):
                     if new_status != current_status:
                         success, message = update_room_status(selected_room['id'], new_status, reason)
                         if success:
@@ -589,7 +589,7 @@ with tab_manage:
 
             if is_active:
                 st.success("🟢 Esta habitacion esta **ACTIVA**")
-                if st.button("⛔ Desactivar Habitacion", type="secondary", use_container_width=True):
+                if st.button("⛔ Desactivar Habitacion", type="secondary", width="stretch"):
                     success, message = toggle_room_active(selected_room['id'], False)
                     if success:
                         st.warning(f"⚠️ {message}")
@@ -598,7 +598,7 @@ with tab_manage:
                         st.error(f"❌ {message}")
             else:
                 st.warning("⚫ Esta habitacion esta **INACTIVA**")
-                if st.button("✅ Activar Habitacion", type="primary", use_container_width=True):
+                if st.button("✅ Activar Habitacion", type="primary", width="stretch"):
                     success, message = toggle_room_active(selected_room['id'], True)
                     if success:
                         st.success(f"✅ {message}")
@@ -612,7 +612,7 @@ with tab_manage:
 
             confirm_delete = st.checkbox("Confirmo que deseo eliminar esta habitacion", key="confirm_delete")
 
-            if st.button("🗑️ Eliminar", type="secondary", disabled=not confirm_delete, use_container_width=True):
+            if st.button("🗑️ Eliminar", type="secondary", disabled=not confirm_delete, width="stretch"):
                 success, message = delete_room(selected_room['id'])
                 if success:
                     st.success(f"✅ {message}")
@@ -659,7 +659,7 @@ with tab_summary:
 
         st.dataframe(
             summary_data,
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -721,7 +721,7 @@ with tab_summary:
             data=sc_csv.getvalue(),
             file_name=f"resumen_categorias_{date.today()}.csv",
             mime="text/csv",
-            use_container_width=True
+            width="stretch"
         )
         sc_df = pd.DataFrame(dl_summary)
         sc_buf = io.BytesIO()
@@ -732,7 +732,7 @@ with tab_summary:
             data=sc_buf.getvalue(),
             file_name=f"resumen_categorias_{date.today()}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            width="stretch"
         )
     else:
         st.info("No hay datos de habitaciones disponibles")
@@ -846,7 +846,7 @@ python scripts/seed_monges.py
                     data=hm_buf.getvalue(),
                     file_name=f"ingresos_habitacion_{rev_year}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width="stretch"
                 )
             else:
                 st.info("Sin habitaciones registradas")
@@ -1116,7 +1116,7 @@ with tab_room_detail:
                                 "Reservas": s["reservation_count"],
                             })
 
-                        st.dataframe(summary_rows, use_container_width=True, hide_index=True)
+                        st.dataframe(summary_rows, width="stretch", hide_index=True)
 
                         total_nights_all = sum(rr["summary"]["total_nights"] for rr in report_rooms)
                         total_revenue_all = sum(rr["summary"]["total_revenue"] for rr in report_rooms)
@@ -1167,7 +1167,7 @@ with tab_room_detail:
                             data=csv_buf.getvalue(),
                             file_name=f"resumen_habitaciones_{rd_start}_{rd_end}.csv",
                             mime="text/csv",
-                            use_container_width=True
+                            width="stretch"
                         )
 
                         # Excel download
@@ -1180,7 +1180,7 @@ with tab_room_detail:
                             data=xl_buf.getvalue(),
                             file_name=f"resumen_habitaciones_{rd_start}_{rd_end}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
+                            width="stretch"
                         )
                     else:
                         st.info("Sin datos para el periodo seleccionado")
@@ -1213,7 +1213,7 @@ with tab_room_detail:
                                     "Canal": res["source"],
                                     "Estado": res["status"],
                                 })
-                            st.dataframe(table_data, use_container_width=True, hide_index=True)
+                            st.dataframe(table_data, width="stretch", hide_index=True)
 
                             csv_buf = io.StringIO()
                             writer = csv.DictWriter(csv_buf, fieldnames=["Huesped", "Check-in", "Check-out", "Noches", "Precio", "Canal", "Estado"])
@@ -1233,7 +1233,7 @@ with tab_room_detail:
                                 data=csv_buf.getvalue(),
                                 file_name=f"resumen_{rm['code']}_{rd_start}_{rd_end}.csv",
                                 mime="text/csv",
-                                use_container_width=True
+                                width="stretch"
                             )
                         else:
                             st.info("Sin reservas en este periodo para esta habitacion")

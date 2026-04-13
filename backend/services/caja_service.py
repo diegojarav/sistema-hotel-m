@@ -163,16 +163,41 @@ class CajaService:
     @staticmethod
     @with_db
     def get_session_summary(db: Session, session_id: int) -> Dict:
-        """Return session info + transactions + running totals."""
+        """Return session info + ALL period transactions + running totals.
+
+        Includes:
+        - Session-linked EFECTIVO transactions (for cash reconciliation)
+        - ALL non-voided transactions since session opened (for full period view)
+        """
         sesion = db.query(CajaSesion).filter(CajaSesion.id == session_id).first()
         if not sesion:
             return None
 
-        transactions = CajaService.get_session_transactions(db, session_id)
+        # Session-linked transactions (EFECTIVO through this caja)
+        session_trans = db.query(Transaccion).filter(
+            Transaccion.caja_sesion_id == session_id
+        ).order_by(Transaccion.created_at.asc()).all()
 
-        efectivo_total = sum(t.amount for t in transactions if t.payment_method == "EFECTIVO" and not t.voided)
-        transferencia_total = sum(t.amount for t in transactions if t.payment_method == "TRANSFERENCIA" and not t.voided)
-        pos_total = sum(t.amount for t in transactions if t.payment_method == "POS" and not t.voided)
+        # ALL non-voided transactions since session opened (includes TRANSFERENCIA/POS)
+        all_period_trans = db.query(Transaccion).filter(
+            Transaccion.created_at >= sesion.opened_at,
+            Transaccion.voided == False,
+        ).order_by(Transaccion.created_at.asc()).all()
+
+        # Cash total from session-linked only (for expected balance calculation)
+        efectivo_total = sum(
+            t.amount for t in session_trans
+            if t.payment_method == "EFECTIVO" and not t.voided
+        )
+        # Transfer + POS totals from all period transactions
+        transferencia_total = sum(
+            t.amount for t in all_period_trans
+            if t.payment_method == "TRANSFERENCIA"
+        )
+        pos_total = sum(
+            t.amount for t in all_period_trans
+            if t.payment_method == "POS"
+        )
 
         # Get user name
         user = db.query(User).filter(User.id == sesion.user_id).first()
@@ -193,5 +218,5 @@ class CajaService:
             "total_efectivo": efectivo_total,
             "total_transferencia": transferencia_total,
             "total_pos": pos_total,
-            "transactions": transactions,
+            "transactions": all_period_trans,
         }

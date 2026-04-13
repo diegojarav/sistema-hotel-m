@@ -617,19 +617,10 @@ def render_tab_reserva():
                             st.info(f"IDs: {', '.join(created_ids)}")
                             logger.info(f"Reservas creadas: {created_ids} por {recibido}")
 
-                            # PDF download buttons
+                            # Store PDF paths in session_state — download_button can't
+                            # be rendered inside st.form(), so we defer to outside
                             if pdf_paths:
-                                st.markdown("#### 📄 Documentos generados")
-                                for rid, path in pdf_paths.items():
-                                    with open(path, "rb") as f:
-                                        st.download_button(
-                                            f"📥 Descargar PDF — Reserva {rid}",
-                                            data=f.read(),
-                                            file_name=os.path.basename(path),
-                                            mime="application/pdf",
-                                            key=f"pdf_dl_{rid}",
-                                            width="stretch"
-                                        )
+                                st.session_state["_last_pdf_paths"] = pdf_paths
 
                         if errors:
                             st.warning(f"⚠️ Hubo {len(errors)} error(es) durante el proceso")
@@ -641,6 +632,22 @@ def render_tab_reserva():
                 except Exception as e:
                     logger.error(f"Error inesperado al guardar reserva: {e}", exc_info=True)
                     st.error("Ocurrió un error inesperado. Contacte al soporte.")
+
+        # PDF download buttons — OUTSIDE st.form (Streamlit forbids download_button inside forms)
+        if "_last_pdf_paths" in st.session_state:
+            import os
+            _pdf_paths = st.session_state.pop("_last_pdf_paths")
+            st.markdown("#### 📄 Documentos generados")
+            for rid, path in _pdf_paths.items():
+                if os.path.exists(path):
+                    with open(path, "rb") as f:
+                        st.download_button(
+                            f"📥 Descargar PDF — Reserva {rid}",
+                            data=f.read(),
+                            file_name=os.path.basename(path),
+                            mime="application/pdf",
+                            key=f"pdf_dl_{rid}",
+                        )
 
         st.divider()
         st.markdown("### 📋 Listado de Reservas (Últimas)")

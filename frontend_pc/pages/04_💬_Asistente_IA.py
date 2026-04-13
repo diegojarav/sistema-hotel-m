@@ -171,7 +171,7 @@ with st.sidebar:
     st.divider()
     
     # Reset chat button
-    if st.button("🗑️ Reiniciar Chat", use_container_width=True):
+    if st.button("🗑️ Reiniciar Chat", width="stretch"):
         st.session_state.chat_history = []
         st.rerun()
     

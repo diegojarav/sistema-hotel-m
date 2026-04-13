@@ -137,7 +137,7 @@ with tab_actual:
         with col2:
             open_notes = st.text_input("Notas (opcional)", placeholder="Ej: Turno mañana")
 
-        if st.button("💰 Abrir Caja", type="primary", use_container_width=True):
+        if st.button("💰 Abrir Caja", type="primary", width="stretch"):
             ok, result = api_post("/caja/abrir", {
                 "opening_balance": float(opening_balance),
                 "notes": open_notes,
@@ -198,7 +198,7 @@ with tab_actual:
                 for t in detalle["transactions"]
             ]
             df = pd.DataFrame(trans_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
         else:
             st.info("Aun no hay transacciones registradas en esta sesion.")
 
@@ -270,7 +270,7 @@ with tab_historial:
                 "Diferencia": fmt_gs(s.get("difference")) if s.get("difference") is not None else "-",
             })
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
 
 
 # ==========================================
@@ -330,7 +330,7 @@ with tab_reportes:
                 for t in data["transferencias"]
             ]
             df = pd.DataFrame(rows)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
 
             # CSV export
             csv_buffer = io.StringIO()
@@ -385,4 +385,4 @@ with tab_reportes:
                     for m in data["por_metodo"]
                 ]
                 df = pd.DataFrame(rows)
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                st.dataframe(df, width="stretch", hide_index=True)

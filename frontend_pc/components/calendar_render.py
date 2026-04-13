@@ -415,15 +415,59 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
             except Exception:
                 pass
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if res_status in active_states:
-                    st.info("💡 Para registrar pagos, usa la pagina **💰 Caja** o el asistente IA.")
-            with col2:
-                if res_status in active_states:
-                    if st.button(f"❌ Cancelar", key=f"cancel_{res_id}_{day_key}"):
-                        if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
+            # Registrar Pago form (only for active reservations with pending balance)
+            if res_status in active_states and saldo and saldo["pending"] > 0:
+                st.markdown("---")
+                st.markdown("**💰 Registrar Pago**")
+                pay_col1, pay_col2, pay_col3 = st.columns([1, 1, 1])
+                with pay_col1:
+                    metodo = st.selectbox(
+                        "Método", ["TRANSFERENCIA", "EFECTIVO", "POS"],
+                        key=f"metodo_{res_id}_{day_key}"
+                    )
+                with pay_col2:
+                    monto = st.number_input(
+                        "Monto (Gs)", min_value=0.0, value=float(saldo["pending"]),
+                        step=1000.0, format="%.0f",
+                        key=f"monto_{res_id}_{day_key}"
+                    )
+                with pay_col3:
+                    ref = st.text_input(
+                        "Referencia", key=f"ref_{res_id}_{day_key}",
+                        placeholder="Nro. transferencia/voucher"
+                    )
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    if st.button(f"✅ Registrar Pago", key=f"pagar_{res_id}_{day_key}"):
+                        try:
+                            from services import TransaccionService
+                            user = st.session_state.user
+                            TransaccionService.registrar_pago(
+                                reserva_id=res_id,
+                                amount=monto,
+                                payment_method=metodo,
+                                reference_number=ref or None,
+                                created_by=user.username,
+                                user_id=user.id if metodo == "EFECTIVO" else None,
+                            )
                             from frontend_services.cache_service import force_refresh
                             force_refresh()
-                            st.success("Reserva cancelada")
+                            st.success(f"Pago de {monto:,.0f} Gs registrado")
                             st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                with btn_col2:
+                    if res_status in active_states:
+                        if st.button(f"❌ Cancelar Reserva", key=f"cancel_{res_id}_{day_key}"):
+                            if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
+                                from frontend_services.cache_service import force_refresh
+                                force_refresh()
+                                st.success("Reserva cancelada")
+                                st.rerun()
+            elif res_status in active_states:
+                if st.button(f"❌ Cancelar Reserva", key=f"cancel_{res_id}_{day_key}"):
+                    if ReservationService.cancel_reservation(res_id, "Cancelación desde calendario", st.session_state.user.username):
+                        from frontend_services.cache_service import force_refresh
+                        force_refresh()
+                        st.success("Reserva cancelada")
+                        st.rerun()
