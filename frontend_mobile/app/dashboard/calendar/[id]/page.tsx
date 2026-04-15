@@ -7,7 +7,14 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 import { useAuth } from '@/hooks/useAuth';
-import { getReservationById, getStatusBadge, updateReservationStatus, ReservationDetail } from '@/services/reservations';
+import {
+    getReservationById,
+    getStatusBadge,
+    updateReservationStatus,
+    acknowledgeReview,
+    confirmOTACancellation,
+    ReservationDetail,
+} from '@/services/reservations';
 import { downloadReservationPdf } from '@/services/documents';
 import { getSaldoReserva, SaldoReserva, paymentMethodEmoji, paymentMethodLabel } from '@/services/transacciones';
 import RegistrarPagoModal from '@/components/caja/RegistrarPagoModal';
@@ -65,6 +72,34 @@ export default function ReservationDetailPage() {
 
         fetchDetail();
     }, [authLoading, id]);
+
+    const handleAcknowledgeReview = async () => {
+        if (!reservation) return;
+        setIsUpdating(true);
+        try {
+            await acknowledgeReview(reservation.id);
+            const updated = await getReservationById(reservation.id);
+            setReservation(updated);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al confirmar revisión');
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const handleConfirmOTACancellation = async () => {
+        if (!reservation) return;
+        setIsUpdating(true);
+        try {
+            await confirmOTACancellation(reservation.id);
+            const updated = await getReservationById(reservation.id);
+            setReservation(updated);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Error al cancelar');
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
     const handlePagoRegistrado = async () => {
         setShowPagoModal(false);
@@ -172,6 +207,41 @@ export default function ReservationDetailPage() {
             </header>
 
             <main className="flex-1 p-4 space-y-4">
+                {/* v1.5.0 — needs_review banner (shown when OTA UID disappeared) */}
+                {reservation.needs_review && (
+                    <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4">
+                        <div className="flex items-start gap-3">
+                            <div className="text-2xl">⚠️</div>
+                            <div className="flex-1">
+                                <h3 className="font-bold text-amber-900">Esta reserva requiere revisión</h3>
+                                <p className="text-sm text-amber-800 mt-1">
+                                    {reservation.review_reason ||
+                                        `La reserva desapareció del feed de ${reservation.source}.`}
+                                </p>
+                                <p className="text-xs text-amber-700 mt-2">
+                                    Verifique con el huésped antes de cancelar — puede tratarse de un cambio o un fallo transitorio del feed OTA.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                            <button
+                                onClick={handleAcknowledgeReview}
+                                disabled={isUpdating}
+                                className="flex-1 py-2 px-3 bg-white border border-amber-400 text-amber-800 rounded-lg text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"
+                            >
+                                {isUpdating ? '...' : '✓ No, mantener'}
+                            </button>
+                            <button
+                                onClick={handleConfirmOTACancellation}
+                                disabled={isUpdating}
+                                className="flex-1 py-2 px-3 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 disabled:opacity-50"
+                            >
+                                {isUpdating ? '...' : '❌ Confirmar cancelación'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Guest Info */}
                 <div className="bg-white border border-gray-200 rounded-2xl p-4">
                     <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Huesped</h2>

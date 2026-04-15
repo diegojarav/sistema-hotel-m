@@ -155,6 +155,12 @@ class Reservation(Base):
     source = Column(String, default="Direct")
     external_id = Column(String, nullable=True)
 
+    # v1.5.0 — Channel Manager v2 (Phase 2)
+    ota_booking_id = Column(String, nullable=True)  # OTA-specific reference (Booking.com booking #, etc.)
+    needs_review = Column(Boolean, default=False, index=True)  # set when UID disappears from OTA feed
+    review_reason = Column(String, nullable=True)
+
+
 class CheckIn(Base):
     __tablename__ = "checkins"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -349,15 +355,38 @@ class Property(Base):
 
 
 class ICalFeed(Base):
-    """iCal feed URLs for Booking.com/Airbnb sync per room."""
+    """iCal feed URLs for OTA sync per room (Booking.com, Airbnb, Vrbo, Expedia, Custom)."""
     __tablename__ = "ical_feeds"
     id = Column(Integer, primary_key=True, autoincrement=True)
     room_id = Column(String, ForeignKey("rooms.id"), nullable=False)
-    source = Column(String, nullable=False)  # "Booking.com" or "Airbnb"
+    source = Column(String, nullable=False)  # "Booking.com" | "Airbnb" | "Vrbo" | "Expedia" | "Custom" | <free text>
     ical_url = Column(String, nullable=False)
-    last_synced_at = Column(DateTime, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)  # last successful sync
     sync_enabled = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.now)
+    # v1.5.0 — health tracking (Phase 2)
+    last_sync_status = Column(String, default="NEVER", index=True)  # OK | ERROR | NEVER
+    last_sync_error = Column(String, nullable=True)  # truncated to 500 chars
+    consecutive_failures = Column(Integer, default=0)
+    last_sync_attempted_at = Column(DateTime, nullable=True)  # last attempt (success or fail)
+
+
+class ICalSyncLog(Base):
+    """Audit trail for every iCal sync attempt (v1.5.0 — Phase 2).
+
+    Pruned to last 100 entries per feed_id.
+    """
+    __tablename__ = "ical_sync_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feed_id = Column(Integer, ForeignKey("ical_feeds.id"), nullable=False, index=True)
+    attempted_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    status = Column(String, nullable=False)  # OK | ERROR
+    created_count = Column(Integer, default=0)
+    updated_count = Column(Integer, default=0)
+    flagged_for_review_count = Column(Integer, default=0)
+    conflicts_detected = Column(Integer, default=0)
+    error_message = Column(String, nullable=True)
+    duration_ms = Column(Integer, default=0)
 
 
 class AIAgentPermission(Base):

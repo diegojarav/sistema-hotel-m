@@ -402,3 +402,58 @@ class SaldoReservaDTO(BaseModel):
     paid: float
     pending: float
     transacciones: List[TransaccionDTO] = []
+
+
+# ==========================================
+# v1.5.0 Phase 2 — Channel Manager Upgrade
+# ==========================================
+
+class ICalSyncLogDTO(BaseModel):
+    """Single audit row for an iCal sync attempt."""
+    id: int
+    feed_id: int
+    attempted_at: datetime
+    status: str  # "OK" | "ERROR"
+    created_count: int
+    updated_count: int
+    flagged_for_review_count: int
+    conflicts_detected: int
+    error_message: Optional[str] = None
+    duration_ms: int
+
+
+class FeedHealthDTO(BaseModel):
+    """Health summary for an iCal feed (used by mobile + PC dashboards)."""
+    feed_id: int
+    source: str
+    room_id: str
+    room_label: Optional[str] = None
+    last_sync_status: str  # "OK" | "ERROR" | "NEVER"
+    last_sync_error: Optional[str] = None
+    consecutive_failures: int
+    last_sync_attempted_at: Optional[datetime] = None
+    last_synced_at: Optional[datetime] = None
+    health_badge: str  # "healthy" | "warning" | "error" | "unknown"
+
+
+class AcknowledgeReviewRequest(BaseModel):
+    """Operator acknowledges that a flagged reservation should stay active."""
+    notes: Optional[str] = None
+
+
+class ConfirmOTACancellationRequest(BaseModel):
+    """Operator confirms an OTA-initiated cancellation."""
+    reason: Optional[str] = None  # extra context, defaults to review_reason
+
+
+class NeedsReviewItemDTO(BaseModel):
+    """A reservation flagged for operator review."""
+    id: str
+    guest_name: str
+    check_in_date: date
+    stay_days: int
+    room_id: str
+    source: str
+    status: str
+    review_reason: Optional[str] = None
+    price: Optional[float] = None

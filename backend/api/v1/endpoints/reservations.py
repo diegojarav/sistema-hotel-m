@@ -208,6 +208,43 @@ def get_room_report(
     return ReservationService.get_room_report(db, start_date, end_date, room_id)
 
 @router.get(
+    "/needs-review",
+    summary="Reservations flagged for operator review (v1.5.0)",
+    description="Lists reservations whose OTA UID disappeared from the source feed "
+                "and need operator confirmation."
+)
+def list_needs_review_pre(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """List reservations with needs_review=True. Defined before /{reservation_id}
+    so the literal path matches first."""
+    from database import Reservation
+    rows = (
+        db.query(Reservation)
+        .filter(Reservation.needs_review == True)
+        .order_by(Reservation.check_in_date.asc())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "guest_name": r.guest_name,
+            "check_in_date": r.check_in_date.isoformat() if r.check_in_date else None,
+            "stay_days": r.stay_days,
+            "room_id": r.room_id,
+            "source": r.source,
+            "status": r.status,
+            "review_reason": r.review_reason,
+            "price": r.price,
+            "external_id": r.external_id,
+            "ota_booking_id": r.ota_booking_id,
+        }
+        for r in rows
+    ]
+
+
+@router.get(
     "/{reservation_id}",
     summary="Get Reservation",
     description="Get detailed information about a specific reservation. Requires authentication."
@@ -335,3 +372,68 @@ def update_reservation_status(
         )
 
     return {"message": f"Estado actualizado a {data.status}", "id": reservation_id}
+
+
+# ==========================================
+# v1.5.0 — Channel Manager v2: review/cancellation endpoints
+# (Note: GET /needs-review is defined above, before /{reservation_id})
+# ==========================================
+
+@router.post(
+    "/{reservation_id}/acknowledge-review",
+    summary="Acknowledge review (keep reservation active)",
+    description="Operator confirms the reservation should remain active despite "
+                "having been flagged by the OTA sync. Clears needs_review."
+)
+def acknowledge_review(
+    reservation_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Clear needs_review flag for a reservation."""
+    from database import Reservation
+    r = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail=f"Reserva {reservation_id} no encontrada")
+    if not r.needs_review:
+        return {"message": "Reservation was not flagged for review", "id": reservation_id}
+    r.needs_review = False
+    r.review_reason = None
+    db.commit()
+    logger.info(
+        f"Review acknowledged: reservation {reservation_id} kept active by {current_user.username}"
+    )
+    return {"message": "Acknowledged — reservation kept active", "id": reservation_id}
+
+
+@router.post(
+    "/{reservation_id}/confirm-ota-cancellation",
+    summary="Confirm OTA-initiated cancellation",
+    description="Operator confirms the reservation was cancelled by the guest via OTA. "
+                "Sets status=CANCELADA with the review reason."
+)
+def confirm_ota_cancellation(
+    reservation_id: str,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Mark a flagged reservation as CANCELADA."""
+    from database import Reservation
+    r = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail=f"Reserva {reservation_id} no encontrada")
+    reason = r.review_reason or "Cancelada por OTA (confirmada por operador)"
+    success = ReservationService.cancel_reservation(
+        reservation_id, reason, current_user.username
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="No se pudo cancelar la reserva")
+    # Clear review flag (cancel_reservation may not touch it)
+    r2 = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+    if r2:
+        r2.needs_review = False
+        db.commit()
+    logger.info(
+        f"OTA cancellation confirmed: reservation {reservation_id} cancelled by {current_user.username}"
+    )
+    return {"message": "Reservation cancelled (CANCELADA)", "id": reservation_id}

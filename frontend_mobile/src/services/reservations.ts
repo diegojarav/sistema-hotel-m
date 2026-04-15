@@ -35,6 +35,27 @@ export interface ReservationDetail extends Reservation {
     created_at: string | null;
     cancellation_reason: string | null;
     cancelled_by: string | null;
+    // v1.5.0 — Channel Manager v2
+    ota_booking_id?: string | null;
+    needs_review?: boolean;
+    review_reason?: string | null;
+}
+
+/**
+ * v1.5.0 — Acknowledge a reservation flagged for review (keep it active).
+ */
+export async function acknowledgeReview(id: string): Promise<{ message: string; id: string }> {
+    return apiPost<{ message: string; id: string }>(`/reservations/${id}/acknowledge-review`, {});
+}
+
+/**
+ * v1.5.0 — Confirm an OTA-initiated cancellation for a flagged reservation.
+ */
+export async function confirmOTACancellation(id: string): Promise<{ message: string; id: string }> {
+    return apiPost<{ message: string; id: string }>(
+        `/reservations/${id}/confirm-ota-cancellation`,
+        {}
+    );
 }
 
 /**

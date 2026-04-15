@@ -57,12 +57,18 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 - **Linux Service Manager:** Control de servicios systemd para despliegue en Linux (`scripts/service_control_linux.sh`).
 - **Acceso Remoto:** VPN mesh con Tailscale para acceso SSH seguro sin port forwarding.
 
-### 🔗 Integraciones OTA (Booking.com / Airbnb)
+### 🔗 Channel Manager v2 — Integraciones OTA (v1.5.0)
 
-- **Importacion:** Pull automatico de feeds .ics cada 15 minutos.
-- **Exportacion:** Endpoints publicos `.ics` para que OTAs consulten disponibilidad.
-- **Admin:** UI de configuracion en pagina Configuracion (PC).
-- **Fuentes soportadas:** Booking.com, Airbnb, WhatsApp, Facebook, Instagram, Google.
+- **Fuentes soportadas (iCal):** Booking.com, Airbnb, Vrbo, Expedia, Custom (cualquier .ics).
+- **Importacion:** Pull automatico de feeds .ics cada 15 minutos con detección de cancelaciones (UIDs desaparecidos → marcadas para revisión).
+- **Exportacion:** Endpoints publicos `.ics` rate-limited (60/min por habitación, 30/min para "all").
+- **Health monitoring:** Estado por feed (🟢/🟡/🔴/⚪), `consecutive_failures`, último error visible en admin UI.
+- **Discord alerts:** Notificación automática a partir de 3 fallos consecutivos por feed.
+- **Audit trail:** `ical_sync_log` registra cada intento con counts (creadas, actualizadas, marcadas para revisión, conflictos) y duración.
+- **Conflict detection:** Reservas superpuestas en la misma habitación → logged, counted, pero la reserva OTA se crea (OTA es la fuente autoritativa).
+- **Cancellation flow:** UIDs que desaparecen del feed → `needs_review=True` + alerta. El operador confirma desde PC o mobile (acknowledge / confirm cancellation).
+- **Admin UI:** PC tiene la página completa con historial por feed + reservas por revisar. Mobile tiene vista read-only con widget en dashboard y banner en detalle de reserva.
+- **Fuentes adicionales (manual):** WhatsApp, Facebook, Instagram, Google (creación manual).
 
 ### 🧪 Testing
 
@@ -71,8 +77,8 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-- **369 tests** con **83% coverage** en 27 archivos de test.
-- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**, **caja & transacciones (56 tests nuevos)**.
+- **412 tests** con **83% coverage** en 32 archivos de test.
+- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**, **caja & transacciones (56 tests v1.4.0)**, **channel manager v2 (43 tests v1.5.0)**.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
 - **CI automático** en GitHub Actions: tests + coverage (75% min) + KPI evaluations + perf benchmarks.
 

@@ -4,17 +4,24 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getHotelConfig } from '@/services/settings';
 import { useAuth } from '@/hooks/useAuth';
+import { getSummary, ChannelManagerSummary } from '@/services/channels';
 
 export default function DashboardPage() {
     const { isLoading, logout } = useAuth({ required: true });
     const [hotelName, setHotelName] = useState('Mi Hotel');
+    const [chSummary, setChSummary] = useState<ChannelManagerSummary | null>(null);
 
     // Load hotel name on mount
     useEffect(() => {
         getHotelConfig().then(config => {
             setHotelName(config.hotel_name);
         });
+        // Load channel manager summary in parallel (non-blocking)
+        getSummary().then(setChSummary).catch(() => setChSummary(null));
     }, []);
+
+    const chErrors = (chSummary?.error ?? 0) + (chSummary?.warning ?? 0);
+    const chTotal = chSummary?.total ?? 0;
 
     // Show loading while checking auth
     if (isLoading) {
@@ -118,7 +125,7 @@ export default function DashboardPage() {
                     {/* Caja */}
                     <Link
                         href="/dashboard/caja"
-                        className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-gray-50 transition-all duration-200 active:scale-95 shadow-sm col-span-2"
+                        className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-gray-50 transition-all duration-200 active:scale-95 shadow-sm"
                     >
                         <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg">
                             <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,6 +133,29 @@ export default function DashboardPage() {
                             </svg>
                         </div>
                         <span className="text-gray-900 font-medium text-sm">Caja &amp; Pagos</span>
+                    </Link>
+
+                    {/* Channel Manager (v1.5.0) */}
+                    <Link
+                        href="/dashboard/channels"
+                        className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-gray-50 transition-all duration-200 active:scale-95 shadow-sm relative"
+                    >
+                        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center shadow-lg">
+                            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                            </svg>
+                        </div>
+                        <span className="text-gray-900 font-medium text-sm">Canales</span>
+                        {chSummary !== null && (
+                            <span className="text-xs text-gray-500">
+                                {chTotal} feeds
+                                {chErrors > 0 && (
+                                    <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                                        {chErrors} alerta{chErrors === 1 ? '' : 's'}
+                                    </span>
+                                )}
+                            </span>
+                        )}
                     </Link>
                 </div>
 

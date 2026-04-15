@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 369 tests (v1.4.0: 313 legacy + 56 new caja/transaccion) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 412 tests (v1.5.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -204,6 +204,50 @@ The system supports **both** legacy values (`Pendiente`, `Confirmada`, `Completa
 ### Frontend pages
 - **Mobile**: `/dashboard/caja` (open/close/transactions), `RegistrarPagoModal` component on reservation detail
 - **PC**: `frontend_pc/pages/96_💰_Caja.py` with tabs Sesion Actual / Historial / Reportes Financieros
+
+## Channel Manager v2 (v1.5.0 — Phase 2)
+
+### Tables
+- `ical_feeds` — extended with `last_sync_status` (OK|ERROR|NEVER), `last_sync_error`, `consecutive_failures`, `last_sync_attempted_at`
+- `ical_sync_log` — per-attempt audit trail (status, counts, error_message, duration_ms); pruned to last 100 per feed
+- `reservations` — extended with `ota_booking_id`, `needs_review`, `review_reason`
+
+### Sources supported (v1.5.0)
+`Booking.com`, `Airbnb`, `Vrbo`, `Expedia`, `Custom` (Custom accepts any standard .ics URL with a free-text source label).
+
+### Sync behavior
+- `_periodic_ical_sync()` runs every 15 minutes (unchanged)
+- `ICalService.sync_feed()` now also:
+  - Detects cancellations: UIDs that disappeared from the feed → mark reservation `needs_review=True` (Discord alert)
+  - Detects conflicts: overlapping bookings on same room → log + count (still creates the OTA reservation since OTA is authoritative)
+  - Tracks per-feed health: `consecutive_failures` increments on failure, resets on success
+  - Sends Discord ERROR-level alert when `consecutive_failures >= 3` (auto-routed via `DiscordWebhookHandler`)
+  - Writes `ICalSyncLog` row with all stats per attempt
+  - Extracts OTA booking IDs from VEVENT DESCRIPTION via regex (`Reservation: 1234`, `airbnb.com/reservations/HM...`, etc.)
+
+### Cancellation handling
+**Decision: flag for review, not auto-cancel.** When a UID disappears:
+1. Reservation marked `needs_review=True` with `review_reason`
+2. Discord alert fires
+3. Operator confirms via PC admin or mobile detail page:
+   - **Acknowledge** → `needs_review=False`, reservation stays active
+   - **Confirm OTA cancellation** → `status=CANCELADA` with reason
+
+If the same UID reappears in a later sync (transient OTA glitch), the flag is auto-cleared.
+
+### API endpoints
+- `GET /api/v1/ical/feeds/{feed_id}/health` — per-feed health summary
+- `GET /api/v1/ical/feeds/{feed_id}/logs?limit=20` — sync history
+- `GET /api/v1/reservations/needs-review` — list flagged reservations
+- `POST /api/v1/reservations/{id}/acknowledge-review` — clear flag, keep active
+- `POST /api/v1/reservations/{id}/confirm-ota-cancellation` — set CANCELADA
+- `GET /api/v1/ical/export/{room_id}.ics` — rate limited to **60 req/min per IP**
+- `GET /api/v1/ical/export/all.ics` — rate limited to **30 req/min per IP**
+
+### Frontend
+- **PC**: `09_🔧_Configuracion.py` with health badges (🟢/🟡/🔴/⚪), per-feed history modal, source dropdown (5 sources), and a "Reservas por revisar" section with acknowledge/cancel buttons
+- **Mobile**: `/dashboard/channels` read-only status page (recepcionist) + "Canales" tile on dashboard with feed counts and alert badge
+- **Mobile**: needs_review banner on reservation detail with [No, mantener] / [Confirmar cancelación] actions
 
 ## Session & Auth Configuration
 
