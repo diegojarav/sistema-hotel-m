@@ -300,8 +300,8 @@ def sync_one_feed(
 )
 @limiter.limit("60/minute")
 def export_room_ical(
-    room_id: str,
     request: Request,
+    room_id: str,
     db: Session = Depends(get_db),
 ):
     """Public iCal export for a room (no auth — OTAs need direct access)."""

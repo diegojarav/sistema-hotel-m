@@ -169,6 +169,10 @@ class ReservationDetailDTO(ReservationDTO):
     created_at: Optional[datetime] = None
     cancellation_reason: Optional[str] = None
     cancelled_by: Optional[str] = None
+    # v1.5.0 — Channel Manager v2
+    ota_booking_id: Optional[str] = None
+    needs_review: bool = False
+    review_reason: Optional[str] = None
 
 
 class CalendarEventDTO(BaseModel):

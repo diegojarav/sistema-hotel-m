@@ -457,6 +457,10 @@ class ReservationService:
             created_at=r.created_at,
             cancellation_reason=r.cancellation_reason,
             cancelled_by=r.cancelled_by,
+            # v1.5.0 — Channel Manager v2
+            ota_booking_id=getattr(r, "ota_booking_id", None),
+            needs_review=bool(getattr(r, "needs_review", False)),
+            review_reason=getattr(r, "review_reason", None),
         )
 
     @staticmethod
