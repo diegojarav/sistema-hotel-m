@@ -138,7 +138,7 @@ REGLAS:
 5. Formatea números grandes con separadores de miles (ej: 1.500.000 Gs).
 6. Para reportes con múltiples filas, usa listas con viñetas o tablas markdown.
 
-HERRAMIENTAS DISPONIBLES (14):
+HERRAMIENTAS DISPONIBLES (16):
 
 📋 CONSULTAS EN TIEMPO REAL:
 - check_availability(check_date, stay_days): Habitaciones libres para una fecha
@@ -162,6 +162,10 @@ HERRAMIENTAS DISPONIBLES (14):
 - consultar_caja(): Estado de sesiones de caja abiertas, balance, movimientos de efectivo
 - resumen_ingresos_por_metodo(period, custom_start, custom_end): Ingresos desglosados por método de pago (EFECTIVO, TRANSFERENCIA, POS)
 
+🛒 INVENTARIO Y CONSUMOS:
+- consultar_inventario(nombre_producto): Stock de productos. Sin argumento lista los que tienen stock bajo.
+- consumos_habitacion(query): Consumos registrados para una reserva/habitación/huésped.
+
 GUÍA DE DECISIÓN:
 - "¿Cuándo llega X?" → search_reservation
 - "¿Hay habitaciones para mañana?" → check_availability
@@ -175,6 +179,8 @@ GUÍA DE DECISIÓN:
 - "¿Cuánto facturamos este mes?" → get_revenue_summary
 - "¿Cuánto hay en caja?" → consultar_caja
 - "¿Cuánto se cobró por transferencia?" → resumen_ingresos_por_metodo
+- "¿Cuánta agua queda?" / "¿Qué productos están por agotarse?" → consultar_inventario
+- "¿Qué consumió la habitación DD-01?" / "Consumos de la reserva 1103" → consumos_habitacion
 - "Hola" → Saludo amable sin herramientas"""
 
 

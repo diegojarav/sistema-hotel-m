@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 412 tests (v1.5.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 466 tests (v1.6.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -257,7 +257,57 @@ If the same UID reappears in a later sync (transient OTA glitch), the flag is au
 - Sessions persist until "Cerrar Sesion" button is clicked
 - Config in `backend/api/core/config.py` (ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS)
 
-## AI Agent Tools (14 functions in ai_tools.py)
+## Room Charges & Product Inventory (v1.6.0 — Phase 3)
+
+### Tables
+- `producto` — catalog: id, name, category (BEBIDA|SNACK|SERVICIO|MINIBAR|OTRO), price, stock_current, stock_minimum, is_stocked, is_active
+- `consumo` — line-item charges against a reservation (immutable, voided-only). Captures producto_name + unit_price as snapshots
+- `ajuste_inventario` — audit trail of stock changes (COMPRA | MERMA | AJUSTE), signed quantity_change
+
+### Business rules
+- Consumo can only be registered for active reservations (RESERVADA | SEÑADA | CONFIRMADA + legacy)
+- Stocked products have stock_current decremented on registration, restored on void
+- Services (is_stocked=False) skip stock checks
+- Unit price + producto_name are captured as snapshots (preserves history when prices change or products are renamed)
+- After any consumo change, TransaccionService._recalcular_status_reserva() runs and status may downgrade (CONFIRMADA → SEÑADA if new pending balance)
+- Low-stock Discord alert fires when post-adjustment stock ≤ stock_minimum (via DiscordWebhookHandler on ERROR log)
+- Products can be soft-deleted via is_active=False (hides from selectors but preserves history)
+
+### Services
+- `ProductService` — create/update/deactivate, adjust_stock, list_products, get_low_stock_products, get_top_selling, list_adjustments
+- `ConsumoService` — registrar_consumo, anular_consumo, list_by_reserva, get_consumo_total
+- `TransaccionService.get_saldo()` — now returns `{total, room_total, consumo_total, paid, pending, transacciones}` (breakdown)
+- `DocumentService.generate_folio_pdf(reservation_id)` — Cuenta del Huésped PDF with room charges, consumos, payments, balance. Saved to `hotel/Cuentas/`. Auto-generated on COMPLETADA transition.
+
+### API endpoints
+- `GET /api/v1/productos` — list, filter by category
+- `GET /api/v1/productos/{id}` — detail
+- `POST /api/v1/productos` — create (admin)
+- `PATCH /api/v1/productos/{id}` — update (admin)
+- `DELETE /api/v1/productos/{id}` — soft delete (admin)
+- `POST /api/v1/productos/{id}/ajuste-stock` — adjust stock (admin)
+- `GET /api/v1/productos/{id}/ajustes` — adjustment history (admin)
+- `GET /api/v1/productos/stock-bajo` — low-stock list (admin)
+- `GET /api/v1/productos/mas-vendidos?desde=&hasta=&limit=` — top-selling (admin)
+- `POST /api/v1/consumos` — register (admin + recepcion)
+- `POST /api/v1/consumos/{id}/anular` — void (admin only)
+- `GET /api/v1/consumos/reserva/{reserva_id}` — list active consumos
+- `GET /api/v1/documents/folio/{reservation_id}` — download (always regenerates)
+- `GET /api/v1/documents/list/Cuentas` — list folio PDFs
+
+### Permissions
+| Action | Admin / Supervisor / Gerencia | Recepcion |
+|---|---|---|
+| Product CRUD, stock adjustments, reports | ✅ | ❌ 403 |
+| Register consumo | ✅ | ✅ |
+| Void consumo | ✅ | ❌ 403 |
+| List products, download folio | ✅ | ✅ |
+
+### Frontend
+- **Mobile**: `RegistrarConsumoModal` on reservation detail (grouped-by-category selector + qty stepper + low-stock warnings). New "Consumos" section with itemized list + "Agregar consumo" button. New "Descargar Cuenta (folio)" button.
+- **PC**: new `frontend_pc/pages/95_📦_Inventario.py` with 4 tabs (Productos, Stock y ajustes, Stock bajo, Mas vendidos + CSV export)
+
+## AI Agent Tools (16 functions in ai_tools.py)
 
 1. `check_availability` — Room availability for date/stay
 2. `get_hotel_rates` — Pricing by category
@@ -273,6 +323,8 @@ If the same UID reappears in a later sync (transient OTA glitch), the flag is au
 12. `get_revenue_summary` — Daily/weekly/monthly/yearly income with breakdown
 13. `consultar_caja` — Current cash register session status (balance, movements) — **v1.4.0**
 14. `resumen_ingresos_por_metodo` — Income breakdown by payment method — **v1.4.0**
+15. `consultar_inventario` — Product stock query; low-stock list or name filter — **v1.6.0**
+16. `consumos_habitacion` — Consumos for a reservation/guest/room — **v1.6.0**
 
 ## Two-Repo Architecture
 

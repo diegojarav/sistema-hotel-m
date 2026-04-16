@@ -63,3 +63,31 @@ export async function downloadClientPdf(checkinId: number): Promise<void> {
     document.body.removeChild(a);
     URL.revokeObjectURL(blobUrl);
 }
+
+/**
+ * Download the Guest Folio ('Cuenta del Huésped') PDF for a reservation.
+ * Always regenerated on the server to include latest consumos/payments. v1.6.0
+ */
+export async function downloadFolioPdf(reservationId: string): Promise<void> {
+    const token = getAccessToken();
+    const response = await fetch(`${API_URL}/documents/folio/${reservationId}`, {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('No se pudo descargar el folio');
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `folio_${reservationId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+}

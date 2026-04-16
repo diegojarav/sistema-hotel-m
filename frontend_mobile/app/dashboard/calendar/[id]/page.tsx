@@ -15,9 +15,11 @@ import {
     confirmOTACancellation,
     ReservationDetail,
 } from '@/services/reservations';
-import { downloadReservationPdf } from '@/services/documents';
+import { downloadReservationPdf, downloadFolioPdf } from '@/services/documents';
 import { getSaldoReserva, SaldoReserva, paymentMethodEmoji, paymentMethodLabel } from '@/services/transacciones';
 import RegistrarPagoModal from '@/components/caja/RegistrarPagoModal';
+import { listConsumosByReserva, Consumo, formatPriceGs } from '@/services/consumos';
+import RegistrarConsumoModal from '@/components/consumos/RegistrarConsumoModal';
 
 function parseLocalDate(dateStr: string): Date {
     const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
@@ -35,11 +37,13 @@ export default function ReservationDetailPage() {
 
     const [reservation, setReservation] = useState<ReservationDetail | null>(null);
     const [saldo, setSaldo] = useState<SaldoReserva | null>(null);
+    const [consumos, setConsumos] = useState<Consumo[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
     const [showPagoModal, setShowPagoModal] = useState(false);
+    const [showConsumoModal, setShowConsumoModal] = useState(false);
 
     const loadSaldo = async () => {
         try {
@@ -47,6 +51,15 @@ export default function ReservationDetailPage() {
             setSaldo(s);
         } catch {
             // Saldo is optional — ignore errors
+        }
+    };
+
+    const loadConsumos = async () => {
+        try {
+            const cs = await listConsumosByReserva(id);
+            setConsumos(cs);
+        } catch {
+            // Consumos are optional — ignore errors
         }
     };
 
@@ -58,10 +71,14 @@ export default function ReservationDetailPage() {
                 const data = await getReservationById(id);
                 setReservation(data);
                 try {
-                    const s = await getSaldoReserva(id);
+                    const [s, cs] = await Promise.all([
+                        getSaldoReserva(id),
+                        listConsumosByReserva(id),
+                    ]);
                     setSaldo(s);
+                    setConsumos(cs);
                 } catch {
-                    // Saldo is optional
+                    // Saldo/consumos are optional
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Error al cargar la reserva');
@@ -98,6 +115,24 @@ export default function ReservationDetailPage() {
             setError(err instanceof Error ? err.message : 'Error al cancelar');
         } finally {
             setIsUpdating(false);
+        }
+    };
+
+    const handleConsumoRegistrado = async () => {
+        setShowConsumoModal(false);
+        if (reservation) {
+            try {
+                const [updated, updatedSaldo, updatedConsumos] = await Promise.all([
+                    getReservationById(reservation.id),
+                    getSaldoReserva(reservation.id),
+                    listConsumosByReserva(reservation.id),
+                ]);
+                setReservation(updated);
+                setSaldo(updatedSaldo);
+                setConsumos(updatedConsumos);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Error al refrescar');
+            }
         }
     };
 
@@ -336,6 +371,79 @@ export default function ReservationDetailPage() {
                     </div>
                 )}
 
+                {/* Consumos (v1.6.0 — Phase 3) */}
+                {(() => {
+                    const statusLower = (reservation.status || '').toLowerCase();
+                    const isActive = [
+                        'pendiente', 'reservada', 'senada', 'señada', 'confirmada',
+                    ].includes(statusLower.replace('ñ', 'n'));
+                    if (!isActive && consumos.length === 0) return null;
+                    return (
+                        <div className="bg-white border border-gray-200 rounded-2xl p-4">
+                            <div className="flex justify-between items-center mb-3">
+                                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+                                    Consumos
+                                </h2>
+                                {consumos.length > 0 && (
+                                    <span className="text-xs font-semibold text-gray-900">
+                                        {formatPriceGs(
+                                            consumos.reduce((sum, c) => sum + (c.total || 0), 0)
+                                        )}
+                                    </span>
+                                )}
+                            </div>
+
+                            {consumos.length === 0 ? (
+                                <p className="text-sm text-gray-500 italic">
+                                    Sin consumos registrados.
+                                </p>
+                            ) : (
+                                <div className="space-y-2 border-b border-gray-100 pb-3">
+                                    {consumos.map((c) => (
+                                        <div
+                                            key={c.id}
+                                            className="flex justify-between items-start text-sm"
+                                        >
+                                            <div className="flex-1">
+                                                <div className="text-gray-800">
+                                                    {c.producto_name} × {c.quantity}
+                                                </div>
+                                                <div className="text-xs text-gray-400">
+                                                    {c.created_at
+                                                        ? new Date(c.created_at).toLocaleString(
+                                                              'es-PY',
+                                                              {
+                                                                  day: '2-digit',
+                                                                  month: '2-digit',
+                                                                  hour: '2-digit',
+                                                                  minute: '2-digit',
+                                                              },
+                                                          )
+                                                        : ''}
+                                                    {c.description ? ` · ${c.description}` : ''}
+                                                </div>
+                                            </div>
+                                            <span className="font-medium text-gray-900">
+                                                {formatPriceGs(c.total)}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {isActive && (
+                                <button
+                                    onClick={() => setShowConsumoModal(true)}
+                                    disabled={isUpdating}
+                                    className="w-full mt-3 py-2 px-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg text-sm font-semibold"
+                                >
+                                    ➕ Agregar consumo
+                                </button>
+                            )}
+                        </div>
+                    );
+                })()}
+
                 {/* Source */}
                 {reservation.source && (
                     <div className="bg-white border border-gray-200 rounded-2xl p-4">
@@ -375,7 +483,14 @@ export default function ReservationDetailPage() {
                         onClick={() => downloadReservationPdf(reservation.id)}
                         className="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
                     >
-                        Descargar PDF
+                        Descargar PDF de Reserva
+                    </button>
+
+                    <button
+                        onClick={() => downloadFolioPdf(reservation.id)}
+                        className="w-full py-3 px-4 bg-indigo-500 hover:bg-indigo-600 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                    >
+                        📄 Descargar Cuenta (folio)
                     </button>
 
                     {/* Registrar Pago — shown for all active states with pending balance */}
@@ -409,6 +524,16 @@ export default function ReservationDetailPage() {
                     saldoPendiente={saldo.pending}
                     onClose={() => setShowPagoModal(false)}
                     onSuccess={handlePagoRegistrado}
+                />
+            )}
+
+            {/* Registrar Consumo Modal (v1.6.0 — Phase 3) */}
+            {showConsumoModal && reservation && (
+                <RegistrarConsumoModal
+                    reservaId={reservation.id}
+                    guestName={reservation.guest_name}
+                    onClose={() => setShowConsumoModal(false)}
+                    onSuccess={handleConsumoRegistrado}
                 />
             )}
 

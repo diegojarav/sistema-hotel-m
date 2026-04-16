@@ -461,3 +461,118 @@ class NeedsReviewItemDTO(BaseModel):
     status: str
     review_reason: Optional[str] = None
     price: Optional[float] = None
+
+
+# ==========================================
+# v1.6.0 Phase 3 — Room Charges & Product Inventory
+# ==========================================
+
+class ProductoCreate(BaseModel):
+    """Request to create a product or service."""
+    id: str = Field(..., min_length=3, description="Slug id, e.g. 'los-monges-agua-500'")
+    name: str = Field(..., min_length=2)
+    category: str = Field(..., description="BEBIDA | SNACK | SERVICIO | MINIBAR | OTRO")
+    price: float = Field(..., ge=0)
+    stock_current: Optional[int] = Field(default=None, ge=0)
+    stock_minimum: Optional[int] = Field(default=None, ge=0)
+    is_stocked: bool = True
+
+    @field_validator("category")
+    @classmethod
+    def _cat(cls, v: str) -> str:
+        v = (v or "").upper()
+        if v not in ("BEBIDA", "SNACK", "SERVICIO", "MINIBAR", "OTRO"):
+            raise ValueError("Categoria invalida")
+        return v
+
+
+class ProductoUpdate(BaseModel):
+    """Partial update of a product. Stock_current is managed via stock adjustments."""
+    name: Optional[str] = None
+    category: Optional[str] = None
+    price: Optional[float] = Field(default=None, ge=0)
+    stock_minimum: Optional[int] = Field(default=None, ge=0)
+    is_stocked: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class ProductoDTO(BaseModel):
+    """Schema de salida para un producto."""
+    id: str
+    property_id: Optional[str] = None
+    name: str
+    category: str
+    price: float
+    stock_current: Optional[int] = None
+    stock_minimum: Optional[int] = None
+    is_stocked: bool
+    is_active: bool
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class AjusteStockRequest(BaseModel):
+    """Request to apply a stock adjustment."""
+    quantity_change: int = Field(..., description="Signed change: +N compra, -N merma")
+    reason: str = Field(..., description="COMPRA | MERMA | AJUSTE")
+    notes: Optional[str] = None
+
+
+class AjusteInventarioDTO(BaseModel):
+    """Schema de salida para un ajuste de inventario."""
+    id: int
+    producto_id: str
+    quantity_change: int
+    reason: str
+    notes: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class ConsumoCreate(BaseModel):
+    """Request to register a consumo against a reservation."""
+    reserva_id: str
+    producto_id: str
+    quantity: int = Field(default=1, ge=1)
+    description: Optional[str] = None
+
+
+class AnularConsumoRequest(BaseModel):
+    """Request to void a consumo. Reason is mandatory."""
+    reason: str = Field(..., min_length=3)
+
+
+class ConsumoDTO(BaseModel):
+    """Schema de salida para un consumo."""
+    id: int
+    reserva_id: str
+    producto_id: str
+    producto_name: str
+    quantity: int
+    unit_price: float
+    total: float
+    description: Optional[str] = None
+    created_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    voided: bool = False
+    void_reason: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    voided_by: Optional[str] = None
+
+
+class ProductoStockBajoDTO(BaseModel):
+    """Product with low stock flag (stock_current <= stock_minimum)."""
+    id: str
+    name: str
+    category: str
+    stock_current: int
+    stock_minimum: int
+
+
+class ProductoMasVendidoDTO(BaseModel):
+    """Top-selling product aggregate row."""
+    producto_id: str
+    producto_name: str
+    units_sold: int
+    revenue: float
+    consumo_count: int

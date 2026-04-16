@@ -37,7 +37,7 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 
 ### 🤖 Inteligencia Artificial
 
-- **Agente IA con 14 Herramientas:** Asistente inteligente con function calling automático (Gemini 2.5 Flash). Consulta disponibilidad, tarifas, cotizaciones, ocupación mensual, rendimiento por habitación, fuentes de reserva, estacionamiento, ingresos financieros, estado de caja y más.
+- **Agente IA con 16 Herramientas:** Asistente inteligente con function calling automático (Gemini 2.5 Flash). Consulta disponibilidad, tarifas, cotizaciones, ocupación mensual, rendimiento por habitación, fuentes de reserva, estacionamiento, ingresos financieros, estado de caja, **stock de productos y consumos por habitación** (v1.6.0), y más.
 - **OCR Documental:** Extracción automática de datos de documentos usando Google Gemini 2.5 Flash.
 - **Retry con Backoff Exponencial:** Reintentos automáticos ante errores transitorios de la API (429, 503).
 
@@ -48,6 +48,18 @@ Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps
 - **Ciclo de vida de Reservas basado en Pagos:** Los estados `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA` se calculan automáticamente a partir de la suma de pagos vs el total de la reserva. Permite registrar señas y pagos parciales.
 - **Reportes Financieros:** Ingresos del día por método, lista de transferencias para conciliación bancaria (con CSV export), resumen por período agrupado por método de pago.
 - **RBAC:** Solo admin/supervisor pueden ver todas las sesiones; recepción ve solo las propias; anulación requiere razón auditada.
+
+### 🛒 Cargos a Habitación e Inventario (v1.6.0)
+
+- **Catálogo de Productos:** Bebidas, snacks, servicios (lavandería, late check-out), minibar. Categorías, precios, stock actual, stock mínimo.
+- **Stock Tracking:** Para productos físicos se lleva inventario; se decrementa al registrar consumo, se restaura al anular. Servicios (is_stocked=False) no tienen stock.
+- **Ajustes de Stock:** COMPRA (+), MERMA (-), AJUSTE (±). Todo queda en un audit log (`ajuste_inventario`) con razón, notas y usuario.
+- **Consumos:** Cargos inmutables por reserva — capturan snapshot de precio y nombre del producto. Al agregar un consumo, la reserva puede pasar de CONFIRMADA → SEÑADA si genera saldo pendiente.
+- **Alertas Discord:** Automáticas cuando el stock baja a o por debajo del mínimo tras un ajuste o consumo.
+- **Folio del Huésped:** PDF "Cuenta del Huésped" generado automáticamente al pasar la reserva a COMPLETADA. Incluye cargos de habitación, consumos itemizados, pagos y saldo. Descargable on-demand (siempre regenera con datos actualizados).
+- **Reportes:** Productos con stock bajo, top-vendidos por período, historial de ajustes por producto. Export CSV.
+- **UI:** PC tiene página completa "📦 Inventario" con 4 tabs (CRUD / ajustes / stock bajo / más vendidos). Mobile tiene modal "Agregar consumo" con selector por categoría y sección de consumos en el detalle de reserva.
+- **Permisos:** Recepción registra consumos pero no anula ni modifica el catálogo; admin tiene acceso completo.
 
 ### 🔄 Resiliencia y Recuperacion
 
@@ -77,8 +89,8 @@ cd backend
 python -m pytest tests/ -v
 ```
 
-- **412 tests** con **83% coverage** en 32 archivos de test.
-- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**, **caja & transacciones (56 tests v1.4.0)**, **channel manager v2 (43 tests v1.5.0)**.
+- **466 tests** con **83% coverage** en 35 archivos de test.
+- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**, **caja & transacciones (56 tests v1.4.0)**, **channel manager v2 (43 tests v1.5.0)**, **room charges e inventario (54 tests v1.6.0)**.
 - SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
 - **CI automático** en GitHub Actions: tests + coverage (75% min) + KPI evaluations + perf benchmarks.
 

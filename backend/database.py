@@ -389,6 +389,67 @@ class ICalSyncLog(Base):
     duration_ms = Column(Integer, default=0)
 
 
+class Producto(Base):
+    """Product catalog (v1.6.0 — Phase 3).
+
+    Represents a sellable product or service: drinks, snacks, minibar items,
+    laundry, late-checkout fees, etc. `is_stocked=True` for physical items
+    whose inventory is tracked; `False` for services (no stock counter).
+    """
+    __tablename__ = "producto"
+    id = Column(String, primary_key=True)
+    property_id = Column(String, ForeignKey("properties.id"), nullable=True, index=True)
+    name = Column(String, nullable=False)
+    category = Column(String, nullable=False, index=True)  # BEBIDA|SNACK|SERVICIO|MINIBAR|OTRO
+    price = Column(Float, nullable=False, default=0.0)  # Current unit price in Gs
+    stock_current = Column(Integer, nullable=True)  # null if is_stocked=False
+    stock_minimum = Column(Integer, nullable=True)  # alert threshold
+    is_stocked = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class Consumo(Base):
+    """Charge line added to a reservation (v1.6.0 — Phase 3).
+
+    Represents a guest consumption or service charged to the room.
+    Immutable — only voided, never updated after creation.
+    Stock is decremented on registration, restored on void.
+    """
+    __tablename__ = "consumo"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reserva_id = Column(String, ForeignKey("reservations.id"), nullable=False, index=True)
+    producto_id = Column(String, ForeignKey("producto.id"), nullable=False, index=True)
+    producto_name = Column(String, nullable=False)  # snapshot at registration time
+    quantity = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Float, nullable=False)  # snapshot at registration time
+    total = Column(Float, nullable=False)  # quantity * unit_price
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    created_by = Column(String, nullable=True)
+    voided = Column(Boolean, default=False, index=True)
+    void_reason = Column(String, nullable=True)
+    voided_at = Column(DateTime, nullable=True)
+    voided_by = Column(String, nullable=True)
+
+
+class AjusteInventario(Base):
+    """Stock adjustment log (v1.6.0 — Phase 3).
+
+    Records every change to product stock for audit purposes: purchases,
+    losses (merma), corrections. quantity_change can be positive or negative.
+    """
+    __tablename__ = "ajuste_inventario"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    producto_id = Column(String, ForeignKey("producto.id"), nullable=False, index=True)
+    quantity_change = Column(Integer, nullable=False)  # signed
+    reason = Column(String, nullable=False)  # COMPRA | MERMA | AJUSTE
+    notes = Column(String, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+
+
 class AIAgentPermission(Base):
     """Permissions for AI Agents."""
     __tablename__ = "ai_agent_permissions"

@@ -228,12 +228,26 @@ class ReservationService:
             res.cancellation_reason = reason or ""
             res.cancelled_by = user or ""
         db.commit()
+
+        # v1.6.0 (Phase 3): generate folio PDF on manual transition to COMPLETADA
+        if new_status in ("Completada", "COMPLETADA"):
+            try:
+                from services.document_service import DocumentService
+                DocumentService.generate_folio_pdf(db=db, reservation_id=res_id)
+            except Exception as e:
+                logger.warning(f"No se pudo generar folio para {res_id}: {e}")
+
         return True
 
     @staticmethod
     @with_db
     def auto_complete_reservations(db: Session) -> int:
-        """Mark past reservations as Completada. Returns count updated."""
+        """Mark past reservations as Completada. Returns count updated.
+
+        v1.6.0 (Phase 3): after marking each reservation as Completada, generate
+        its Guest Folio PDF so it's immediately available for download/audit.
+        Failures are logged but don't block the transition.
+        """
         today = date.today()
         active = db.query(Reservation).filter(
             Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
@@ -241,14 +255,29 @@ class ReservationService:
         ).all()
 
         count = 0
+        completed_ids: List[str] = []
         for res in active:
             check_out = res.check_in_date + timedelta(days=res.stay_days)
             if check_out < today:
                 res.status = "Completada"
+                completed_ids.append(res.id)
                 count += 1
 
         if count > 0:
             db.commit()
+
+        # Auto-generate folio PDFs for the just-completed reservations
+        if completed_ids:
+            try:
+                from services.document_service import DocumentService
+                for rid in completed_ids:
+                    try:
+                        DocumentService.generate_folio_pdf(db=db, reservation_id=rid)
+                    except Exception as e:
+                        logger.warning(f"No se pudo generar folio para {rid}: {e}")
+            except Exception as e:
+                logger.warning(f"Hook de folio en auto_complete fallo: {e}")
+
         return count
 
     @staticmethod

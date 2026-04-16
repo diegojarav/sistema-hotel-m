@@ -34,6 +34,7 @@ from database import (
     CheckIn, Property, ClientType, ClientContract, PricingSeason,
     SystemSetting, ICalFeed, PriceCalculation,
     CajaSesion, Transaccion,
+    Producto, Consumo, AjusteInventario,
 )
 
 # ==========================================
@@ -581,6 +582,45 @@ def reserva_con_pago_parcial(db_session, seed_full, make_reservation, open_caja_
     )
     db_session.refresh(res)
     return res
+
+
+# ==========================================
+# v1.6.0 — Phase 3 product/consumo fixtures
+# ==========================================
+
+@pytest.fixture
+def seed_products(db_session, seed_property):
+    """Create a starter product catalog for tests."""
+    products = [
+        Producto(
+            id="test-agua-500", property_id="los-monges",
+            name="Agua 500ml", category="BEBIDA", price=5000.0,
+            stock_current=50, stock_minimum=10, is_stocked=True, is_active=True,
+        ),
+        Producto(
+            id="test-coca-500", property_id="los-monges",
+            name="Coca-Cola 500ml", category="BEBIDA", price=12000.0,
+            stock_current=20, stock_minimum=5, is_stocked=True, is_active=True,
+        ),
+        Producto(
+            id="test-papas", property_id="los-monges",
+            name="Papas fritas", category="SNACK", price=8000.0,
+            stock_current=3, stock_minimum=5, is_stocked=True, is_active=True,
+        ),  # Already at/below minimum for low-stock tests
+        Producto(
+            id="test-lavanderia", property_id="los-monges",
+            name="Lavanderia", category="SERVICIO", price=80000.0,
+            stock_current=None, stock_minimum=None, is_stocked=False, is_active=True,
+        ),
+        Producto(
+            id="test-inactivo", property_id="los-monges",
+            name="Producto Inactivo", category="OTRO", price=1000.0,
+            stock_current=100, stock_minimum=0, is_stocked=True, is_active=False,
+        ),
+    ]
+    db_session.add_all(products)
+    db_session.commit()
+    return {p.id: p for p in products}
 
 
 @pytest.fixture

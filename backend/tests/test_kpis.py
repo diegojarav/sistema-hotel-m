@@ -453,6 +453,9 @@ class TestAgentToolsKPI:
             "get_room_performance": (month_start, month_end),
             "get_booking_sources": (month_start, month_end),
             "get_parking_status": (tomorrow, tomorrow),
+            # v1.6.0 Phase 3 — new tools
+            "consultar_inventario": (),
+            "consumos_habitacion": ("Agent Test",),
         }
 
         checks_passed = 0
@@ -494,6 +497,9 @@ class TestAgentToolsKPI:
             ("get_revenue_summary", ("invalid-period",)),
             ("resumen_ingresos_por_metodo", ("invalid-period",)),
             ("resumen_ingresos_por_metodo", ("custom", "not-a-date", "2026-12-31")),
+            # v1.6.0 Phase 3 — inventory/consumo tools
+            ("consultar_inventario", ("nombre-que-no-existe-jamas",)),
+            ("consumos_habitacion", ("reserva-inexistente-99999",)),
         ]
 
         tool_map = {f.__name__: f for f in TOOLS_LIST}

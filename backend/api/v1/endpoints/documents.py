@@ -79,6 +79,32 @@ def download_client_pdf(
 
 
 @router.get(
+    "/folio/{reservation_id}",
+    summary="Download Guest Folio PDF (v1.6.0)",
+    description="Download or regenerate the Guest Folio ('Cuenta del Huesped') PDF "
+                "including room charges, consumos, payments, and balance. "
+                "Regenerates on demand so data is always current."
+)
+def download_folio_pdf(
+    reservation_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Download folio PDF. Always regenerates to include latest consumos/payments."""
+    path = DocumentService.generate_folio_pdf(db, reservation_id)
+    if not path or not os.path.exists(path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No se pudo generar el folio para la reserva {reservation_id}",
+        )
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=os.path.basename(path),
+    )
+
+
+@router.get(
     "/download/{folder}/{filename}",
     summary="Download Document by Filename",
     description="Download a PDF by folder and filename. Requires authentication."
@@ -89,14 +115,19 @@ def download_by_filename(
     current_user=Depends(get_current_user)
 ):
     """Download a PDF directly by folder and filename."""
-    if folder not in ("Reservas", "Clientes"):
+    if folder not in ("Reservas", "Clientes", "Cuentas"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Carpeta debe ser 'Reservas' o 'Clientes'"
+            detail="Carpeta debe ser 'Reservas', 'Clientes' o 'Cuentas'"
         )
 
     import services.document_service as _ds
-    target_dir = _ds.RESERVAS_DIR if folder == "Reservas" else _ds.CLIENTES_DIR
+    if folder == "Reservas":
+        target_dir = _ds.RESERVAS_DIR
+    elif folder == "Clientes":
+        target_dir = _ds.CLIENTES_DIR
+    else:  # Cuentas
+        target_dir = _ds.CUENTAS_DIR
     filepath = os.path.join(target_dir, filename)
 
     # Security: prevent path traversal
@@ -120,16 +151,16 @@ def download_by_filename(
     "/list/{folder}",
     response_model=List[dict],
     summary="List Documents",
-    description="List all PDF documents in a folder (Reservas or Clientes). Requires authentication."
+    description="List all PDF documents in a folder (Reservas, Clientes, or Cuentas)."
 )
 def list_documents(
     folder: str = "Reservas",
     current_user=Depends(get_current_user)
 ):
     """List available documents in a folder."""
-    if folder not in ("Reservas", "Clientes"):
+    if folder not in ("Reservas", "Clientes", "Cuentas"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Carpeta debe ser 'Reservas' o 'Clientes'"
+            detail="Carpeta debe ser 'Reservas', 'Clientes' o 'Cuentas'"
         )
     return DocumentService.list_documents(folder)

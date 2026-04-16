@@ -26,12 +26,14 @@ _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOTEL_DIR = os.path.join(_BACKEND_DIR, "hotel")
 RESERVAS_DIR = os.path.join(HOTEL_DIR, "Reservas")
 CLIENTES_DIR = os.path.join(HOTEL_DIR, "Clientes")
+CUENTAS_DIR = os.path.join(HOTEL_DIR, "Cuentas")  # v1.6.0 — Phase 3 folios
 
 
 def _ensure_dirs():
-    """Create hotel/Reservas/ and hotel/Clientes/ if they don't exist."""
+    """Create hotel/Reservas/, hotel/Clientes/, hotel/Cuentas/ if missing."""
     os.makedirs(RESERVAS_DIR, exist_ok=True)
     os.makedirs(CLIENTES_DIR, exist_ok=True)
+    os.makedirs(CUENTAS_DIR, exist_ok=True)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -271,6 +273,231 @@ class DocumentService:
 
     @staticmethod
     @with_db
+    def generate_folio_pdf(db: Session, reservation_id: str) -> Optional[str]:
+        """
+        Generate a Guest Folio ('Cuenta del Huésped') PDF (v1.6.0 — Phase 3).
+
+        Shows the full account: room charges, consumos (itemized), payments,
+        and final balance. Saved to backend/hotel/Cuentas/.
+
+        Args:
+            db: Database session
+            reservation_id: Reservation ID
+
+        Returns:
+            File path of generated PDF, or None if reservation not found.
+        """
+        from database import Reservation, Room, RoomCategory, Consumo, Transaccion
+
+        _ensure_dirs()
+
+        reservation = db.query(Reservation).filter(
+            Reservation.id == reservation_id
+        ).first()
+        if not reservation:
+            logger.warning(f"Reservation {reservation_id} not found for folio PDF generation")
+            return None
+
+        room = db.query(Room).filter(Room.id == reservation.room_id).first()
+        category = None
+        if room and room.category_id:
+            category = db.query(RoomCategory).filter(
+                RoomCategory.id == room.category_id
+            ).first()
+
+        hotel_info = DocumentService._get_hotel_info(db)
+
+        # --- Query consumos + payments ---
+        consumos = db.query(Consumo).filter(
+            Consumo.reserva_id == reservation_id,
+            Consumo.voided == False,
+        ).order_by(Consumo.created_at.asc()).all()
+
+        payments = db.query(Transaccion).filter(
+            Transaccion.reserva_id == reservation_id,
+            Transaccion.voided == False,
+        ).order_by(Transaccion.created_at.asc()).all()
+
+        room_total = float(reservation.price or 0.0)
+        consumo_total = sum(float(c.total or 0.0) for c in consumos)
+        total = room_total + consumo_total
+        paid = sum(float(t.amount or 0.0) for t in payments)
+        balance_due = max(total - paid, 0.0)
+
+        # --- Build PDF ---
+        pdf = HotelPDF(
+            hotel_name=hotel_info["name"],
+            hotel_address=hotel_info["address"],
+            hotel_phone=hotel_info["phone"],
+            hotel_email=hotel_info["email"],
+        )
+        pdf.add_page()
+
+        # Title
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "CUENTA DEL HUESPED",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 6, f"Reserva #{reservation.id}",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        pdf.ln(4)
+
+        # --- Section 1: Datos del huesped ---
+        pdf.section_title("Datos del Huesped")
+        pdf.ln(2)
+        pdf.field_row("Huesped", reservation.guest_name or "-")
+        if reservation.contact_phone:
+            pdf.field_row("Telefono", reservation.contact_phone)
+        if reservation.contact_email:
+            pdf.field_row("Email", reservation.contact_email)
+        room_label = room.internal_code if room else reservation.room_id or "-"
+        pdf.field_row("Habitacion", room_label)
+        if category:
+            pdf.field_row("Categoria", category.name)
+        if reservation.check_in_date:
+            pdf.field_row("Check-in", reservation.check_in_date.strftime("%d/%m/%Y"))
+        if reservation.check_in_date and reservation.stay_days:
+            check_out = reservation.check_in_date + timedelta(days=reservation.stay_days)
+            pdf.field_row("Check-out", check_out.strftime("%d/%m/%Y"))
+        pdf.field_row("Noches", str(reservation.stay_days or 0))
+        pdf.ln(4)
+
+        # --- Section 2: Cargos de habitacion ---
+        pdf.section_title("Cargos de Habitacion")
+        pdf.ln(2)
+        nights = reservation.stay_days or 0
+        rate_per_night = room_total / nights if nights else room_total
+        pdf.field_row(
+            f"{nights} noche(s) x {_format_pyg(rate_per_night)}",
+            _format_pyg(room_total),
+        )
+
+        # Show applied modifiers if present (price breakdown may be JSON)
+        if reservation.price_breakdown:
+            try:
+                breakdown = json.loads(reservation.price_breakdown)
+                if isinstance(breakdown, dict):
+                    if breakdown.get("season"):
+                        pdf.field_row("Temporada", str(breakdown["season"]))
+                    if breakdown.get("discount"):
+                        pdf.field_row(
+                            "Descuento cliente",
+                            _format_pyg(-float(breakdown["discount"])),
+                        )
+            except Exception:
+                pass
+
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(140, 7, "Subtotal habitacion:", align="R")
+        pdf.cell(0, 7, _format_pyg(room_total),
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="L")
+        pdf.ln(4)
+
+        # --- Section 3: Consumos ---
+        pdf.section_title("Consumos")
+        pdf.ln(2)
+        if consumos:
+            # Table header
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(30, 6, "Fecha")
+            pdf.cell(75, 6, "Producto")
+            pdf.cell(20, 6, "Cant.", align="C")
+            pdf.cell(30, 6, "P. Unit.", align="R")
+            pdf.cell(0, 6, "Total", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+            pdf.set_draw_color(200, 200, 200)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.ln(1)
+
+            # Rows
+            pdf.set_font("Helvetica", "", 9)
+            for c in consumos:
+                fecha = c.created_at.strftime("%d/%m/%y") if c.created_at else "-"
+                pdf.cell(30, 6, fecha)
+                name = (c.producto_name or "-")[:35]
+                pdf.cell(75, 6, name)
+                pdf.cell(20, 6, str(c.quantity), align="C")
+                pdf.cell(30, 6, _format_pyg(c.unit_price), align="R")
+                pdf.cell(0, 6, _format_pyg(c.total),
+                         new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(140, 7, "Subtotal consumos:", align="R")
+            pdf.cell(0, 7, _format_pyg(consumo_total),
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="L")
+        else:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.cell(0, 6, "Sin consumos registrados.",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(4)
+
+        # --- Section 4: Pagos ---
+        pdf.section_title("Pagos")
+        pdf.ln(2)
+        if payments:
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(30, 6, "Fecha")
+            pdf.cell(40, 6, "Metodo")
+            pdf.cell(65, 6, "Referencia")
+            pdf.cell(0, 6, "Monto", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+            pdf.ln(1)
+
+            pdf.set_font("Helvetica", "", 9)
+            for t in payments:
+                fecha = t.created_at.strftime("%d/%m/%y") if t.created_at else "-"
+                pdf.cell(30, 6, fecha)
+                pdf.cell(40, 6, t.payment_method or "-")
+                pdf.cell(65, 6, (t.reference_number or "-")[:30])
+                pdf.cell(0, 6, _format_pyg(t.amount),
+                         new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.cell(140, 7, "Total pagado:", align="R")
+            pdf.cell(0, 7, _format_pyg(paid),
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="L")
+        else:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.cell(0, 6, "Sin pagos registrados.",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(6)
+
+        # --- Final totals ---
+        pdf.set_draw_color(50, 50, 50)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(140, 8, "TOTAL:", align="R")
+        pdf.cell(0, 8, _format_pyg(total),
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="L")
+        pdf.cell(140, 8, "Pagado:", align="R")
+        pdf.cell(0, 8, _format_pyg(paid),
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="L")
+        pdf.set_text_color(180, 60, 60) if balance_due > 0 else pdf.set_text_color(50, 150, 50)
+        pdf.cell(140, 8, "SALDO:", align="R")
+        pdf.cell(0, 8, _format_pyg(balance_due),
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="L")
+        pdf.set_text_color(0, 0, 0)
+
+        # --- Save file ---
+        guest_safe = _sanitize_filename(
+            (reservation.guest_name or "sin_nombre").split(",")[0].strip()
+        )
+        if reservation.check_in_date and reservation.stay_days:
+            check_out = reservation.check_in_date + timedelta(days=reservation.stay_days)
+            date_str = check_out.strftime("%d-%m-%y")
+        else:
+            date_str = "00-00-00"
+        filename = f"folio_{guest_safe}_{date_str}_{reservation_id}.pdf"
+        filepath = os.path.join(CUENTAS_DIR, filename)
+
+        pdf.output(filepath)
+        logger.info(f"Folio PDF generated: {filepath}")
+        return filepath
+
+    @staticmethod
+    @with_db
     def generate_client_pdf(db: Session, checkin_id: int) -> Optional[str]:
         """
         Generate a client registration (Ficha de Huesped) PDF.
@@ -405,6 +632,18 @@ class DocumentService:
         return None
 
     @staticmethod
+    def get_folio_pdf_path(reservation_id: str) -> Optional[str]:
+        """Find existing folio PDF for a reservation by scanning Cuentas dir."""
+        _ensure_dirs()
+        suffix = f"_{reservation_id}.pdf"
+        if not os.path.isdir(CUENTAS_DIR):
+            return None
+        for fname in os.listdir(CUENTAS_DIR):
+            if fname.endswith(suffix) and fname.startswith("folio_"):
+                return os.path.join(CUENTAS_DIR, fname)
+        return None
+
+    @staticmethod
     def get_client_pdf_path(checkin_id: int) -> Optional[str]:
         """Find existing PDF for a client check-in. Returns first match or None."""
         # Client PDFs don't include checkin_id in name, so we can't do suffix lookup.
@@ -415,7 +654,14 @@ class DocumentService:
     def list_documents(folder: str = "Reservas") -> List[dict]:
         """List all PDFs in the specified folder with metadata."""
         _ensure_dirs()
-        target_dir = RESERVAS_DIR if folder == "Reservas" else CLIENTES_DIR
+        if folder == "Reservas":
+            target_dir = RESERVAS_DIR
+        elif folder == "Clientes":
+            target_dir = CLIENTES_DIR
+        elif folder == "Cuentas":
+            target_dir = CUENTAS_DIR
+        else:
+            target_dir = RESERVAS_DIR  # fallback, preserves old behavior
         documents = []
         if not os.path.isdir(target_dir):
             return documents

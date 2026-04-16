@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 # Import services from root (Hybrid Monolith)
-from services import ReservationService, CajaService, TransaccionService
+from services import ReservationService, CajaService, TransaccionService, ProductService, ConsumoService
 
 
 # ==========================================
@@ -976,6 +976,152 @@ def resumen_ingresos_por_metodo(period: str = "month", custom_start: Optional[st
 
 
 # ==========================================
+# TOOL 15: Consultar Inventario (v1.6.0 — Phase 3)
+# ==========================================
+
+def consultar_inventario(nombre_producto: Optional[str] = None) -> str:
+    """
+    Consultar stock de productos del minibar/snacks/servicios del hotel.
+
+    Use cuando el usuario pregunte por stock, inventario, o productos
+    disponibles. Sin argumentos lista los productos con stock bajo.
+    Con nombre_producto busca un producto especifico.
+
+    Args:
+        nombre_producto: Nombre parcial del producto a buscar (opcional).
+                         Si es None, muestra productos con stock bajo.
+
+    Returns:
+        String con stock actual, alertas de bajo stock, y estado general.
+
+    Examples:
+        - "¿Cuanta agua queda?" → consultar_inventario("agua")
+        - "¿Que productos estan por agotarse?" → consultar_inventario()
+        - "Stock de cerveza" → consultar_inventario("cerveza")
+        - "Hay snacks?" → consultar_inventario("snack")
+    """
+    try:
+        if nombre_producto and nombre_producto.strip():
+            # Filter products by name substring
+            all_products = ProductService.list_products(active_only=True)
+            query = nombre_producto.strip().lower()
+            matches = [
+                p for p in all_products
+                if query in (p.name or "").lower()
+                or query in (p.category or "").lower()
+            ]
+            if not matches:
+                return f"No se encontraron productos que coincidan con '{nombre_producto}'."
+
+            lines = [f"🛒 Productos que coinciden con '{nombre_producto}':", ""]
+            for p in matches:
+                if p.is_stocked:
+                    stock = p.stock_current if p.stock_current is not None else 0
+                    min_s = p.stock_minimum or 0
+                    low_flag = " ⚠️ BAJO" if min_s and stock <= min_s else ""
+                    lines.append(
+                        f"  • {p.name} ({p.category}): {stock} unidad(es)"
+                        f" — precio {p.price:,.0f} Gs{low_flag}"
+                    )
+                else:
+                    lines.append(
+                        f"  • {p.name} ({p.category}): servicio "
+                        f"— precio {p.price:,.0f} Gs"
+                    )
+            return "\n".join(lines)
+
+        # No filter — list low-stock products
+        low = ProductService.get_low_stock_products()
+        if not low:
+            return "✓ Todos los productos tienen stock suficiente. Ningun producto por debajo del minimo."
+
+        lines = [f"⚠️ {len(low)} producto(s) con stock bajo:", ""]
+        for p in low:
+            stock = p.stock_current if p.stock_current is not None else 0
+            min_s = p.stock_minimum or 0
+            lines.append(
+                f"  • {p.name} ({p.category}): {stock}/{min_s} unidades — reponer pronto"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error al consultar inventario: {e}"
+
+
+# ==========================================
+# TOOL 16: Consumos por Habitacion (v1.6.0 — Phase 3)
+# ==========================================
+
+def consumos_habitacion(query: Optional[str] = None) -> str:
+    """
+    Listar los consumos (minibar, servicios) de una reserva o habitacion.
+
+    Acepta: numero de reserva, nombre del huesped, o codigo de habitacion.
+    Muestra cada consumo con cantidad, precio unitario y total.
+
+    Args:
+        query: ID de reserva (ej "0001103"), nombre del huesped, o codigo
+               de habitacion (ej "DD-01"). Requerido.
+
+    Returns:
+        String con la lista itemizada de consumos + total.
+
+    Examples:
+        - "¿Que consumio la habitacion DD-01?" → consumos_habitacion("DD-01")
+        - "Consumos de la reserva 1103" → consumos_habitacion("1103")
+        - "¿Cuanto gasto Perez en consumos?" → consumos_habitacion("Perez")
+    """
+    try:
+        q = (query or "").strip()
+        if not q:
+            return "Por favor indique una reserva, nombre o habitacion."
+
+        # Try search_reservation first — reuses existing fuzzy logic
+        results = ReservationService.search_reservations(q)
+        if not results:
+            return f"No se encontro ninguna reserva que coincida con '{query}'."
+
+        # If multiple hits, prefer active reservations (not cancelled/completed)
+        active = [
+            r for r in results
+            if (r.get("status") or "").strip() not in ("CANCELADA", "Cancelada", "COMPLETADA", "Completada")
+        ]
+        pool = active or results
+        target = pool[0]
+        reserva_id = target.get("id")
+        guest = target.get("guest_name") or "-"
+        room_code = target.get("room_internal_code") or target.get("room_id") or "-"
+
+        consumos = ConsumoService.list_by_reserva(
+            reserva_id=reserva_id, include_voided=False
+        )
+        if not consumos:
+            return (
+                f"Reserva {reserva_id} ({guest}, {room_code}): sin consumos registrados."
+            )
+
+        total = sum(float(c.total or 0.0) for c in consumos)
+        lines = [
+            f"🛒 Consumos de reserva {reserva_id} — {guest} ({room_code})",
+            "",
+        ]
+        for c in consumos:
+            fecha = c.created_at.strftime("%d/%m") if c.created_at else "-"
+            lines.append(
+                f"  • {fecha} · {c.producto_name} x{c.quantity} "
+                f"@ {c.unit_price:,.0f} Gs = {c.total:,.0f} Gs"
+            )
+        lines.append("")
+        lines.append(f"Total consumos: {total:,.0f} Gs")
+
+        if len(pool) > 1:
+            lines.append(f"\n(Se encontraron {len(pool)} reservas — mostrando la primera activa.)")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error al consultar consumos: {e}"
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -994,4 +1140,6 @@ TOOLS_LIST = [
     get_revenue_summary,
     consultar_caja,
     resumen_ingresos_por_metodo,
+    consultar_inventario,
+    consumos_habitacion,
 ]

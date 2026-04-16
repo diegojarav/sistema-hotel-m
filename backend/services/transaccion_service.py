@@ -167,19 +167,37 @@ class TransaccionService:
     @staticmethod
     @with_db
     def get_saldo(db: Session, reserva_id: str) -> Dict:
-        """Return {total, paid, pending, transacciones} for a reservation."""
+        """Return {total, room_total, consumo_total, paid, pending, transacciones}
+        for a reservation.
+
+        Starting in v1.6.0 (Phase 3), `total` includes both the room price
+        and the sum of active consumos. Kept the original fields plus
+        breakdown fields so UI can show "Habitación + Consumos = Total".
+        """
         reserva = db.query(Reservation).filter(Reservation.id == reserva_id).first()
         if not reserva:
             return None
 
         transactions = TransaccionService.get_by_reserva(db, reserva_id, include_voided=False)
-        total = reserva.price or 0.0
+        room_total = reserva.price or 0.0
+
+        # Lazy import to avoid circular dependency (ConsumoService imports us
+        # for _recalcular_status_reserva)
+        try:
+            from services.consumo_service import ConsumoService
+            consumo_total = ConsumoService.get_consumo_total(db, reserva_id)
+        except Exception:
+            consumo_total = 0.0
+
+        total = room_total + consumo_total
         paid = sum(t.amount for t in transactions)
         pending = max(total - paid, 0.0)
 
         return {
             "reserva_id": reserva_id,
             "total": total,
+            "room_total": room_total,
+            "consumo_total": consumo_total,
             "paid": paid,
             "pending": pending,
             "transacciones": transactions,
@@ -237,7 +255,14 @@ class TransaccionService:
             ).all()
         )
 
-        total = reserva.price or 0.0
+        # Total = room price + active consumos (v1.6.0 — Phase 3)
+        room_total = reserva.price or 0.0
+        try:
+            from services.consumo_service import ConsumoService
+            consumo_total = ConsumoService.get_consumo_total(db, reserva_id)
+        except Exception:
+            consumo_total = 0.0
+        total = room_total + consumo_total
 
         if paid >= total and total > 0:
             new_status = "CONFIRMADA"
