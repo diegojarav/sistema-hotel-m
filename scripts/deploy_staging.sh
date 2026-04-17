@@ -57,6 +57,8 @@ gcloud_ssh "
   pip install -r backend/requirements.txt -q &&
   echo 'NEXT_PUBLIC_API_URL=http://${IP}:8000' > frontend_mobile/.env.local &&
   sudo sed -i 's|CORS_ORIGINS=.*|CORS_ORIGINS=http://localhost:3000,http://localhost:8501,http://127.0.0.1:3000,http://127.0.0.1:8501,http://${IP}:3000,http://${IP}:8501|' backend/.env &&
+  echo '--- Running DB migrations ---' &&
+  python scripts/run_migrations.py &&
   cd frontend_mobile &&
   npm run build &&
   sudo systemctl restart hotel-backend hotel-mobile hotel-pc &&

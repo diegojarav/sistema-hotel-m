@@ -336,3 +336,13 @@ If the same UID reappears in a later sync (transient OTA glitch), the flag is au
 - **Private** (`hotel-PMS-dev` / private): full codebase + internal docs
 - `origin` has dual push URLs — single `git push origin dev` pushes to both repos
 - `.gitignore` excludes: `claude_audit/`, `PROJECT_CONTEXT.md`, `REQUIREMENTS.md`, `.bat` scripts, `.claude/` configs
+
+## Deployment to GCP Staging
+
+- **One-command deploy**: `bash scripts/deploy_staging.sh` (also `npm run deploy:staging`)
+  - Auto-detects VM IP via `gcloud compute instances describe` — IP changes are handled automatically
+  - Runs local tests → pushes `dev:main` to origin → SSH to VM → resets to origin/main → pip install → `python scripts/run_migrations.py` → rebuild mobile with fresh IP → `sudo systemctl restart hotel-backend hotel-mobile hotel-pc`
+  - VM: `hotel-munich-staging` in zone `us-central1-a` (e2-small Ubuntu 22.04)
+- **DB migrations**: numbered files in `scripts/migrations/NNN_name.py` — each exports `MIGRATION_NAME`, `MIGRATION_DESCRIPTION`, and `run(conn)`. `run_migrations.py` auto-discovers and applies only pending ones (tracked via `migration_history` table). Idempotent — safe to re-run.
+- **VM setup runbook**: `scripts/setup_gcp_staging.md` (initial VM provisioning) + `scripts/setup_tailscale.md` (remote access)
+- **Disaster recovery**: `scripts/recreate_vm.sh` nukes and rebuilds the VM from scratch
