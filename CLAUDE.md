@@ -148,6 +148,10 @@ Runs on push to `main`/`dev`:
 - `DocumentService` uses `@with_db` for dual FastAPI/Streamlit compatibility
 - PDF documents auto-generate on reservation/check-in creation, saved to `backend/hotel/`
 - Streamlit accesses PDF files via direct filesystem read (same machine as backend)
+- **AI tool args in TOOLS_LIST**: Every AI tool called by `test_tools_return_strings` (KPI test) is invoked with `()` unless listed in `tool_inputs`. If a tool has a required `str` arg (not Optional), the KPI test will fail with `TypeError: missing required positional argument`. Always use `Optional[str] = None` for AI tool query params and handle the None case gracefully.
+- **AI tools must use @with_db services, NOT session_factory() directly**: `conftest.py` patches `SessionLocal` (used by `@with_db`) but NOT `session_factory`. AI tools that call `db = session_factory()` bypass the test DB → `OperationalError: no such table` in CI. See commit `439294c` for the fix pattern.
+- **slowapi rate limiter**: `request: Request` must be the FIRST positional parameter in any endpoint decorated with `@limiter.limit()`. If a path param comes first, slowapi silently ignores the rate limit. See commit `f464059`.
+- **st.download_button cannot be inside st.form()**: Streamlit raises `StreamlitAPIException`. Store PDF paths in `st.session_state` inside the form, render download buttons outside. See commit `3bc0a58`.
 
 ## Reservation Status Lifecycle (v1.4.0 — payment-aware)
 
