@@ -28,7 +28,10 @@ colorama>=0.4.6
 icalendar>=6.0.0
 
 # AI (Google Gemini + Reliability)
-google-genai>=1.0.0
+# Pinned to a tested range: >=1.60 has the response shape our agent expects,
+# <2.0 avoids future major-version breaks. Our null-handling in agent.py
+# handles 1.68's candidate.content.parts=None cases (discovered on VM deploy).
+google-genai>=1.60.0,<2.0.0
 tenacity>=8.2.0
 
 # Image Processing (Vision AI)

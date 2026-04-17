@@ -272,13 +272,18 @@ async def process_query(user_query: str) -> tuple[str, list[str]]:
         # Make the request with retry logic
         response = call_gemini_api(clean_query, config)
         
-        # Extract tools used from the response (if available)
+        # Extract tools used from the response (if available).
+        # NOTE: google-genai >= 1.68 may return candidate.content.parts = None
+        # for certain response shapes (especially with tool-calling). Guard against it.
         if hasattr(response, 'candidates') and response.candidates:
             for candidate in response.candidates:
-                if hasattr(candidate, 'content') and candidate.content:
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'function_call') and part.function_call:
-                            tools_used.append(part.function_call.name)
+                content = getattr(candidate, 'content', None)
+                parts = getattr(content, 'parts', None) if content else None
+                if not parts:
+                    continue
+                for part in parts:
+                    if hasattr(part, 'function_call') and part.function_call:
+                        tools_used.append(part.function_call.name)
         
         # Get the text response
         response_text = response.text if hasattr(response, 'text') else str(response)
