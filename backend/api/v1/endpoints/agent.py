@@ -285,13 +285,23 @@ async def process_query(user_query: str) -> tuple[str, list[str]]:
                     if hasattr(part, 'function_call') and part.function_call:
                         tools_used.append(part.function_call.name)
         
-        # Get the text response
-        response_text = response.text if hasattr(response, 'text') else str(response)
-        
+        # Get the text response. google-genai >= 1.68 can return response.text = None
+        # when no content parts are present — fall back to a safe default.
+        response_text = response.text if hasattr(response, 'text') else None
+        if not response_text:
+            logger.warning(
+                "Gemini returned an empty response body (no text, no tool calls). "
+                "Falling back to generic message."
+            )
+            response_text = (
+                "No pude procesar esa consulta en este momento. "
+                "Por favor, reformula la pregunta o intenta de nuevo."
+            )
+
         # Clean up response (remove any thinking tags if present)
         if "<think>" in response_text:
             response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
-        
+
         return response_text.strip(), list(set(tools_used)) if tools_used else ["direct"]
         
     except RetryableAPIError as e:
