@@ -293,9 +293,10 @@ class ReservationService:
         rooms = db.query(Room).filter(Room.active == 1).all()
         code_map = {r.id: r.internal_code or r.id for r in rooms}
 
-        # Fetch active reservations overlapping this week
+        # Fetch reservations overlapping this week. Include Completada/COMPLETADA
+        # so past days still render occupied cells (users browse history here).
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= end_date,
         ).all()
 
@@ -347,8 +348,10 @@ class ReservationService:
         # PERF-002 FIX: Add lower bound (max realistic stay = 365 days)
         max_stay_days = 365
         earliest_checkin = specific_date - timedelta(days=max_stay_days)
+        # Include Completada/COMPLETADA so past-date lookups show the room as
+        # OCUPADA on days the guest was actually there.
         reservations = db.query(Reservation).filter(
-             Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
+             Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
              Reservation.check_in_date <= specific_date,
              Reservation.check_in_date >= earliest_checkin  # Lower bound
         ).all()
@@ -646,9 +649,10 @@ class ReservationService:
         first_day = date(year, month, 1)
         last_day = date(year, month, monthrange(year, month)[1])
 
-        # Buscar reservas que toquen este mes
+        # Buscar reservas que toquen este mes. Incluir Completada/COMPLETADA
+        # para que las vistas calendario muestren reservas pasadas también.
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= last_day
         ).all()
 
@@ -729,8 +733,10 @@ class ReservationService:
         max_stay_days = 365
         earliest_checkin = first_day - timedelta(days=max_stay_days)
 
+        # Include Completada/COMPLETADA so past days in the month grid show
+        # occupied cells (users browse history on the monthly calendar).
         reservations = db.query(Reservation).filter(
-            Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
+            Reservation.status.in_(["Confirmada", "Pendiente", "Completada", "RESERVADA", "SEÑADA", "CONFIRMADA", "COMPLETADA"]),
             Reservation.check_in_date <= last_day,
             Reservation.check_in_date >= earliest_checkin
         ).all()
