@@ -39,6 +39,11 @@ export interface ReservationDetail extends Reservation {
     ota_booking_id?: string | null;
     needs_review?: boolean;
     review_reason?: string | null;
+    // v1.7.0 — Meal Plan (Phase 4)
+    meal_plan_id?: string | null;
+    meal_plan_code?: string | null;
+    meal_plan_name?: string | null;
+    breakfast_guests?: number | null;
 }
 
 /**

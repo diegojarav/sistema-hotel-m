@@ -456,6 +456,8 @@ class TestAgentToolsKPI:
             # v1.6.0 Phase 3 — new tools
             "consultar_inventario": (),
             "consumos_habitacion": ("Agent Test",),
+            # v1.7.0 Phase 4 — new tool
+            "reporte_cocina": (tomorrow,),
         }
 
         checks_passed = 0

@@ -57,3 +57,29 @@ export async function getPropertySettings(): Promise<PropertySettings> {
         };
     }
 }
+
+// ==========================================
+// v1.7.0 — Meals Configuration (Phase 4)
+// ==========================================
+
+export type MealInclusionMode = 'INCLUIDO' | 'OPCIONAL_PERSONA' | 'OPCIONAL_HABITACION';
+
+export interface MealsConfig {
+    meals_enabled: boolean;
+    meal_inclusion_mode: MealInclusionMode | null;
+}
+
+/**
+ * Fetch meal service configuration. Public endpoint — used on the mobile
+ * dashboard and reservation form to CONDITIONALLY render meal-related UI.
+ * Hotels that don't serve meals see `meals_enabled=false` and the mobile app
+ * hides every meal widget (tile, plan selector, breakfast counter, etc.).
+ */
+export async function getMealsConfig(): Promise<MealsConfig> {
+    try {
+        return await apiGet<MealsConfig>('/settings/meals-config', null, { cache: 'no-store' });
+    } catch (error) {
+        console.error('Failed to fetch meals config:', error);
+        return { meals_enabled: false, meal_inclusion_mode: null };
+    }
+}

@@ -18,6 +18,8 @@ from services.transaccion_service import TransaccionService, TransaccionError
 from services.ical_sync_log_service import ICalSyncLogService
 from services.product_service import ProductService, ProductError
 from services.consumo_service import ConsumoService, ConsumoError
+from services.meal_plan_service import MealPlanService, MealPlanError
+from services.kitchen_report_service import KitchenReportService
 
 # Backward compat: app.py imports schemas through services
 from schemas import ReservationCreate, CheckInCreate, UserDTO
@@ -31,5 +33,7 @@ __all__ = [
     "TransaccionService", "TransaccionError",
     "ProductService", "ProductError",
     "ConsumoService", "ConsumoError",
+    "MealPlanService", "MealPlanError",
+    "KitchenReportService",
     "ReservationCreate", "CheckInCreate", "UserDTO",
 ]

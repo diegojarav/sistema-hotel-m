@@ -52,7 +52,9 @@ def calculate_price(
             stay_days=request.stay_days,
             client_type_id=request.client_type_id,
             room_id=request.room_id,
-            season_id=request.season_id
+            season_id=request.season_id,
+            meal_plan_id=request.meal_plan_id,
+            breakfast_guests=request.breakfast_guests,
         )
         return result
     except ValueError as e:

@@ -20,6 +20,22 @@ from services._base import with_db
 logger = get_logger(__name__)
 
 
+def _resolve_meal_plan_field(db: Session, plan_id: Optional[str], field: str) -> Optional[str]:
+    """Fetch a single field (code/name) from a MealPlan by id. Returns None on miss.
+    Used by the reservation detail DTO so the mobile / PC UI can render the plan
+    label without a second round-trip."""
+    if not plan_id:
+        return None
+    try:
+        from database import MealPlan as _MealPlan
+        p = db.query(_MealPlan).filter(_MealPlan.id == plan_id).first()
+        if not p:
+            return None
+        return getattr(p, field, None)
+    except Exception:
+        return None
+
+
 class ReservationService:
     """Service for managing reservations."""
 
@@ -92,6 +108,30 @@ class ReservationService:
             prop_id = room.property_id if room else "los-monges"
             cat_id = room.category_id if room else (data.category_id or "los-monges-estandar")
 
+            # v1.7.0 — Resolve effective meal plan for this reservation.
+            # When meals_enabled=true AND mode=INCLUIDO, and no plan is passed in,
+            # auto-assign CON_DESAYUNO and set breakfast_guests to guests_count
+            # (defaulting to 1 if not tracked on the request).
+            effective_meal_plan_id = getattr(data, 'meal_plan_id', None)
+            effective_breakfast_guests = getattr(data, 'breakfast_guests', None)
+            try:
+                from services.settings_service import SettingsService as _SS
+                _meals_cfg = _SS.get_meals_config(db=db, property_id=prop_id)
+            except Exception:
+                _meals_cfg = {"meals_enabled": False, "meal_inclusion_mode": None}
+            if _meals_cfg.get("meals_enabled") and _meals_cfg.get("meal_inclusion_mode") == "INCLUIDO":
+                if not effective_meal_plan_id:
+                    from database import MealPlan as _MealPlan
+                    _plan = db.query(_MealPlan).filter(
+                        _MealPlan.property_id == prop_id,
+                        _MealPlan.code == "CON_DESAYUNO",
+                        _MealPlan.is_active == 1,
+                    ).first()
+                    if _plan:
+                        effective_meal_plan_id = _plan.id
+                if effective_breakfast_guests is None:
+                    effective_breakfast_guests = 1  # conservative — reservation.guests_count not tracked yet
+
             # Calculate Price dynamically
             price_data = PricingService.calculate_price(
                 db=db,
@@ -100,7 +140,9 @@ class ReservationService:
                 check_in=data.check_in_date,
                 stay_days=data.stay_days,
                 client_type_id=client_type_use,
-                room_id=room_id
+                room_id=room_id,
+                meal_plan_id=effective_meal_plan_id,
+                breakfast_guests=effective_breakfast_guests,
             )
 
             final_price = price_data.get("final_price", data.price)
@@ -140,7 +182,11 @@ class ReservationService:
                 vehicle_model=data.vehicle_model,
                 vehicle_plate=data.vehicle_plate,
                 source=data.source,
-                external_id=data.external_id
+                external_id=data.external_id,
+
+                # v1.7.0 — Meal Plan (Phase 4)
+                meal_plan_id=effective_meal_plan_id,
+                breakfast_guests=effective_breakfast_guests,
             )
             db.add(new_res)
             created_ids.append(res_id)
@@ -493,6 +539,11 @@ class ReservationService:
             ota_booking_id=getattr(r, "ota_booking_id", None),
             needs_review=bool(getattr(r, "needs_review", False)),
             review_reason=getattr(r, "review_reason", None),
+            # v1.7.0 — Meal Plan (Phase 4)
+            meal_plan_id=getattr(r, "meal_plan_id", None),
+            meal_plan_code=_resolve_meal_plan_field(db, getattr(r, "meal_plan_id", None), "code"),
+            meal_plan_name=_resolve_meal_plan_field(db, getattr(r, "meal_plan_id", None), "name"),
+            breakfast_guests=getattr(r, "breakfast_guests", None),
         )
 
     @staticmethod
@@ -632,6 +683,12 @@ class ReservationService:
         r.arrival_time = data.arrival_time.time() if data.arrival_time else None
         r.reserved_by = data.reserved_by
         r.contact_phone = data.contact_phone
+
+        # v1.7.0 — Meal Plan updates (Phase 4)
+        if hasattr(data, 'meal_plan_id'):
+            r.meal_plan_id = data.meal_plan_id
+        if hasattr(data, 'breakfast_guests') and data.breakfast_guests is not None:
+            r.breakfast_guests = data.breakfast_guests
 
         db.commit()
         return True

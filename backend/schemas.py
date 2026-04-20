@@ -93,6 +93,10 @@ class ReservationCreate(BaseModel):
     external_id: Optional[str] = Field(default=None, description="ID externo de la reserva (ej. de OTA)")
     paid: Optional[bool] = Field(default=True, description="Si el huesped ya pago. True=Confirmada, False=Pendiente")
 
+    # v1.7.0 — Meal Plan (Phase 4)
+    meal_plan_id: Optional[str] = Field(default=None, description="ID del plan de comidas seleccionado")
+    breakfast_guests: Optional[int] = Field(default=None, ge=0, description="Cantidad de huéspedes con desayuno (OPCIONAL_PERSONA)")
+
     # Identity fields (from document scan) - used to auto-create CheckIn
     document_number: Optional[str] = Field(default="", description="Número de documento del huésped")
     guest_last_name: Optional[str] = Field(default="", description="Apellidos del huésped")
@@ -173,6 +177,11 @@ class ReservationDetailDTO(ReservationDTO):
     ota_booking_id: Optional[str] = None
     needs_review: bool = False
     review_reason: Optional[str] = None
+    # v1.7.0 — Meal Plan (Phase 4)
+    meal_plan_id: Optional[str] = None
+    meal_plan_code: Optional[str] = None
+    meal_plan_name: Optional[str] = None
+    breakfast_guests: Optional[int] = None
 
 
 class CalendarEventDTO(BaseModel):
@@ -289,6 +298,9 @@ class PriceCalculationRequest(BaseModel):
     client_type_id: str = Field(default="los-monges-particular", description="ID del tipo de cliente")
     room_id: Optional[str] = Field(default=None, description="ID de habitación (opcional)")
     season_id: Optional[str] = Field(default=None, description="Override de temporada (selección manual)")
+    # v1.7.0 — Meal Plan (Phase 4)
+    meal_plan_id: Optional[str] = Field(default=None, description="ID del plan de comidas (opcional)")
+    breakfast_guests: Optional[int] = Field(default=None, ge=0, description="Cantidad de huéspedes con desayuno (OPCIONAL_PERSONA)")
 
 class PricingSeasonDTO(BaseModel):
     """Season info for manual selection dropdown."""

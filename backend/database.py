@@ -160,6 +160,10 @@ class Reservation(Base):
     needs_review = Column(Boolean, default=False, index=True)  # set when UID disappears from OTA feed
     review_reason = Column(String, nullable=True)
 
+    # v1.7.0 — Meal Plan (Phase 4)
+    meal_plan_id = Column(String, ForeignKey("meal_plans.id"), nullable=True, index=True)
+    breakfast_guests = Column(Integer, nullable=True)  # # of guests eating breakfast (0..guests_count)
+
 
 class CheckIn(Base):
     __tablename__ = "checkins"
@@ -340,8 +344,11 @@ class Property(Base):
     check_in_start = Column(String, default="07:00")
     check_in_end = Column(String, default="22:00")
     check_out_time = Column(String, default="10:00")
-    breakfast_included = Column(Integer, default=0)
+    breakfast_included = Column(Integer, default=0)  # DEPRECATED v1.7: use meals_enabled + meal_inclusion_mode instead. Remove in v1.8.
     parking_available = Column(Integer, default=1)
+    # v1.7.0 — Meal Plan Configuration (Phase 4)
+    meals_enabled = Column(Integer, default=0)  # master on/off for meal features
+    meal_inclusion_mode = Column(String, nullable=True)  # INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
     timezone = Column(String, default="America/Asuncion")
     currency = Column(String, default="PYG")
     address = Column(String, nullable=True)
@@ -448,6 +455,36 @@ class AjusteInventario(Base):
     notes = Column(String, nullable=True)
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+
+
+class MealPlan(Base):
+    """Meal plan catalog (v1.7.0 — Phase 4).
+
+    Plans represent breakfast / half-board / full-board offerings. A plan has
+    either a per-person OR per-room per-night surcharge. `SOLO_HABITACION` is
+    always seeded with zero surcharge so the reservation form has a fallback.
+
+    `applies_to_mode` filters which plans are valid under the current hotel
+    `meal_inclusion_mode`:
+      - ANY:                valid always (e.g. SOLO_HABITACION)
+      - INCLUIDO:           visible only when mode=INCLUIDO (auto-seeded CON_DESAYUNO)
+      - OPCIONAL_PERSONA:   visible when mode=OPCIONAL_PERSONA
+      - OPCIONAL_HABITACION: visible when mode=OPCIONAL_HABITACION
+    """
+    __tablename__ = "meal_plans"
+    id = Column(String, primary_key=True)
+    property_id = Column(String, ForeignKey("properties.id"), nullable=False, index=True)
+    code = Column(String, nullable=False)  # CON_DESAYUNO, MEDIA_PENSION, SOLO_HABITACION, etc.
+    name = Column(String, nullable=False)  # Display label
+    description = Column(String, nullable=True)
+    surcharge_per_person = Column(Float, nullable=False, default=0.0)  # PYG per person per night
+    surcharge_per_room = Column(Float, nullable=False, default=0.0)  # PYG per room per night
+    applies_to_mode = Column(String, nullable=False, default="ANY")  # ANY | INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
+    is_system = Column(Integer, nullable=False, default=0)  # 1 = seeded/protected from deletion
+    is_active = Column(Integer, nullable=False, default=1, index=True)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class AIAgentPermission(Base):

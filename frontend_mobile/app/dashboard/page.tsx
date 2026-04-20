@@ -2,14 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getHotelConfig } from '@/services/settings';
+import { getHotelConfig, getMealsConfig, type MealsConfig } from '@/services/settings';
 import { useAuth } from '@/hooks/useAuth';
 import { getSummary, ChannelManagerSummary } from '@/services/channels';
+import { getKitchenReport } from '@/services/meals';
 
 export default function DashboardPage() {
     const { isLoading, logout } = useAuth({ required: true });
     const [hotelName, setHotelName] = useState('Mi Hotel');
     const [chSummary, setChSummary] = useState<ChannelManagerSummary | null>(null);
+    const [mealsConfig, setMealsConfig] = useState<MealsConfig | null>(null);
+    const [breakfastsToday, setBreakfastsToday] = useState<number | null>(null);
 
     // Load hotel name on mount
     useEffect(() => {
@@ -18,6 +21,16 @@ export default function DashboardPage() {
         });
         // Load channel manager summary in parallel (non-blocking)
         getSummary().then(setChSummary).catch(() => setChSummary(null));
+        // Meals config (non-blocking). When enabled, fetch today's breakfast count.
+        getMealsConfig().then((cfg) => {
+            setMealsConfig(cfg);
+            if (cfg.meals_enabled) {
+                const today = new Date().toISOString().slice(0, 10);
+                getKitchenReport(today)
+                    .then((rep) => setBreakfastsToday(rep.total_with_breakfast))
+                    .catch(() => setBreakfastsToday(null));
+            }
+        }).catch(() => setMealsConfig(null));
     }, []);
 
     const chErrors = (chSummary?.error ?? 0) + (chSummary?.warning ?? 0);
@@ -134,6 +147,26 @@ export default function DashboardPage() {
                         </div>
                         <span className="text-gray-900 font-medium text-sm">Caja &amp; Pagos</span>
                     </Link>
+
+                    {/* Cocina / Desayunos (v1.7.0 — Phase 4) — only when meals enabled */}
+                    {mealsConfig?.meals_enabled && (
+                        <Link
+                            href="/dashboard/meals"
+                            className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col items-center gap-3 hover:bg-gray-50 transition-all duration-200 active:scale-95 shadow-sm"
+                        >
+                            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center shadow-lg">
+                                <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                            </div>
+                            <span className="text-gray-900 font-medium text-sm">Cocina</span>
+                            <span className="text-xs text-gray-500">
+                                {breakfastsToday !== null
+                                    ? `Desayunos hoy: ${breakfastsToday}`
+                                    : 'Ver reporte'}
+                            </span>
+                        </Link>
+                    )}
 
                     {/* Channel Manager (v1.5.0) */}
                     <Link

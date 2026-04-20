@@ -102,3 +102,72 @@ class SettingsService:
             "check_out_time": prop.check_out_time or "10:00",
             "breakfast_included": bool(prop.breakfast_included)
         }
+
+    # ==================================================================
+    # v1.7.0 — Meal service configuration (Phase 4)
+    # ==================================================================
+    VALID_MEAL_MODES = {"INCLUIDO", "OPCIONAL_PERSONA", "OPCIONAL_HABITACION"}
+
+    @staticmethod
+    @with_db
+    def get_meals_config(db: Session = None, property_id: str = "los-monges") -> dict:
+        """Return the hotel's meal service configuration.
+
+        Shape: {meals_enabled: bool, meal_inclusion_mode: str|None}
+
+        Hotels that don't serve meals see `meals_enabled=False` and should
+        hide ALL meal-related UI. The mode is only meaningful when enabled.
+        """
+        from database import Property
+        prop = db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            return {"meals_enabled": False, "meal_inclusion_mode": None}
+        return {
+            "meals_enabled": bool(prop.meals_enabled or 0),
+            "meal_inclusion_mode": prop.meal_inclusion_mode,
+        }
+
+    @staticmethod
+    @with_db
+    def set_meals_config(
+        db: Session,
+        meals_enabled: bool,
+        meal_inclusion_mode: str = None,
+        property_id: str = "los-monges",
+    ) -> dict:
+        """Update the hotel's meal service config and seed system plans.
+
+        When enabling or changing mode, `MealPlanService.seed_system_plans`
+        is called to ensure SOLO_HABITACION (always) and CON_DESAYUNO
+        (for INCLUIDO) exist.
+        """
+        from database import Property
+        # Validate mode
+        if meals_enabled and meal_inclusion_mode not in SettingsService.VALID_MEAL_MODES:
+            raise ValueError(
+                f"meal_inclusion_mode debe ser uno de {SettingsService.VALID_MEAL_MODES} "
+                f"cuando meals_enabled=True"
+            )
+
+        prop = db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Property no encontrada: {property_id}")
+
+        prop.meals_enabled = 1 if meals_enabled else 0
+        prop.meal_inclusion_mode = meal_inclusion_mode if meals_enabled else None
+        db.commit()
+
+        # Seed system plans (idempotent)
+        if meals_enabled:
+            from services.meal_plan_service import MealPlanService
+            MealPlanService.seed_system_plans(
+                db=db, property_id=property_id, mode=meal_inclusion_mode
+            )
+
+        logger.info(
+            f"Meals config updated for {property_id}: enabled={meals_enabled}, mode={meal_inclusion_mode}"
+        )
+        return {
+            "meals_enabled": bool(prop.meals_enabled),
+            "meal_inclusion_mode": prop.meal_inclusion_mode,
+        }

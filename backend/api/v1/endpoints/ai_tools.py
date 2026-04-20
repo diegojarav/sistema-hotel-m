@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 # Import services from root (Hybrid Monolith)
-from services import ReservationService, CajaService, TransaccionService, ProductService, ConsumoService
+from services import ReservationService, CajaService, TransaccionService, ProductService, ConsumoService, KitchenReportService, SettingsService
 
 
 # ==========================================
@@ -1122,6 +1122,86 @@ def consumos_habitacion(query: Optional[str] = None) -> str:
 
 
 # ==========================================
+# TOOL 17: Reporte diario de cocina (Phase 4 — v1.7.0)
+# ==========================================
+
+def reporte_cocina(fecha: Optional[str] = None) -> str:
+    """
+    Reporte diario de cocina con detalle completo por habitación.
+
+    **USA ESTA HERRAMIENTA PARA CUALQUIER pregunta sobre desayunos, comidas,
+    cocina, pensión o plan alimenticio** — incluso cuando la pregunta es sobre
+    una persona o habitación específica. El reporte incluye TODAS las habitaciones
+    activas con nombre del huésped, número de habitación, plan de comidas y
+    cantidad de desayunos por habitación. Si necesitas saber si un huésped o
+    habitación específica tiene desayuno, llama a esta herramienta y luego busca
+    la respuesta en el reporte que retorna.
+
+    Si el hotel no tiene habilitado el servicio de comidas, retorna
+    "Servicio de comidas no habilitado" — responde eso mismo al usuario.
+
+    Args:
+        fecha: Fecha en formato YYYY-MM-DD. Si no se pasa, usa mañana (planificación).
+
+    Returns:
+        String multi-línea con:
+          - Total de desayunos del día
+          - Modalidad (INCLUIDO / OPCIONAL_PERSONA / OPCIONAL_HABITACION)
+          - Lista de habitaciones: "Hab <código> — <huésped>: <desayunos>/<pax> · <plan>"
+          - Total de huéspedes sin desayuno (si aplica)
+
+    Examples:
+        - "¿Cuántos desayunos hay mañana?" → reporte_cocina()
+        - "¿Quiénes desayunan el 20/04?" → reporte_cocina("2026-04-20")
+        - "Juan Pérez tiene desayuno mañana?" → reporte_cocina() y busca "Juan Pérez" en el resultado
+        - "La habitación DF-01 tiene desayuno?" → reporte_cocina() y busca "DF-01" en el resultado
+        - "Qué plan tiene Maria García?" → reporte_cocina() y busca "Maria García"
+        - "Reporte de cocina hoy" → reporte_cocina(date.today().isoformat())
+    """
+    try:
+        config = SettingsService.get_meals_config()
+        if not config.get("meals_enabled"):
+            return "Servicio de comidas no habilitado en este hotel."
+
+        if fecha:
+            try:
+                target = datetime.strptime(fecha, "%Y-%m-%d").date()
+            except ValueError:
+                return f"Fecha inválida: {fecha}. Usa formato YYYY-MM-DD."
+        else:
+            target = date.today() + timedelta(days=1)
+
+        report = KitchenReportService.get_daily_report(fecha=target)
+        rooms = report.get("rooms", [])
+        total_bf = report.get("total_with_breakfast", 0)
+        total_without = report.get("total_without", 0)
+        mode = report.get("mode") or "-"
+
+        lines = [
+            f"Reporte de cocina — {target.strftime('%d/%m/%Y')}",
+            f"Modalidad: {mode}",
+            f"Total desayunos: {total_bf}",
+        ]
+        if total_without > 0:
+            lines.append(f"Sin desayuno: {total_without} huéspedes")
+        if not rooms:
+            lines.append("\nSin reservas activas para esta fecha.")
+            return "\n".join(lines)
+
+        lines.append("\nDetalle por habitación:")
+        for row in rooms:
+            marker = " (hoy sale)" if row.get("checkout_today") else ""
+            plan_label = row.get("plan_name") or row.get("plan_code") or "-"
+            lines.append(
+                f"  Hab {row['internal_code']} — {row['guest_name']}: "
+                f"{row['breakfast_guests']}/{row['guests_count']} pax · {plan_label}{marker}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error al generar reporte de cocina: {e}"
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -1142,4 +1222,5 @@ TOOLS_LIST = [
     resumen_ingresos_por_metodo,
     consultar_inventario,
     consumos_habitacion,
+    reporte_cocina,
 ]

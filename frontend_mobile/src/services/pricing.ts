@@ -66,7 +66,9 @@ export async function calculatePrice(
     stayDays: number,
     clientTypeId: string,
     roomId?: string,
-    seasonId?: string
+    seasonId?: string,
+    mealPlanId?: string,
+    breakfastGuests?: number,
 ): Promise<PriceCalculationResponse> {
     return apiPost<PriceCalculationResponse>('/pricing/calculate', {
         category_id: categoryId,
@@ -75,5 +77,7 @@ export async function calculatePrice(
         client_type_id: clientTypeId,
         room_id: roomId,
         season_id: seasonId,
+        meal_plan_id: mealPlanId,
+        breakfast_guests: breakfastGuests,
     });
 }

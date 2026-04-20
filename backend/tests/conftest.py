@@ -35,6 +35,7 @@ from database import (
     SystemSetting, ICalFeed, PriceCalculation,
     CajaSesion, Transaccion,
     Producto, Consumo, AjusteInventario,
+    MealPlan,
 )
 
 # ==========================================
@@ -654,3 +655,93 @@ def seed_n_reservations(db_session, seed_rooms):
         return reservations
 
     return _seed
+
+
+# ==========================================
+# v1.7.0 — Meal Plan fixtures (Phase 4)
+# ==========================================
+
+@pytest.fixture
+def enable_meals(db_session, seed_property):
+    """Factory that enables meals on the property with a given mode and seeds
+    the standard system plans + a demo CON_DESAYUNO plan at a custom surcharge.
+
+    Usage:
+        def test_foo(enable_meals):
+            plans = enable_meals(mode='OPCIONAL_PERSONA', per_person_surcharge=30000)
+            # plans['solo'], plans['con_desayuno']
+    """
+    import uuid as _uuid
+
+    def _enable(
+        mode: str = "OPCIONAL_PERSONA",
+        per_person_surcharge: float = 30000.0,
+        per_room_surcharge: float = 0.0,
+    ):
+        from services.settings_service import SettingsService
+
+        SettingsService.set_meals_config(
+            db=db_session,
+            meals_enabled=True,
+            meal_inclusion_mode=mode,
+            property_id="los-monges",
+        )
+
+        # Fetch or create CON_DESAYUNO for the chosen mode (except INCLUIDO where
+        # seed_system_plans already creates it with 0 surcharge)
+        con_desayuno = (
+            db_session.query(MealPlan)
+            .filter(
+                MealPlan.property_id == "los-monges",
+                MealPlan.code == "CON_DESAYUNO",
+            )
+            .first()
+        )
+        if not con_desayuno and mode != "INCLUIDO":
+            con_desayuno = MealPlan(
+                id=str(_uuid.uuid4()),
+                property_id="los-monges",
+                code="CON_DESAYUNO",
+                name="Con desayuno",
+                surcharge_per_person=float(per_person_surcharge),
+                surcharge_per_room=float(per_room_surcharge),
+                applies_to_mode=mode,
+                is_system=0,
+                is_active=1,
+                sort_order=1,
+            )
+            db_session.add(con_desayuno)
+            db_session.commit()
+        elif con_desayuno and mode != "INCLUIDO":
+            con_desayuno.surcharge_per_person = float(per_person_surcharge)
+            con_desayuno.surcharge_per_room = float(per_room_surcharge)
+            con_desayuno.applies_to_mode = mode
+            db_session.commit()
+
+        solo = (
+            db_session.query(MealPlan)
+            .filter(
+                MealPlan.property_id == "los-monges",
+                MealPlan.code == "SOLO_HABITACION",
+            )
+            .first()
+        )
+        return {"solo": solo, "con_desayuno": con_desayuno}
+
+    return _enable
+
+
+@pytest.fixture
+def auth_header(client, seed_users):
+    """Factory that returns an Authorization header for a given username."""
+
+    def _login(username: str, password: str) -> dict:
+        r = client.post(
+            "/api/v1/auth/login",
+            data={"username": username, "password": password},
+        )
+        assert r.status_code == 200, r.text
+        token = r.json()["access_token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    return _login

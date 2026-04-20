@@ -27,13 +27,15 @@ HOTEL_DIR = os.path.join(_BACKEND_DIR, "hotel")
 RESERVAS_DIR = os.path.join(HOTEL_DIR, "Reservas")
 CLIENTES_DIR = os.path.join(HOTEL_DIR, "Clientes")
 CUENTAS_DIR = os.path.join(HOTEL_DIR, "Cuentas")  # v1.6.0 — Phase 3 folios
+REPORTES_COCINA_DIR = os.path.join(HOTEL_DIR, "Reportes_Cocina")  # v1.7.0 — Phase 4
 
 
 def _ensure_dirs():
-    """Create hotel/Reservas/, hotel/Clientes/, hotel/Cuentas/ if missing."""
+    """Create hotel/Reservas/, hotel/Clientes/, hotel/Cuentas/, hotel/Reportes_Cocina/ if missing."""
     os.makedirs(RESERVAS_DIR, exist_ok=True)
     os.makedirs(CLIENTES_DIR, exist_ok=True)
     os.makedirs(CUENTAS_DIR, exist_ok=True)
+    os.makedirs(REPORTES_COCINA_DIR, exist_ok=True)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -494,6 +496,115 @@ class DocumentService:
 
         pdf.output(filepath)
         logger.info(f"Folio PDF generated: {filepath}")
+        return filepath
+
+    @staticmethod
+    @with_db
+    def generate_kitchen_report_pdf(
+        db: Session,
+        fecha,
+        property_id: str = "los-monges",
+    ) -> Optional[str]:
+        """
+        Generate the daily kitchen report PDF (v1.7.0 — Phase 4).
+
+        Returns None when meal service is disabled for the hotel (no PDF
+        generated, caller should show the "Servicio de comidas no habilitado"
+        message instead).
+
+        Saved to backend/hotel/Reportes_Cocina/cocina_YYYYMMDD.pdf.
+        """
+        from datetime import date as _date
+        from services.kitchen_report_service import KitchenReportService
+
+        _ensure_dirs()
+
+        # Coerce string → date for resilience
+        if isinstance(fecha, str):
+            fecha = _date.fromisoformat(fecha)
+
+        report = KitchenReportService.get_daily_report(
+            db=db, fecha=fecha, property_id=property_id
+        )
+        if not report.get("enabled"):
+            logger.info(f"Kitchen PDF skipped — meals disabled for {property_id}")
+            return None
+
+        hotel_info = DocumentService._get_hotel_info(db)
+        pdf = HotelPDF(
+            hotel_name=hotel_info["name"],
+            hotel_address=hotel_info["address"],
+            hotel_phone=hotel_info["phone"],
+            hotel_email=hotel_info["email"],
+        )
+        pdf.add_page()
+
+        # Title
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "REPORTE DE COCINA",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        pdf.set_font("Helvetica", "", 11)
+        pdf.cell(0, 6, f"Fecha: {fecha.strftime('%d/%m/%Y')}",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        pdf.ln(4)
+
+        # Summary
+        pdf.section_title("Resumen")
+        pdf.ln(2)
+        pdf.field_row("Total desayunos", str(report["total_with_breakfast"]))
+        pdf.field_row("Sin desayuno", str(report["total_without"]))
+        mode_label = {
+            "INCLUIDO": "Desayuno incluido en la tarifa",
+            "OPCIONAL_PERSONA": "Opcional por persona",
+            "OPCIONAL_HABITACION": "Opcional por habitación",
+        }.get(report.get("mode"), "-")
+        pdf.field_row("Modalidad", mode_label)
+        pdf.ln(4)
+
+        # Detail table
+        pdf.section_title("Detalle por habitación")
+        pdf.ln(2)
+        # Column headers
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(22, 7, "Hab.", border=0, fill=True)
+        pdf.cell(60, 7, "Huesped", border=0, fill=True)
+        pdf.cell(14, 7, "Pax", border=0, fill=True, align="C")
+        pdf.cell(14, 7, "Desay.", border=0, fill=True, align="C")
+        pdf.cell(50, 7, "Plan", border=0, fill=True)
+        pdf.cell(0, 7, "Check-out", border=0, fill=True,
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", "", 9)
+
+        if not report["rooms"]:
+            pdf.set_font("Helvetica", "I", 9)
+            pdf.cell(0, 6, "Sin reservas activas para esta fecha.",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        else:
+            for row in report["rooms"]:
+                # Highlight checkout-today rows
+                if row.get("checkout_today"):
+                    pdf.set_fill_color(255, 248, 220)
+                    fill = True
+                else:
+                    fill = False
+                pdf.cell(22, 6, str(row["internal_code"])[:10], fill=fill)
+                pdf.cell(60, 6, str(row["guest_name"])[:30], fill=fill)
+                pdf.cell(14, 6, str(row["guests_count"]), align="C", fill=fill)
+                pdf.cell(14, 6, str(row["breakfast_guests"]), align="C", fill=fill)
+                pdf.cell(50, 6, str(row.get("plan_name") or "-")[:28], fill=fill)
+                checkout_label = row["checkout_date"]
+                if row.get("checkout_today"):
+                    checkout_label += " (hoy)"
+                pdf.cell(0, 6, checkout_label, fill=fill,
+                         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(4)
+
+        # Filename + save
+        filename = f"cocina_{fecha.strftime('%Y%m%d')}.pdf"
+        filepath = os.path.join(REPORTES_COCINA_DIR, filename)
+        pdf.output(filepath)
+        logger.info(f"Kitchen report PDF generated: {filepath}")
         return filepath
 
     @staticmethod

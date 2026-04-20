@@ -21,7 +21,8 @@ import { createReservation } from '@/services/reservations';
 import { downloadReservationPdf } from '@/services/documents';
 import { scanDocument } from '@/services/vision';
 import { useAuth } from '@/hooks/useAuth';
-import { getPropertySettings, PropertySettings } from '@/services/settings';
+import { getPropertySettings, PropertySettings, getMealsConfig, MealsConfig } from '@/services/settings';
+import { listMealPlans, MealPlan } from '@/services/meals';
 
 import DocumentScanner from './components/DocumentScanner';
 import GuestForm from './components/GuestForm';
@@ -120,6 +121,12 @@ export default function NewReservationPage() {
     const [createdIds, setCreatedIds] = useState<string[]>([]);
     const [propertySettings, setPropertySettings] = useState<PropertySettings | null>(null);
 
+    // v1.7.0 — Meal Plan state (Phase 4). Renders conditionally on mealsConfig.
+    const [mealsConfig, setMealsConfig] = useState<MealsConfig | null>(null);
+    const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
+    const [selectedMealPlanId, setSelectedMealPlanId] = useState<string>(''); // '' = SOLO_HABITACION default
+    const [breakfastGuests, setBreakfastGuests] = useState<number>(1);
+
     const calculateNights = (): number => {
         if (!formData.checkIn || !formData.checkOut) return 1;
         const [y1, m1, d1] = formData.checkIn.split('-').map(Number);
@@ -141,20 +148,32 @@ export default function NewReservationPage() {
 
         async function loadStaticData() {
             try {
-                const [categoriesData, clientTypesData, seasonsData, settingsData] = await Promise.all([
+                const [categoriesData, clientTypesData, seasonsData, settingsData, mealsCfg] = await Promise.all([
                     getRoomCategories(),
                     getClientTypes(),
                     getSeasons(),
                     getPropertySettings(),
+                    getMealsConfig(),
                 ]);
                 setCategories(categoriesData);
                 setClientTypes(clientTypesData);
                 setSeasons(seasonsData);
                 setPropertySettings(settingsData);
+                setMealsConfig(mealsCfg);
 
                 if (clientTypesData.length > 0) {
                     const defaultCT = clientTypesData.find(ct => ct.name.toLowerCase().includes('particular')) || clientTypesData[0];
                     setSelectedClientType(defaultCT);
+                }
+
+                // Load meal plans when meals are enabled — filtered by current mode
+                if (mealsCfg.meals_enabled && mealsCfg.meal_inclusion_mode) {
+                    try {
+                        const plans = await listMealPlans(mealsCfg.meal_inclusion_mode);
+                        setMealPlans(plans.filter(p => p.is_active));
+                    } catch (err) {
+                        console.error('Error loading meal plans:', err);
+                    }
                 }
             } catch (err) {
                 console.error('Error loading static data:', err);
@@ -206,11 +225,30 @@ export default function NewReservationPage() {
                 roomsByCategory.get(catId)!.push(roomId);
             }
 
+            // v1.7.0 — Meal plan propagates into pricing only when relevant.
+            // For mode=INCLUIDO, surcharge is 0, but we still pass the id so the
+            // reservation gets stored correctly. For OPCIONAL_*, breakfastGuests
+            // drives the per-person surcharge.
+            const effectivePlanId = selectedMealPlanId || undefined;
+            const effectiveBreakfastGuests =
+                mealsConfig?.meal_inclusion_mode === 'OPCIONAL_PERSONA'
+                    ? breakfastGuests
+                    : undefined;
+
             try {
                 // Calculate price for each unique category in parallel
                 const promises = Array.from(roomsByCategory.entries()).map(
                     ([catId, catRoomIds]) =>
-                        calculatePrice(catId, formData.checkIn, nights, selectedClientType.id, undefined, selectedSeason?.id)
+                        calculatePrice(
+                            catId,
+                            formData.checkIn,
+                            nights,
+                            selectedClientType.id,
+                            undefined,
+                            selectedSeason?.id,
+                            effectivePlanId,
+                            effectiveBreakfastGuests,
+                        )
                             .then(res => {
                                 const cat = categories.find(c => c.id === catId);
                                 return {
@@ -239,7 +277,7 @@ export default function NewReservationPage() {
 
         fetchPrices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedClientType, selectedSeason, selectedRooms, formData.checkIn, formData.checkOut]);
+    }, [selectedClientType, selectedSeason, selectedRooms, formData.checkIn, formData.checkOut, selectedMealPlanId, breakfastGuests]);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -340,6 +378,12 @@ export default function NewReservationPage() {
                 vehicle_plate: formData.vehiclePlate || null,
                 source: formData.source,
                 paid: paid,
+                // v1.7.0 — Meal Plan (Phase 4) — only sent when user selected a plan
+                meal_plan_id: selectedMealPlanId || undefined,
+                breakfast_guests:
+                    mealsConfig?.meal_inclusion_mode === 'OPCIONAL_PERSONA'
+                        ? breakfastGuests
+                        : undefined,
                 // FEAT-LINK-01: Identity fields from document scan (auto-creates CheckIn)
                 document_number: formData.documento || '',
                 guest_last_name: formData.apellidos || '',
@@ -456,6 +500,52 @@ export default function NewReservationPage() {
                         selectedSeason={selectedSeason}
                         onSeasonChange={setSelectedSeason}
                     />
+
+                    {/* v1.7.0 — Meal Plan selector (only when enabled AND mode != INCLUIDO) */}
+                    {mealsConfig?.meals_enabled &&
+                     mealsConfig.meal_inclusion_mode !== 'INCLUIDO' && (
+                        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-200">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                <span>🍽️</span> Plan de comidas
+                            </h3>
+                            <select
+                                value={selectedMealPlanId}
+                                onChange={(e) => setSelectedMealPlanId(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                            >
+                                <option value="">Solo habitación (sin comidas)</option>
+                                {mealPlans
+                                    .filter(p => p.code !== 'SOLO_HABITACION')
+                                    .map(p => (
+                                        <option key={p.id} value={p.id}>
+                                            {p.name}
+                                            {mealsConfig.meal_inclusion_mode === 'OPCIONAL_PERSONA' &&
+                                                p.surcharge_per_person > 0
+                                                ? ` — ${p.surcharge_per_person.toLocaleString('es-PY')} Gs/pax/noche`
+                                                : p.surcharge_per_room > 0
+                                                ? ` — ${p.surcharge_per_room.toLocaleString('es-PY')} Gs/hab/noche`
+                                                : ''}
+                                        </option>
+                                    ))}
+                            </select>
+                            {selectedMealPlanId &&
+                             mealsConfig.meal_inclusion_mode === 'OPCIONAL_PERSONA' && (
+                                <div className="mt-3">
+                                    <label className="text-xs text-gray-600 block mb-1">
+                                        Cantidad de huéspedes con desayuno
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={10}
+                                        value={breakfastGuests}
+                                        onChange={(e) => setBreakfastGuests(Math.max(1, Number(e.target.value) || 1))}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <RoomSelection
                         formData={formData}

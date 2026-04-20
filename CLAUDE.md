@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 466 tests (v1.6.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 491 tests (v1.7.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory + 44 meal plans & kitchen) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -315,7 +315,51 @@ If the same UID reappears in a later sync (transient OTA glitch), the flag is au
 - **Mobile**: `RegistrarConsumoModal` on reservation detail (grouped-by-category selector + qty stepper + low-stock warnings). New "Consumos" section with itemized list + "Agregar consumo" button. New "Descargar Cuenta (folio)" button.
 - **PC**: new `frontend_pc/pages/95_📦_Inventario.py` with 4 tabs (Productos, Stock y ajustes, Stock bajo, Mas vendidos + CSV export)
 
-## AI Agent Tools (16 functions in ai_tools.py)
+## Meal Plan Configuration & Kitchen Reports (v1.7.0 — Phase 4)
+
+### Key principle: **optional everywhere**
+Hotels that don't serve meals keep `meals_enabled=false` (the default). In that mode the system behaves **exactly as pre-Phase-4** — no UI changes on mobile, no plan selector, no kitchen page, no AI tool activity. This is a zero-regression gate and is covered by tests in `test_meal_config.py` + `test_kitchen_report.py::test_disabled_returns_empty`.
+
+### 3 modes (when enabled)
+| Mode | Behavior | Reservation form | Kitchen report |
+|---|---|---|---|
+| `INCLUIDO` | Breakfast built into room rate. No plan selector shown. Backend auto-assigns `CON_DESAYUNO` and counts all guests. | Hidden | All active overnight guests |
+| `OPCIONAL_PERSONA` | Per-person-per-night surcharge. Form shows plan dropdown + "Desayunos" input. | Visible | Only guests with `breakfast_guests > 0` |
+| `OPCIONAL_HABITACION` | Flat per-room-per-night surcharge. Form shows plan dropdown (no pax field). | Visible | Only rooms with a non-SOLO plan |
+
+### Tables
+- `properties` — extended with `meals_enabled` (Integer, default 0) + `meal_inclusion_mode` (String, nullable). Legacy `breakfast_included` kept for back-compat (auto-migrated by 005 to `meals_enabled=1, mode=INCLUIDO`).
+- `meal_plans` (NEW) — catalog: `id, property_id, code, name, surcharge_per_person, surcharge_per_room, applies_to_mode, is_system, is_active, sort_order`. Unique `(property_id, code)`. `SOLO_HABITACION` always auto-seeded.
+- `reservations` — extended with `meal_plan_id` (nullable FK) + `breakfast_guests` (nullable Integer).
+
+### Services
+- `MealPlanService` (`backend/services/meal_plan_service.py`) — list/get/create/update/soft_delete + `seed_system_plans(property_id, mode)`. System plans (SOLO_HABITACION, auto-seeded CON_DESAYUNO for INCLUIDO) cannot be deleted.
+- `SettingsService.get_meals_config` / `set_meals_config` — triggers `seed_system_plans` on enable/mode-change.
+- `KitchenReportService.get_daily_report(fecha)` — returns `{enabled, mode, rooms: [...], total_with_breakfast, total_without}`. Date logic: guest slept night of `fecha - 1 day` (so checkout-today IS included, checkin-today is NOT).
+- `DocumentService.generate_kitchen_report_pdf(fecha)` — saves to `backend/hotel/Reportes_Cocina/cocina_YYYYMMDD.pdf`.
+- `PricingService.calculate_price()` — new optional `meal_plan_id` + `breakfast_guests` args. Surcharge injected between season modifier and final rounding. INCLUIDO plans (surcharge=0) are a no-op → no modifier row added.
+
+### API endpoints
+- `GET /api/v1/settings/meals-config` — public (read-only)
+- `PUT /api/v1/settings/meals-config` — admin only; seeds plans on enable
+- `GET/POST/PUT/DELETE /api/v1/meal-plans` — read any auth, writes admin-only
+- `GET /api/v1/reportes/cocina?fecha=YYYY-MM-DD` — admin/recepcion/supervisor/gerencia/**cocina**; default `fecha`=mañana
+- `GET /api/v1/reportes/cocina/pdf?fecha=YYYY-MM-DD` — same roles, returns `FileResponse`
+
+### Cocina role
+New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Other endpoints' `require_role()` whitelists unchanged, so cocina users hit 403 everywhere else. No DB migration needed — `require_role` accepts any role string.
+
+### Frontend
+- **PC**: `09_🔧_Configuracion.py` gains a 3-step "Configuración de Comidas" section (toggle → mode → plans editor). New `94_👨‍🍳_Cocina.py` page with date picker (default: tomorrow), metric cards, detail table, CSV + PDF export. Shows "Servicio no habilitado" one-liner when disabled.
+- **Mobile**: new `/dashboard/meals/page.tsx` (read-only; Hoy/Mañana toggle). Dashboard tile "Cocina — Desayunos hoy: N" conditionally renders only when `meals_enabled=true`. Reservation form conditionally shows plan selector + breakfast_guests input when mode ≠ INCLUIDO.
+
+### Critical gotchas
+- **Never show meal UI when `meals_enabled=false`.** Every mobile surface must check `getMealsConfig().meals_enabled` before rendering. Every backend path that doesn't check this flag risks leaking "0 desayunos" widgets to hotels that don't serve meals.
+- **Kitchen date logic: night-of-(D-1)**, not "is staying on D". A guest checking in on D is NOT eating breakfast on D. A guest checking out on D IS. `KitchenReportService.get_daily_report` encodes this — don't re-invent it.
+- **System plans are un-deletable.** `MealPlanService.soft_delete` raises on `is_system=1`. Set `is_active=0` via update if you need to hide one.
+- **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Plan removal in v1.8 via migration 006.
+
+## AI Agent Tools (17 functions in ai_tools.py)
 
 1. `check_availability` — Room availability for date/stay
 2. `get_hotel_rates` — Pricing by category
@@ -333,6 +377,7 @@ If the same UID reappears in a later sync (transient OTA glitch), the flag is au
 14. `resumen_ingresos_por_metodo` — Income breakdown by payment method — **v1.4.0**
 15. `consultar_inventario` — Product stock query; low-stock list or name filter — **v1.6.0**
 16. `consumos_habitacion` — Consumos for a reservation/guest/room — **v1.6.0**
+17. `reporte_cocina` — Daily breakfast/meal count (or "no habilitado" if disabled) — **v1.7.0**
 
 ## Two-Repo Architecture
 

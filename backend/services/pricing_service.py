@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from database import Room, RoomCategory, ClientType, PricingSeason
-from typing import List, Dict, Any
+from database import Room, RoomCategory, ClientType, PricingSeason, MealPlan, Property
+from typing import List, Dict, Any, Optional
 from datetime import date
 
 from logging_config import get_logger
@@ -23,7 +23,9 @@ class PricingService:
         stay_days: int,
         client_type_id: str,
         room_id: str = None,
-        season_id: str = None
+        season_id: str = None,
+        meal_plan_id: Optional[str] = None,
+        breakfast_guests: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Calculates the final price with all modifiers.
@@ -120,6 +122,48 @@ class PricingService:
                 "percent": pct_change,
                 "amount": season_adjustment
             })
+
+        # 4b. Meal plan surcharge (v1.7.0 — Phase 4)
+        #
+        # Adds a per-night, per-person or per-room surcharge for the chosen
+        # meal plan. Critical invariant: **the hotel's current `meal_inclusion_mode`
+        # is the source of truth**, not the plan's own `applies_to_mode`.
+        #
+        # Why: when admins switch modes (e.g. OPCIONAL_PERSONA → INCLUIDO),
+        # older plans may still carry non-zero surcharges. Reading the plan's
+        # own mode would charge breakfast even though the hotel now includes
+        # it in the room rate. Reading the hotel's mode guarantees:
+        #   - meals disabled OR INCLUIDO → surcharge is ALWAYS 0 (no modifier row)
+        #   - OPCIONAL_PERSONA           → per-person × breakfast_guests × nights
+        #   - OPCIONAL_HABITACION        → flat per-room × nights
+        if meal_plan_id:
+            prop = db.query(Property).filter(Property.id == property_id).first()
+            hotel_mode = prop.meal_inclusion_mode if prop else None
+            meals_enabled = bool(prop.meals_enabled) if prop else False
+
+            # If meals are disabled at the hotel level OR in INCLUIDO mode,
+            # surcharge is zero — skip entirely (no modifier row).
+            if meals_enabled and hotel_mode in ("OPCIONAL_PERSONA", "OPCIONAL_HABITACION"):
+                plan = db.query(MealPlan).filter(
+                    MealPlan.id == meal_plan_id,
+                    MealPlan.is_active == 1,
+                ).first()
+                if plan:
+                    if hotel_mode == "OPCIONAL_PERSONA":
+                        pax = int(breakfast_guests or 0)
+                        surcharge_total = float(plan.surcharge_per_person or 0) * pax * stay_days
+                        detail = f"{pax} pax × {stay_days} nts × {int(plan.surcharge_per_person or 0):,} Gs"
+                    else:  # OPCIONAL_HABITACION
+                        surcharge_total = float(plan.surcharge_per_room or 0) * stay_days
+                        detail = f"{stay_days} nts × {int(plan.surcharge_per_room or 0):,} Gs"
+                    if surcharge_total > 0:
+                        current_total += surcharge_total
+                        breakdown["modifiers"].append({
+                            "name": f"Plan: {plan.name}",
+                            "percent": 0,
+                            "amount": surcharge_total,
+                            "detail": detail,
+                        })
 
         # 5. Final Rounding
         final_price = max(0, current_total)

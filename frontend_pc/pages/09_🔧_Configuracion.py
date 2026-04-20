@@ -54,6 +54,192 @@ with SessionLocal() as db:
 st.markdown("---")
 
 # ==========================================
+# MEALS CONFIGURATION (v1.7.0 — Phase 4)
+# ==========================================
+st.subheader("🍽️ Configuración de Comidas")
+st.caption(
+    "Habilite esta sección solo si el hotel ofrece comidas (desayuno, "
+    "media pensión, etc.). Si no, déjelo deshabilitado y la UI no mostrará "
+    "nada relacionado con comidas en ninguna parte del sistema."
+)
+
+from services import MealPlanService, MealPlanError
+
+with SessionLocal() as db:
+    _meals_cfg = SettingsService.get_meals_config(db=db)
+
+_meals_enabled_now = _meals_cfg["meals_enabled"]
+_meals_mode_now = _meals_cfg["meal_inclusion_mode"]
+
+_mode_labels = {
+    "INCLUIDO": "Incluido en el precio",
+    "OPCIONAL_PERSONA": "Opcional — recargo por persona/noche",
+    "OPCIONAL_HABITACION": "Opcional — recargo por habitación/noche",
+}
+_mode_options = list(_mode_labels.keys())
+
+with st.form("meals_config_form"):
+    new_meals_enabled = st.toggle(
+        "¿El hotel ofrece servicio de comidas?",
+        value=_meals_enabled_now,
+        help="Si está deshabilitado, ningún widget relacionado con comidas se mostrará.",
+    )
+    if new_meals_enabled:
+        default_mode_idx = _mode_options.index(_meals_mode_now) if _meals_mode_now in _mode_options else 0
+        new_mode = st.radio(
+            "¿Cómo se maneja el desayuno?",
+            options=_mode_options,
+            format_func=lambda x: _mode_labels[x],
+            index=default_mode_idx,
+            horizontal=False,
+        )
+    else:
+        new_mode = None
+
+    submitted = st.form_submit_button("Guardar configuración")
+    if submitted:
+        try:
+            with SessionLocal() as db:
+                SettingsService.set_meals_config(
+                    db=db,
+                    meals_enabled=new_meals_enabled,
+                    meal_inclusion_mode=new_mode,
+                )
+            st.success("✅ Configuración de comidas actualizada.")
+            st.rerun()
+        except ValueError as e:
+            st.error(f"❌ {e}")
+        except Exception as e:
+            st.error(f"❌ Error al guardar: {e}")
+
+# ---- Planes tarifarios (only when OPCIONAL_*) -----------------------
+if _meals_enabled_now and _meals_mode_now in ("OPCIONAL_PERSONA", "OPCIONAL_HABITACION"):
+    st.markdown("#### Planes disponibles")
+    st.caption(
+        "Los recargos se aplican por noche. Para OPCIONAL_PERSONA, el total = recargo × huéspedes × noches. "
+        "Para OPCIONAL_HABITACION es plano por habitación × noches."
+    )
+
+    with SessionLocal() as db:
+        _plans = MealPlanService.list_plans(db=db, include_inactive=True)
+
+    # Filter to plans relevant for the current mode + ANY
+    _visible_plans = [p for p in _plans if p["applies_to_mode"] in (_meals_mode_now, "ANY")]
+
+    if _visible_plans:
+        for plan in _visible_plans:
+            cols = st.columns([2, 2, 2, 1, 1])
+            cols[0].write(f"**{plan['name']}** `{plan['code']}`" + (" 🔒" if plan['is_system'] else ""))
+            if _meals_mode_now == "OPCIONAL_PERSONA":
+                cols[1].write(f"{int(plan['surcharge_per_person']):,} Gs/pax/noche".replace(",", "."))
+            else:
+                cols[1].write(f"{int(plan['surcharge_per_room']):,} Gs/hab/noche".replace(",", "."))
+            cols[2].write("🟢 Activo" if plan["is_active"] else "⚪ Inactivo")
+            if cols[3].button("Editar", key=f"edit_plan_{plan['id']}"):
+                st.session_state["_editing_plan_id"] = plan["id"]
+            if not plan["is_system"]:
+                if cols[4].button("Eliminar", key=f"del_plan_{plan['id']}"):
+                    try:
+                        with SessionLocal() as db:
+                            MealPlanService.soft_delete(db=db, plan_id=plan["id"])
+                        st.success(f"Plan '{plan['name']}' desactivado.")
+                        st.rerun()
+                    except MealPlanError as e:
+                        st.error(str(e))
+            else:
+                cols[4].write(":lock:")
+    else:
+        st.info("Sin planes adicionales.")
+
+    # Edit form
+    _editing_id = st.session_state.get("_editing_plan_id")
+    if _editing_id:
+        with SessionLocal() as db:
+            _editing = MealPlanService.get_plan(db=db, plan_id=_editing_id)
+        if _editing:
+            with st.form(f"edit_plan_form_{_editing_id}"):
+                st.markdown(f"**Editando:** `{_editing['code']}`")
+                e_name = st.text_input("Nombre", value=_editing["name"])
+                e_desc = st.text_area("Descripción", value=_editing.get("description") or "")
+                if _meals_mode_now == "OPCIONAL_PERSONA":
+                    e_surcharge = st.number_input(
+                        "Recargo por persona/noche (Gs)", min_value=0,
+                        value=int(_editing["surcharge_per_person"]), step=1000,
+                    )
+                    e_surcharge_kind = "per_person"
+                else:
+                    e_surcharge = st.number_input(
+                        "Recargo por habitación/noche (Gs)", min_value=0,
+                        value=int(_editing["surcharge_per_room"]), step=1000,
+                    )
+                    e_surcharge_kind = "per_room"
+                cc1, cc2 = st.columns(2)
+                save = cc1.form_submit_button("Guardar")
+                cancel = cc2.form_submit_button("Cancelar")
+                if save:
+                    updates = {
+                        "name": e_name.strip(),
+                        "description": e_desc.strip() or None,
+                    }
+                    if e_surcharge_kind == "per_person":
+                        updates["surcharge_per_person"] = float(e_surcharge)
+                        updates["surcharge_per_room"] = 0.0
+                    else:
+                        updates["surcharge_per_room"] = float(e_surcharge)
+                        updates["surcharge_per_person"] = 0.0
+                    try:
+                        with SessionLocal() as db:
+                            MealPlanService.update_plan(db=db, plan_id=_editing_id, **updates)
+                        st.session_state.pop("_editing_plan_id", None)
+                        st.success("Plan actualizado.")
+                        st.rerun()
+                    except MealPlanError as e:
+                        st.error(str(e))
+                elif cancel:
+                    st.session_state.pop("_editing_plan_id", None)
+                    st.rerun()
+
+    # Add new plan
+    with st.expander("➕ Agregar plan"):
+        with st.form("add_plan_form"):
+            n_code = st.text_input("Código (ej: CON_DESAYUNO, MEDIA_PENSION)", placeholder="UPPER_CASE")
+            n_name = st.text_input("Nombre", placeholder="Con desayuno")
+            n_desc = st.text_area("Descripción (opcional)")
+            if _meals_mode_now == "OPCIONAL_PERSONA":
+                n_surcharge = st.number_input("Recargo por persona/noche (Gs)", min_value=0, value=30000, step=1000)
+                n_kind = "per_person"
+            else:
+                n_surcharge = st.number_input("Recargo por habitación/noche (Gs)", min_value=0, value=30000, step=1000)
+                n_kind = "per_room"
+            submitted = st.form_submit_button("Crear plan")
+            if submitted:
+                try:
+                    with SessionLocal() as db:
+                        MealPlanService.create_plan(
+                            db=db,
+                            property_id="los-monges",
+                            code=n_code.strip().upper(),
+                            name=n_name.strip(),
+                            description=n_desc.strip() or None,
+                            surcharge_per_person=float(n_surcharge) if n_kind == "per_person" else 0.0,
+                            surcharge_per_room=float(n_surcharge) if n_kind == "per_room" else 0.0,
+                            applies_to_mode=_meals_mode_now,
+                            is_system=False,
+                        )
+                    st.success(f"Plan '{n_code}' creado.")
+                    st.rerun()
+                except MealPlanError as e:
+                    st.error(str(e))
+elif _meals_enabled_now and _meals_mode_now == "INCLUIDO":
+    st.info(
+        "✅ Modo **INCLUIDO**: el desayuno está incluido en la tarifa base — "
+        "no se muestran selectores de plan al crear reservas. El reporte de "
+        "cocina cuenta automáticamente a todos los huéspedes activos."
+    )
+
+st.markdown("---")
+
+# ==========================================
 # CHANNEL MANAGER v2 (v1.5.0) — iCal feeds + reviews
 # ==========================================
 st.subheader("📅 Channel Manager — Sincronización iCal")

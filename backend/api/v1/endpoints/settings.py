@@ -5,6 +5,8 @@ Hotel API - System Settings Endpoints
 Endpoints for managing system-wide configuration (White Label support).
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -127,3 +129,62 @@ def get_property_settings(db: Session = Depends(get_db)):
     """Get property configuration (check-in/out times, breakfast policy)."""
     settings = SettingsService.get_property_settings(db=db)
     return PropertySettingsResponse(**settings)
+
+
+# ==========================================
+# v1.7.0 — MEALS CONFIGURATION (Phase 4)
+# ==========================================
+
+class MealsConfigResponse(BaseModel):
+    meals_enabled: bool
+    meal_inclusion_mode: Optional[str] = None  # INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
+
+
+class MealsConfigRequest(BaseModel):
+    meals_enabled: bool
+    meal_inclusion_mode: Optional[str] = Field(
+        None,
+        description="INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION (required when meals_enabled=True)"
+    )
+
+
+@router.get(
+    "/meals-config",
+    response_model=MealsConfigResponse,
+    summary="Get Meals Configuration",
+    description="Hotel meal service configuration (enabled flag + inclusion mode). Public endpoint."
+)
+def get_meals_config(db: Session = Depends(get_db)):
+    """Return the hotel's meal service config. Public so mobile can conditionally
+    render UI widgets without logging in."""
+    cfg = SettingsService.get_meals_config(db=db)
+    return MealsConfigResponse(**cfg)
+
+
+@router.put(
+    "/meals-config",
+    response_model=MealsConfigResponse,
+    summary="Update Meals Configuration",
+    description="Enable/disable meal service and set inclusion mode. Admin-only."
+)
+def set_meals_config(
+    request: MealsConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin"))
+):
+    """Update the hotel's meal service config. Seeds system plans when enabling."""
+    try:
+        cfg = SettingsService.set_meals_config(
+            db=db,
+            meals_enabled=request.meals_enabled,
+            meal_inclusion_mode=request.meal_inclusion_mode,
+        )
+        return MealsConfigResponse(**cfg)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating meals config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar la configuración de comidas."
+        )
