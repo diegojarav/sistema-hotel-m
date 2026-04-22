@@ -1,193 +1,93 @@
-# 🏨 Hospedaje Los Monges PMS (Property Management System)
+# Hotel Munich PMS
 
-Un sistema de gestión hotelera (PMS) on-premise diseñado para alta disponibilidad local, seguridad de datos y automatización mediante IA.
+Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y medianos en Paraguay. Incluye gestión de reservas, caja, inventario, planes de comida, sincronización con OTAs y envío de documentos por email.
 
----
-
-## 🚀 Características Técnicas Destacadas
-
-Este proyecto implementa prácticas de **Ingeniería de Software** y **DevSecOps** para garantizar robustez en un entorno local:
-
-### 🏗️ Arquitectura y Diseño
-
-- **Monorepo Multi-Frontend:** Arquitectura con un backend centralizado y dos frontends especializados (PC y Mobile).
-- **API REST Versionada:** FastAPI con endpoints organizados por dominio (`/api/v1/`).
-- **Motor de Precios Dinámico:** Sistema avanzado de pricing por Categoría, Temporada y Tipo de Cliente.
-- **Layered Architecture:** Separación estricta entre API, Servicios y Datos.
-- **Modelo de Datos Relacional:** SQLite con integridad referencial.
-- **Concurrencia Optimista:** SQLite en **WAL Mode** (Write-Ahead Logging) y `scoped_session` para múltiples usuarios simultáneos.
-- **Índices Optimizados:** Índices en columnas frecuentemente consultadas (status, fechas, room_id).
-- **Constantes Centralizadas:** Single source of truth para tokens y URLs en frontend mobile.
-- **API Paginada:** Endpoints `/rooms`, `/guests`, `/reservations` soportan `skip` y `limit`.
-
-### 🛡️ Seguridad y Robustez (Hardening)
-
-- **Autenticación JWT:** Tokens seguros con `python-jose` y hashing con `bcrypt`.
-- **Gestión de Secretos:** Credenciales aisladas mediante variables de entorno (`.env`).
-- **CORS Hardening:** Whitelist explícita de orígenes (sin wildcards).
-- **Endpoints Protegidos:** Todos los endpoints sensibles requieren autenticación.
-- **Validación Estricta:** Uso de **Pydantic Schemas** para validar reglas de negocio.
-- **Rate Limiting:** Protección contra fuerza bruta (5 req/min en login).
-- **RBAC:** Control de acceso basado en roles (`require_role()`) en endpoints administrativos.
-- **Revocación JWT:** Invalidación de sesiones en tiempo real (password reset, eliminación de usuario).
-- **Sanitización de Errores:** Mensajes genéricos al cliente, detalles internos solo en logs del servidor.
-- **Global Exception Handler:** Safety net para errores no manejados (HTTP 500).
-- **Vision Hardening:** Límite de 5MB y timeout de 30s en endpoint de OCR.
-- **Observabilidad:** Sistema de **Logging Rotativo** para auditoría sin saturar disco.
-
-### 🤖 Inteligencia Artificial
-
-- **Agente IA con 16 Herramientas:** Asistente inteligente con function calling automático (Gemini 2.5 Flash). Consulta disponibilidad, tarifas, cotizaciones, ocupación mensual, rendimiento por habitación, fuentes de reserva, estacionamiento, ingresos financieros, estado de caja, **stock de productos y consumos por habitación** (v1.6.0), y más.
-- **OCR Documental:** Extracción automática de datos de documentos usando Google Gemini 2.5 Flash.
-- **Retry con Backoff Exponencial:** Reintentos automáticos ante errores transitorios de la API (429, 503).
-
-### 💰 Gestión Financiera (v1.4.0)
-
-- **Sistema de Caja (Cash Register):** Apertura/cierre de sesiones por usuario con reconciliación declarado vs esperado.
-- **Transacciones Inmutables:** Pagos registrados como EFECTIVO, TRANSFERENCIA o POS — con referencias bancarias/voucher. Solo se pueden anular (voided=True con razón obligatoria), nunca modificar o eliminar.
-- **Ciclo de vida de Reservas basado en Pagos:** Los estados `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA` se calculan automáticamente a partir de la suma de pagos vs el total de la reserva. Permite registrar señas y pagos parciales.
-- **Reportes Financieros:** Ingresos del día por método, lista de transferencias para conciliación bancaria (con CSV export), resumen por período agrupado por método de pago.
-- **RBAC:** Solo admin/supervisor pueden ver todas las sesiones; recepción ve solo las propias; anulación requiere razón auditada.
-
-### 🛒 Cargos a Habitación e Inventario (v1.6.0)
-
-- **Catálogo de Productos:** Bebidas, snacks, servicios (lavandería, late check-out), minibar. Categorías, precios, stock actual, stock mínimo.
-- **Stock Tracking:** Para productos físicos se lleva inventario; se decrementa al registrar consumo, se restaura al anular. Servicios (is_stocked=False) no tienen stock.
-- **Ajustes de Stock:** COMPRA (+), MERMA (-), AJUSTE (±). Todo queda en un audit log (`ajuste_inventario`) con razón, notas y usuario.
-- **Consumos:** Cargos inmutables por reserva — capturan snapshot de precio y nombre del producto. Al agregar un consumo, la reserva puede pasar de CONFIRMADA → SEÑADA si genera saldo pendiente.
-- **Alertas Discord:** Automáticas cuando el stock baja a o por debajo del mínimo tras un ajuste o consumo.
-- **Folio del Huésped:** PDF "Cuenta del Huésped" generado automáticamente al pasar la reserva a COMPLETADA. Incluye cargos de habitación, consumos itemizados, pagos y saldo. Descargable on-demand (siempre regenera con datos actualizados).
-- **Reportes:** Productos con stock bajo, top-vendidos por período, historial de ajustes por producto. Export CSV.
-- **UI:** PC tiene página completa "📦 Inventario" con 4 tabs (CRUD / ajustes / stock bajo / más vendidos). Mobile tiene modal "Agregar consumo" con selector por categoría y sección de consumos en el detalle de reserva.
-- **Permisos:** Recepción registra consumos pero no anula ni modifica el catálogo; admin tiene acceso completo.
-
-### 🔄 Resiliencia y Recuperacion
-
-- **Hot Backups:** Copias de seguridad en caliente usando la API nativa de SQLite.
-- **Admin API:** Endpoints protegidos para gestion remota (backups, logs, system-info).
-- **Staging Environment:** Script de provisionamiento GCP (`scripts/setup_gcp_staging.sh`).
-- **Linux Service Manager:** Control de servicios systemd para despliegue en Linux (`scripts/service_control_linux.sh`).
-- **Acceso Remoto:** VPN mesh con Tailscale para acceso SSH seguro sin port forwarding.
-
-### 🔗 Channel Manager v2 — Integraciones OTA (v1.5.0)
-
-- **Fuentes soportadas (iCal):** Booking.com, Airbnb, Vrbo, Expedia, Custom (cualquier .ics).
-- **Importacion:** Pull automatico de feeds .ics cada 15 minutos con detección de cancelaciones (UIDs desaparecidos → marcadas para revisión).
-- **Exportacion:** Endpoints publicos `.ics` rate-limited (60/min por habitación, 30/min para "all").
-- **Health monitoring:** Estado por feed (🟢/🟡/🔴/⚪), `consecutive_failures`, último error visible en admin UI.
-- **Discord alerts:** Notificación automática a partir de 3 fallos consecutivos por feed.
-- **Audit trail:** `ical_sync_log` registra cada intento con counts (creadas, actualizadas, marcadas para revisión, conflictos) y duración.
-- **Conflict detection:** Reservas superpuestas en la misma habitación → logged, counted, pero la reserva OTA se crea (OTA es la fuente autoritativa).
-- **Cancellation flow:** UIDs que desaparecen del feed → `needs_review=True` + alerta. El operador confirma desde PC o mobile (acknowledge / confirm cancellation).
-- **Admin UI:** PC tiene la página completa con historial por feed + reservas por revisar. Mobile tiene vista read-only con widget en dashboard y banner en detalle de reserva.
-- **Fuentes adicionales (manual):** WhatsApp, Facebook, Instagram, Google (creación manual).
-
-### 🧪 Testing
-
-```bash
-cd backend
-python -m pytest tests/ -v
-```
-
-- **466 tests** con **83% coverage** en 35 archivos de test.
-- Cubre: auth, reservas, huespedes, habitaciones, pricing, calendario, iCal, settings, usuarios, schemas, seguridad, integridad de DB, **KPIs (9 métricas)**, **performance benchmarks**, **agent tool reliability**, **caja & transacciones (56 tests v1.4.0)**, **channel manager v2 (43 tests v1.5.0)**, **room charges e inventario (54 tests v1.6.0)**.
-- SQLite in-memory con `StaticPool` (thread-safe para FastAPI).
-- **CI automático** en GitHub Actions: tests + coverage (75% min) + KPI evaluations + perf benchmarks.
+**Versión**: v1.8.0 · **Estado**: en producción (cliente activo — Hospedaje Los Monges)
 
 ---
 
-## 📂 Estructura del Proyecto
+## Stack tecnológico
 
-```
-hotel_munich/
-├── backend/                    # API REST (FastAPI + SQLAlchemy)
-│   ├── api/
-│   │   ├── core/              # config.py (app settings), security.py (JWT/bcrypt)
-│   │   ├── deps.py            # Auth dependencies + RBAC (require_role)
-│   │   ├── main.py            # App + CORS + lifespan (iCal auto-sync cada 15min)
-│   │   └── v1/endpoints/      # Endpoints por dominio
-│   │       ├── admin.py       # Gestion remota (backups, logs, system-info)
-│   │       ├── agent.py       # Agente IA con herramientas
-│   │       ├── ai_tools.py    # 11 herramientas IA (Gemini function calling)
-│   │       ├── auth.py        # Autenticacion JWT
-│   │       ├── calendar.py    # Eventos de calendario
-│   │       ├── guests.py      # Gestion de huespedes / check-in
-│   │       ├── ical.py        # Sync iCal (Booking.com / Airbnb)
-│   │       ├── pricing.py     # Motor de precios y cotizaciones
-│   │       ├── reservations.py# Reservas
-│   │       ├── rooms.py       # Habitaciones
-│   │       ├── settings.py    # Configuracion hotel
-│   │       ├── users.py       # Administracion de usuarios
-│   │       └── vision.py      # OCR con Gemini
-│   ├── database.py            # Capa de datos (SQLAlchemy, 14 modelos)
-│   ├── schemas.py             # DTOs y validaciones (Pydantic)
-│   ├── services/              # Logica de negocio (paquete, 8 modulos)
-│   │   ├── __init__.py        # Re-exports para compatibilidad
-│   │   ├── _base.py           # @with_db decorator (hibrido Streamlit/FastAPI)
-│   │   ├── auth_service.py    # Autenticacion y sesiones
-│   │   ├── reservation_service.py # Reservas y disponibilidad
-│   │   ├── guest_service.py   # Huespedes y check-in
-│   │   ├── room_service.py    # Habitaciones y categorias
-│   │   ├── pricing_service.py # Motor de precios
-│   │   ├── settings_service.py# Configuracion del hotel
-│   │   └── ical_service.py    # Import/export iCal para OTAs
-│   ├── tests/                 # 313 tests (pytest + SQLite in-memory)
-│   │   ├── conftest.py        # Fixtures (StaticPool, test client, auth, SessionLocal patching)
-│   │   └── test_*.py          # 24 archivos de test
-│   ├── logging_config.py      # Configuracion de logging
-│   ├── backup_manager.py      # Sistema de backups
-│   └── requirements.txt       # Dependencias Python
-│
-├── frontend_pc/               # Interfaz Desktop (Streamlit)
-│   ├── app.py                 # Orquestador (116 LOC) — login, sidebar, tabs
-│   ├── api_client.py          # Cliente HTTP para backend
-│   ├── components/            # Modulos de UI
-│   │   ├── tab_calendario.py  # Vistas de calendario
-│   │   ├── tab_reserva.py     # Formulario de reserva (multi-categoria)
-│   │   └── tab_checkin.py     # Formulario de check-in
-│   ├── helpers/               # Utilidades compartidas
-│   ├── pages/
-│   │   ├── 04_Asistente_IA.py     # Chat con agente IA
-│   │   ├── 09_Configuracion.py    # Settings + admin iCal feeds
-│   │   ├── 98_Admin_Habitaciones.py # Inventario + Ficha Mensual + Revenue Heatmap
-│   │   └── 99_Admin_Users.py      # Gestion de usuarios
-│   └── requirements.txt       # Dependencias Streamlit
-│
-├── frontend_mobile/           # Interfaz Mobile-First (Next.js 16 + React 19)
-│   ├── app/
-│   │   ├── login/             # Autenticacion
-│   │   └── dashboard/         # Panel principal
-│   │       ├── availability/  # Disponibilidad por rango de fechas
-│   │       ├── calendar/      # Calendario visual mensual
-│   │       ├── chat/          # Chat con agente IA
-│   │       └── reservations/new/ # Nueva reserva (orquestador + 4 componentes)
-│   ├── src/
-│   │   ├── constants/keys.ts  # API_BASE_URL, tokens
-│   │   ├── services/          # rooms, pricing, auth, reservations, vision, chat, settings
-│   │   └── hooks/             # useAuth, useBeaconLogout
-│   └── package.json           # Dependencias Node.js
-│
-├── scripts/                   # Deployment, migracion y operaciones
-│   ├── deploy.py              # Deployment automatizado con rollback
-│   ├── deploy_staging.sh      # Deploy a GCP staging (push + SSH + restart)
-│   ├── seed_monges.py         # Datos iniciales (propiedad, habitaciones, categorias)
-│   ├── seed_client_types.py   # Seed tipos de cliente (idempotente)
-│   ├── seed_test_data.py      # Generador de datos de prueba
-│   ├── run_migrations.py      # Ejecuta migraciones de esquema
-│   ├── reset_local_db.py      # Reset DB local para desarrollo
-│   ├── service_control.bat    # Control de servicios Windows
-│   ├── service_control_linux.sh # Control de servicios Linux (systemd)
-│   ├── setup_gcp_staging.sh   # Provisioning VM en GCP
-│   ├── setup_gcp_staging.md   # Guia de staging GCP
-│   └── setup_tailscale.md     # Guia de acceso remoto via VPN
-│
-├── README.md
-└── REQUIREMENTS.md             # Requisitos de negocio
-```
+| Capa | Tecnología | Versión |
+|---|---|---|
+| Backend | FastAPI | ≥ 0.109 |
+| Base de datos | SQLite (WAL mode) | 3.35+ |
+| ORM | SQLAlchemy + Pydantic v2 | — |
+| Admin PC | Streamlit | ≥ 1.51 |
+| Mobile / Web | Next.js + React + TypeScript | 16.1 / 19.2 |
+| Estilos mobile | Tailwind CSS | 4 |
+| Auth | JWT (`python-jose`) + bcrypt | — |
+| Encripción | `cryptography.fernet` (PBKDF2 desde SECRET_KEY) | ≥ 42.0 |
+| IA conversacional | Google Gemini 2.5 Flash | — |
+| Generación PDF | `fpdf2` | ≥ 2.8 |
+| Rate limiting | `slowapi` | ≥ 0.1.9 |
+| CI/CD | GitHub Actions | — |
+| Deploy | GCP VM (e2-small, Ubuntu 22.04) | — |
+| Monitoring | Discord webhooks + Healthchecks.io | — |
 
 ---
 
-## 🛠️ Instalación y Despliegue
+## Funcionalidades principales
+
+**Reservas**. Ciclo de vida completo con cinco estados auto-derivados de los pagos: `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA / CANCELADA`. El estado se recalcula automáticamente cada vez que se registra o anula un pago. Soporta selección multi-categoría (varias habitaciones de tipos distintos en una misma reserva), cálculo dinámico de precio por temporada y tipo de cliente, override manual de temporada para eventos puntuales, y vinculación con check-in vía OCR de documento.
+
+**Caja y pagos**. Sistema de sesiones de caja por usuario con apertura/cierre y reconciliación entre el saldo declarado y el esperado. Tres métodos de pago (efectivo / transferencia / POS) con referencia bancaria o voucher. Las transacciones son inmutables: solo se pueden anular con razón obligatoria, nunca modificar. Los pagos en efectivo requieren caja abierta; transferencia y POS no.
+
+**Inventario y consumos**. Catálogo de productos vendibles a habitación (bebidas, snacks, servicios, minibar) con stock y stock mínimo. Cada consumo cargado a una reserva captura snapshot de precio y nombre del producto al momento del cargo (preserva auditoría histórica si los datos cambian después). Al pasar la reserva a `COMPLETADA` se genera automáticamente el folio del huésped (PDF) con todos los cargos itemizados, pagos y saldo.
+
+**Planes de comida**. Configuración opcional por hotel — los hoteles que no sirven comida no ven nada de meal plans. Tres modos cuando está habilitado: incluido en la tarifa, opcional con recargo por persona, opcional con recargo por habitación. Incluye página dedicada para el rol `cocina` (read-only) con date picker (default mañana), métricas, tabla detallada y export CSV/PDF.
+
+**Channel Manager (OTA sync)**. Sincronización vía iCal con cinco fuentes: Booking.com, Airbnb, Vrbo, Expedia y Custom (cualquier `.ics`). Pull automático cada 15 minutos. Detección de cancelaciones cuando un UID desaparece del feed (la reserva se marca para revisión y el operador decide). Detección y log de overbooking entre OTAs. Health monitoring por feed con badges visuales y alertas Discord si hay 3 o más fallos consecutivos. Endpoint público `.ics` para que las OTAs hagan pull de los datos del hotel.
+
+**Documentos y email**. Generación automática de PDFs en español al crear cada reserva, cada check-in y cada folio (al checkout). Configuración SMTP por hotel (admin la edita desde la UI; password se almacena encriptado con Fernet derivado de `SECRET_KEY`). Envío del PDF de confirmación al huésped con un click, asíncrono (response inmediato + send en background). Rate limit de 3 envíos por hora por reserva (cuenta solo envíos exitosos). Historial completo de envíos con filtros y export CSV.
+
+**Agente IA**. Asistente conversacional con 18 herramientas en español usando Google Gemini 2.5 Flash con automatic function calling. Responde preguntas operativas como "¿hay habitaciones disponibles para mañana?", "¿cuánto se facturó hoy?", "¿se le mandó el correo a la reserva 1234?", "¿qué planes de desayuno tiene Juan Pérez para el lunes?". También extrae datos de documentos (cédula, pasaporte) vía OCR.
+
+**Reportes**. Ingresos del día por método de pago, lista de transferencias para conciliación bancaria (con CSV export), resumen por período, ocupación mensual, distribución por canal, ficha mensual estilo Gantt por habitación, mapa de calor de ingresos por habitación × mes, productos más vendidos, stock bajo, reporte diario de cocina.
+
+---
+
+## Arquitectura
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        FastAPI Backend                            │
+│                                                                   │
+│   22 endpoint modules · ~120 routes · 22 SQLite tables           │
+│   18 AI tools · auto-backups · WAL mode · iCal sync background   │
+│                                                                   │
+└──────────┬─────────────────────────────────┬─────────────────────┘
+           │                                 │
+   import directo                       HTTP / JWT
+   (PYTHONPATH=backend/)                     │
+           │                                 │
+   ┌───────▼────────┐                ┌───────▼────────┐
+   │   Streamlit    │                │   Next.js 16   │
+   │   PC Admin     │                │   Mobile App   │
+   │                │                │                │
+   │   8 páginas    │                │   11 rutas     │
+   │   (caja,       │                │   (calendar,   │
+   │    inventario, │                │    reservas,   │
+   │    cocina,     │                │    caja,       │
+   │    docs, ...)  │                │    chat IA,    │
+   │                │                │    meals, ...) │
+   └────────────────┘                └────────────────┘
+```
+
+**Hybrid Monolith**: el frontend PC corre en la misma máquina que el backend e importa los servicios Python directamente (decorator `@with_db` autodetecta si la sesión la inyecta FastAPI o si la maneja Streamlit). El frontend mobile usa la API REST estándar con JWT. Esta arquitectura elimina latencia de red local en el admin pero requiere que ambos compartan el mismo Python env (PYTHONPATH=backend/).
+
+---
+
+## Requisitos del sistema
+
+- Python 3.11+ (CI corre en 3.11; desarrollo local usa 3.12+)
+- Node.js 20+ (requerido por Next.js 16)
+- SQLite 3.35+ (incluido con Python)
+- gcloud CLI (solo si se va a deployar a GCP)
+
+---
+
+## Instalación y setup
 
 ### 1. Clonar el repositorio
 
@@ -196,168 +96,161 @@ git clone https://github.com/diegojarav/sistema-hotel-m.git
 cd sistema-hotel-m
 ```
 
-### 2. Configurar Backend
+### 2. Backend (FastAPI)
 
 ```bash
 cd backend
-
-# Crear entorno virtual (recomendado)
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate         # Windows
+# source venv/bin/activate    # Linux/Mac
 
-# Instalar dependencias
 pip install -r requirements.txt
 
-# Configurar variables de entorno
 cp .env.example .env
-# Editar .env con GOOGLE_API_KEY y SECRET_KEY
+# Editar .env: GOOGLE_API_KEY, JWT_SECRET_KEY, DISCORD_WEBHOOK_URL (opcional)
 ```
 
-### 3. Configurar Frontend PC (Streamlit)
+### 3. Frontend PC (Streamlit)
+
+Comparte el Python env del backend o crea uno separado:
 
 ```bash
-cd frontend_pc
-
-# Usar el mismo entorno o crear uno nuevo
+cd ../frontend_pc
 pip install -r requirements.txt
 ```
 
-### 4. Configurar Frontend Mobile (Next.js)
+### 4. Frontend Mobile (Next.js)
 
 ```bash
-cd frontend_mobile
-
-# Instalar dependencias Node.js
+cd ../frontend_mobile
 npm install
-
-# Configurar API URL
-cp .env.local.example .env.local
-# Editar con la URL del backend
+cp .env.local.example .env.local   # apunta NEXT_PUBLIC_API_URL al backend
 ```
 
-### 5. Ejecutar
-
-#### Opción A: Scripts de Windows
+### 5. Base de datos
 
 ```bash
-# Desde la raíz del proyecto
-.\start_backend.bat   # Inicia FastAPI en puerto 8000
-.\start_pc.bat        # Inicia Streamlit en puerto 8501
+cd ..
+python scripts/run_migrations.py    # aplica todas las migraciones pendientes
+python scripts/seed_monges.py       # datos iniciales (hotel, habitaciones, usuarios)
 ```
 
-Para el frontend mobile:
+### 6. Levantar los 3 servicios
+
+Opción A — script todo en uno (Windows):
+
 ```bash
-cd frontend_mobile
-npm run dev           # Inicia Next.js en puerto 3000
+start_all.bat
 ```
 
-#### Opción B: Comandos manuales
+Opción B — manual, una terminal cada uno:
 
 ```bash
-# Terminal 1: Backend
+# Terminal 1 — Backend
+cd backend && python -m uvicorn api.main:app --reload --port 8000
+
+# Terminal 2 — Frontend PC
+cd frontend_pc && streamlit run app.py --server.port 8501
+
+# Terminal 3 — Frontend Mobile
+cd frontend_mobile && npm run dev
+```
+
+URLs por defecto: API en `http://localhost:8000` (Swagger en `/docs`), PC en `http://localhost:8501`, mobile en `http://localhost:3000`.
+
+---
+
+## Credenciales de demo
+
+| Usuario | Contraseña | Rol |
+|---|---|---|
+| `admin` | `1234` | Administrador |
+| `recepcion` | `1234` | Recepcionista |
+
+> Estas credenciales son exclusivas del entorno de demo del repositorio público. En producción se cambian al primer arranque.
+
+---
+
+## Tests
+
+**539 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
+
+```bash
 cd backend
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+pytest                                          # todos los tests
+pytest --cov=services --cov=api                 # con reporte de cobertura
+pytest -m kpi                                   # solo KPIs (9 métricas scoreadas 0-100)
+pytest -m perf                                  # solo benchmarks de performance
+```
 
-# Terminal 2: Frontend PC
-cd frontend_pc
-streamlit run app.py --server.address 0.0.0.0
+El CI de GitHub Actions corre los 539 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
 
-# Terminal 3: Frontend Mobile
-cd frontend_mobile
-npm run dev
+---
+
+## Estructura del proyecto
+
+```
+sistema-hotel-m/
+├── backend/                    # FastAPI + SQLAlchemy + servicios
+│   ├── api/                    # routers + auth + config
+│   │   └── v1/endpoints/       # 22 módulos de endpoints
+│   ├── services/               # 15 servicios de negocio
+│   ├── tests/                  # 539 tests + KPIs + perf
+│   ├── database.py             # 22 modelos SQLAlchemy
+│   ├── schemas.py              # validación Pydantic v2
+│   ├── hotel/                  # PDFs generados (gitignored)
+│   └── requirements.txt
+│
+├── frontend_pc/                # Streamlit admin desktop
+│   ├── app.py                  # entry + login
+│   ├── components/             # tabs reusables
+│   ├── pages/                  # 8 páginas multipage
+│   └── requirements.txt
+│
+├── frontend_mobile/            # Next.js 16 + React 19
+│   ├── app/                    # rutas (App Router)
+│   │   └── dashboard/          # calendar, reservas, caja, meals, chat...
+│   ├── src/
+│   │   ├── components/         # modales y componentes UI
+│   │   └── services/           # cliente HTTP por dominio
+│   └── package.json
+│
+├── scripts/
+│   ├── migrations/             # migraciones numeradas (006 actuales)
+│   ├── deploy_staging.sh       # deploy one-command a GCP
+│   ├── seed_monges.py          # datos iniciales
+│   └── run_migrations.py       # runner idempotente
+│
+├── .github/workflows/ci.yml    # tests + build + Discord alerts
+├── CLAUDE.md                   # instrucciones operativas internas
+├── CHANGELOG.md                # historial de versiones
+└── README.md                   # este archivo
 ```
 
 ---
 
-## 🔐 Credenciales de Acceso (Por Defecto)
+## Documentación adicional
 
-La primera vez que inicies el sistema, se crearán estos usuarios automáticamente:
-
-| Rol               | Usuario            | Contraseña |
-|-------------------|--------------------|------------|
-| **Administrador** | `admin`            | `1234`     |
-| **Recepción**     | `recepcion`        | `1234`     |
-| **Sistema (IA)**  | `system_chat_bot`  | (interno)  |
-
-> ⚠️ **Nota:** Cambia las contraseñas en producción.
+- [`CHANGELOG.md`](CHANGELOG.md) — historial completo de versiones, decisiones arquitecturales y deuda técnica conocida
+- [`CLAUDE.md`](CLAUDE.md) — instrucciones operativas internas (convenciones, gotchas, patrones de código)
+- Swagger UI auto-generado: `http://localhost:8000/docs`
 
 ---
 
-## 📊 Stack Tecnológico
+## Changelog
 
-| Componente | Tecnología |
-|------------|------------|
-| **Backend API** | FastAPI + SQLAlchemy + Pydantic |
-| **Base de Datos** | SQLite (WAL Mode) |
-| **Autenticación** | JWT (python-jose) + bcrypt |
-| **Frontend PC** | Streamlit 1.51+ |
-| **Frontend Mobile** | Next.js 16 + React 19 + TypeScript |
-| **Estilos Mobile** | TailwindCSS 4 |
-| **IA/OCR** | Google Gemini 2.5 Flash (google-genai SDK) |
-| **Agente IA** | google-genai SDK + automatic function calling |
-| **Logging** | RotatingFileHandler + Discord webhooks |
-| **CI/CD** | GitHub Actions + GCP staging deploy |
-| **Monitoreo** | Healthchecks.io (uptime) + Discord (errores) |
+Ver [CHANGELOG.md](CHANGELOG.md) para el historial completo.
+
+**Últimas versiones:**
+
+- **v1.8.0** — Email sending (envío del PDF de reserva al huésped, configuración SMTP encriptada, AI tool 18, historial de envíos con filtros)
+- **v1.7.0** — Meal plans y reportes de cocina (3 modos de servicio + rol `cocina` + página dedicada)
+- **v1.6.0** — Inventario y consumos por habitación (catálogo, stock tracking, folio del huésped al checkout)
+- **v1.5.0** — Channel Manager v2 (5 fuentes OTA, detección de cancelaciones, health monitoring por feed)
+- **v1.4.0** — Caja y sistema de pagos (sesiones, transacciones inmutables, status auto-derivado de pagos)
 
 ---
 
-## 📱 Funcionalidades
+## Licencia y contacto
 
-### Frontend PC (Streamlit)
-- 📅 **Calendario de Ocupacion:** Vista mensual y semanal con estado de habitaciones.
-- 📊 **Ficha Mensual:** Vista Gantt de ocupacion room x day con estadisticas (fuentes de reserva, tendencia de ocupacion, estacionamiento).
-- 📈 **Revenue Heatmap:** Mapa de calor room x month con totales anuales.
-- 🔗 **Vinculacion Reserva-Checkin:** Escaneo OCR de documentos crea check-in vinculado automaticamente.
-- ⚙️ **Configuracion iCal:** CRUD de feeds, sync manual/masivo, URLs de exportacion.
-- 👤 **Gestion de Usuarios:** CRUD completo con roles y auditoria.
-- 💬 **Asistente IA:** Chat interno para consultas operativas.
-
-### Frontend Mobile (Next.js)
-- 📱 **Diseno Mobile-First:** Optimizado para tablets y celulares.
-- 📊 **Dashboard:** Resumen de ocupacion del dia.
-- 📅 **Calendario:** Navegacion mensual con indicadores visuales.
-- 📝 **Nueva Reserva:** Formulario con seleccion multi-categoria y multiples habitaciones.
-- 📋 **Datos de Identidad:** Captura de documento, nacionalidad y fecha de nacimiento.
-- 💬 **Chat IA:** Interfaz conversacional con el agente.
-- 🔍 **Disponibilidad:** Busqueda rapida por rango de fechas.
-
-### API Backend
-- 🔑 **Autenticacion:** Login, tokens JWT, refresh, revocacion.
-- 🏠 **Habitaciones:** CRUD y estado de ocupacion por rango de fechas.
-- 📅 **Reservas:** Creacion, edicion, cancelacion con prevencion de overbooking.
-- 👥 **Huespedes:** Registro, busqueda y vinculacion con reservas.
-- 🔄 **iCal Sync:** Importacion/exportacion iCal para Booking.com y Airbnb (auto-sync cada 15 min).
-- 🛠️ **Admin Remoto:** Backups, logs, deploy log, system info via API protegida.
-- 🤖 **Agente IA:** Consultas en lenguaje natural.
-- 📷 **OCR Vision:** Extraccion de datos de documentos.
-- 💰 **Pricing Engine:** Calculo automatico de tarifas por categoria, temporada y tipo de cliente.
-- 🚗 **Control Operativo:** Registro de Estacionamiento (Chapa/Modelo) y Origen de Reserva.
-- 🧪 **313 Tests:** Suite de tests con **83% coverage** (pytest, SQLite in-memory, CI automático).
-
----
-
-## ⚠️ Solución de Problemas
-
-| Problema | Solución |
-|----------|----------|
-| "No encuentra la API Key" | Verifica que `.env` exista en `/backend` con `GOOGLE_API_KEY` |
-| "Database is locked" | El sistema usa WAL mode, reiniciar si persiste |
-| "CORS error en mobile" | Verificar que backend esté corriendo y URL en `.env.local` |
-| "401 Unauthorized" | Token expirado, re-autenticar desde login |
-| "No module named bcrypt" | `pip install bcrypt` en el entorno correcto |
-
----
-
-## 📝 API Endpoints
-
-Documentación interactiva disponible en:
-- **Swagger UI:** `http://localhost:8000/docs`
-- **ReDoc:** `http://localhost:8000/redoc`
-
----
-
-**Version:** 1.3.0
-**Last Updated:** 2026-04-06
-
-**Desarrollado por Diego para Hospedaje Los Monges.**
+Desarrollado por Diego Jara para Hospedaje Los Monges (Paraguay).

@@ -18,7 +18,7 @@ backend/          # FastAPI API + services + models
   hotel/          # Generated PDF documents (gitignored)
     Reservas/     # Reservation confirmation PDFs
     Clientes/     # Client registration PDFs
-  tests/          # pytest test suite (313 tests, 83% coverage)
+  tests/          # pytest test suite (539 tests, 83% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
   pages/          # Admin pages (Rooms, Users, Config, Documents, AI Assistant)
@@ -64,7 +64,7 @@ cd backend && python -m pytest tests/ -v -k "not perf"
 6. **Calendar Sync** - Views agree with each other
 7. **Revenue Accuracy** - Revenue sums match manual calculations
 8. **Security Compliance** - Protected endpoints reject unauthenticated
-9. **Agent Tool Reliability** - All 12 AI tools callable, return strings, handle errors
+9. **Agent Tool Reliability** - All 18 AI tools callable, return strings, handle errors
 
 ## Performance Baselines (test_performance.py)
 
@@ -87,7 +87,7 @@ Changes to these files MUST be validated with KPI tests:
 - `backend/api/v1/endpoints/reservations.py` - Reservation API
 - `backend/api/v1/endpoints/pricing.py` - Pricing API
 - `backend/api/v1/endpoints/calendar.py` - Calendar endpoints
-- `backend/api/v1/endpoints/ai_tools.py` - AI agent tools (12 functions)
+- `backend/api/v1/endpoints/ai_tools.py` - AI agent tools (18 functions)
 - `backend/api/v1/endpoints/agent.py` - AI agent endpoint + system prompt
 - `backend/services/document_service.py` - PDF document generation
 - `backend/api/v1/endpoints/documents.py` - Document download/list API
@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 491 tests (v1.7.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory + 44 meal plans & kitchen) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 539 tests (v1.8.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory + 44 meal plans & kitchen + 29 email) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -137,6 +137,7 @@ Runs on push to `main`/`dev`:
 - Always use `encoding='utf-8'` when opening files in Python
 - Test DB uses in-memory SQLite with StaticPool for thread safety
 - Credentials for testing: admin/admin123, recepcion/recep123
+  > **Nota**: Las credenciales en `README.md` (`admin/1234`, `recepcion/1234`) son credenciales de demo para el repositorio público. Las credenciales reales del entorno de desarrollo y prod están seedeadas por `seed_monges.py` (admin/admin123, recepcion/recep123) y los tokens viven en `.env` (gitignored).
 - Rate limiter is auto-disabled during tests
 - The `@with_db` decorator manages session lifecycle for Streamlit calls and AI tool functions
 - FastAPI endpoints use `Depends(get_db)` for session injection
@@ -357,9 +358,9 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 - **Never show meal UI when `meals_enabled=false`.** Every mobile surface must check `getMealsConfig().meals_enabled` before rendering. Every backend path that doesn't check this flag risks leaking "0 desayunos" widgets to hotels that don't serve meals.
 - **Kitchen date logic: night-of-(D-1)**, not "is staying on D". A guest checking in on D is NOT eating breakfast on D. A guest checking out on D IS. `KitchenReportService.get_daily_report` encodes this — don't re-invent it.
 - **System plans are un-deletable.** `MealPlanService.soft_delete` raises on `is_system=1`. Set `is_active=0` via update if you need to hide one.
-- **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Plan removal in v1.8 via migration 006.
+- **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Plan removal en una migración futura (v1.9+); migración 006 quedó tomada por `email_log` de Phase 5.
 
-## AI Agent Tools (17 functions in ai_tools.py)
+## AI Agent Tools (18 functions in ai_tools.py)
 
 1. `check_availability` — Room availability for date/stay
 2. `get_hotel_rates` — Pricing by category
@@ -378,13 +379,63 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 15. `consultar_inventario` — Product stock query; low-stock list or name filter — **v1.6.0**
 16. `consumos_habitacion` — Consumos for a reservation/guest/room — **v1.6.0**
 17. `reporte_cocina` — Daily breakfast/meal count (or "no habilitado" if disabled) — **v1.7.0**
+18. `estado_email_reserva` — Consulta si se envió el correo de una reserva, cuándo, a quién, y total de envíos exitosos/fallidos — **v1.8.0**
+
+## Email Sending (v1.8.0 — Phase 5)
+
+### Tables
+- `email_log` (NEW) — append-only audit trail: `id, reserva_id (FK), recipient_email, subject, status (ENVIADO|FALLIDO|PENDIENTE), error_message, sent_at, sent_by (FK users), created_at`. Indexes on reserva_id, status, sent_at.
+- `system_settings` — usado para SMTP config (key/value): `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password_encrypted`, `smtp_from_name`, `smtp_from_email`, `smtp_enabled`, `email_body_template`. Password se almacena encriptada (Fernet).
+- `reservations.contact_email` ya existía — se persiste cuando un envío usa override y el guest no tenía email.
+
+### Encryption
+- Helpers `encrypt_secret`/`decrypt_secret` en `backend/api/core/security.py` usan `cryptography.fernet.Fernet` con clave derivada de `SECRET_KEY` via PBKDF2HMAC-SHA256 (200k iterations, salt fijo).
+- **Importante**: si rotás `SECRET_KEY`, los passwords SMTP encriptados se vuelven ilegibles → admin debe re-ingresar.
+
+### Business rules
+- Envío async via `fastapi.BackgroundTasks` — endpoint responde 202 inmediato, send corre en background con sesión propia (`session_factory()`).
+- PDF se **regenera siempre** antes de enviar via `DocumentService.generate_reservation_pdf()` (evita enviar datos obsoletos).
+- Rate limit: **3 envíos por reserva por hora**, cuenta SOLO `status='ENVIADO'` (admin puede debuggear SMTP sin auto-bloqueo). 4to → 429 + mensaje en español.
+- Email override en body: si guest no tenía email → persiste en `reservations.contact_email`; si ya tenía email distinto → NO sobrescribe.
+- Body template usa `str.format_map()` con `{nombre_huesped}` y `{nombre_hotel}` (placeholders desconocidos quedan literales, no crashean).
+- MIME usa `email.message.EmailMessage` con `charset='utf-8'` explícito (acentos/ñ).
+- Fallo de envío → `logger.error()` que dispara Discord alert via `DiscordWebhookHandler` automático.
+
+### Services
+- `EmailService` (`backend/services/email_service.py`) — `prepare_send`, `send_async`, `send_test_email`, `get_email_log`, `_check_rate_limit`, `_render_body`, `_build_mime`, `_send_smtp`. Excepción custom `EmailError`.
+- `SettingsService.get_smtp_config(include_password=True)` / `set_smtp_config(...)` — encripta/desencripta password automáticamente.
+
+### API endpoints
+- `GET /api/v1/settings/email` — config SMTP actual (admin only). Password NUNCA expuesta — solo `smtp_password_set: bool`.
+- `PUT /api/v1/settings/email` — guardar config SMTP (admin only). Si `smtp_password=null/empty`, preserva la existente.
+- `POST /api/v1/settings/email/test` — envía email de prueba sincrónico (admin only). Devuelve `{success, message}`.
+- `POST /api/v1/email/reserva/{id}/enviar` — encolar envío (admin/recepcion/recepcionista/supervisor/gerencia). Body opcional `{email}` para override. Retorna 202 + `email_log_id`.
+- `GET /api/v1/email/reserva/{id}/historial` — lista de email_log ordenado DESC por created_at (mismos roles).
+
+### Permissions
+| Action | Admin | Recepcion / Recepcionista / Supervisor / Gerencia | Cocina |
+|---|---|---|---|
+| GET/PUT `/settings/email`, POST `/settings/email/test` | ✅ | ❌ 403 | ❌ 403 |
+| POST `/email/reserva/{id}/enviar`, GET `/historial` | ✅ | ✅ | ❌ 403 |
+
+### Frontend
+- **PC**: sección "📧 Configuración de Correo" en `09_🔧_Configuracion.py` (form host/port/user/password type=password/from_name/from_email/toggle/template + botón "Enviar email de prueba" fuera del form). Botón "📧 Enviar correo" en `tab_reserva.py` modo edit (disabled si reserva nueva). Tab "📧 Historial de Emails" en `97_📄_Documentos_Hotel.py` con filtros fecha/status + export CSV (fuera de `st.form`).
+- **Mobile**: `services/email.ts` (`sendReservationEmail`, `getEmailHistory`). `components/email/EnviarEmailModal.tsx` siguiendo patrón de `RegistrarPagoModal`. Botón "📧 Enviar por correo" en `app/dashboard/calendar/[id]/page.tsx` entre folio y Registrar Pago. Caption "Último envío: ..." debajo del botón. Toast verde de éxito / rojo de error.
+
+### Critical gotchas
+- **Token PC `api_token` vs `access_token`**: bug recurrente (BUG-TOKEN-PC-01, BUG-TOKEN-SETTINGS, también en `94_Cocina.py` resuelto 2026-04-21). Toda página PC nueva DEBE usar `st.session_state.get("api_token")` para el JWT — NO `access_token`. `app.py:82` lo guarda bajo `api_token`.
+- **`cryptography` debe instalarse en AMBOS Python envs** (hybrid monolith). Backend usa `C:\Python314`, PC usa `A:\Miniconda\envs\hotel_munich`. Si falta en uno, login PC falla con `No module named 'cryptography'`.
+- **TZ consistency en rate-limit**: `email_log.created_at`/`sent_at` se guardan con `datetime.now()` (local). El query de rate limit usa `datetime.now() - timedelta(hours=1)` (también local). NO mezclar con `datetime('now')` de SQLite (UTC) — falla silenciosamente cuando CI corre en otra TZ.
+- **Background task abre sesión propia**: `send_async(log_id)` NO reusa la `db` del endpoint (ya cerrada). Usa `SessionLocal()` directo y try/finally garantiza transición PENDIENTE → ENVIADO/FALLIDO incluso en crash.
+- **Discord alerts**: solo para fallos de infra (SMTP caído, PDF gen falla). NO para errores de validación del usuario (esos son 400/422/429 con mensaje en español).
+- **`AIAgentPermission` (database.py)** es andamio intencional para feature futura de control granular de tools IA por rol (ej: Recepcion no consulta reportes financieros via agente). No tiene endpoint ni servicio activo aún — **NO eliminar**.
 
 ## Two-Repo Architecture
 
 - **Public** (`sistema-hotel-m` / origin): deployment code only — no internal docs
 - **Private** (`hotel-PMS-dev` / private): full codebase + internal docs
 - `origin` has dual push URLs — single `git push origin dev` pushes to both repos
-- `.gitignore` excludes: `claude_audit/`, `PROJECT_CONTEXT.md`, `REQUIREMENTS.md`, `.bat` scripts, `.claude/` configs
+- `.gitignore` excludes: `claude_audit/`, `PROJECT_CONTEXT*.md` (incluye archived), `REQUIREMENTS.md`, `.bat` scripts, `.claude/` configs
 
 ## Deployment to GCP Staging
 
