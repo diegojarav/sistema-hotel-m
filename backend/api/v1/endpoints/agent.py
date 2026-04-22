@@ -38,6 +38,7 @@ from tenacity import (
 from api.v1.endpoints.ai_tools import TOOLS_LIST
 from api.deps import get_current_user
 from database import User
+from services import AIAgentPermissionService, TOOL_PERMISSION_MAP
 
 # Centralized logging
 from logging_config import get_logger
@@ -187,40 +188,62 @@ def call_gemini_api(user_query: str, config: types.GenerateContentConfig):
         raise
 
 
-async def process_query(user_query: str) -> tuple[str, list[str]]:
+def filter_tools_for_role(role: str | None) -> list:
+    """Return the subset of TOOLS_LIST allowed for the given role.
+
+    Tools without an entry in TOOL_PERMISSION_MAP are always allowed
+    (defensive default — see ai_agent_permission_service docstring).
+    """
+    # Streamlit-style call: decorator creates its own db session
+    allowed_names = set(AIAgentPermissionService.get_allowed_tools(role=role or ""))  # noqa: E501
+    filtered = []
+    for fn in TOOLS_LIST:
+        gating_perm = TOOL_PERMISSION_MAP.get(fn.__name__)
+        if gating_perm is None or fn.__name__ in allowed_names:
+            filtered.append(fn)
+    return filtered
+
+
+async def process_query(user_query: str, role: str | None = None) -> tuple[str, list[str]]:
     """
     Process a user query using Gemini with automatic function calling.
-    
+
     The SDK handles the entire tool calling loop automatically:
     1. Model receives query + tool definitions
     2. Model decides which tool(s) to call
     3. SDK executes the Python function locally
     4. SDK sends result back to model
     5. Model generates final response
-    
+
     Includes retry logic for transient API failures.
-    
+
     Args:
         user_query: The user's question or request
-        
+        role: User role for AIAgentPermission tool filtering (Feature 1 v1.9.0).
+              If None, all tools are exposed (backward compat for callers
+              that haven't been updated to pass the role yet).
+
     Returns:
         Tuple of (response_text, list_of_tools_used)
     """
     if client is None:
         raise RuntimeError("Gemini client not initialized. Check GOOGLE_API_KEY.")
-    
+
     # Sanitize input
     clean_query = sanitize_user_query(user_query)
     if not clean_query:
         return "Por favor, ingresa una consulta válida.", ["direct"]
-    
+
     tools_used = []
-    
+
+    # Filter the agent's tool surface by role
+    tools_for_role = filter_tools_for_role(role) if role else TOOLS_LIST
+
     try:
         # Configure the request with tools and system instruction
         config = types.GenerateContentConfig(
             system_instruction=get_system_instruction(),
-            tools=TOOLS_LIST,  # Pass Python functions directly
+            tools=tools_for_role,  # Per-role filtered list (Feature 1)
             temperature=0.3,  # Low temperature for precision
         )
         
@@ -286,8 +309,8 @@ async def query_agent(
     Requires valid JWT authentication.
     """
     try:
-        response_text, tools_used = await process_query(request.prompt)
-        
+        response_text, tools_used = await process_query(request.prompt, role=current_user.role)
+
         return AgentQueryResponse(
             response=response_text,
             model=MODEL_NAME,

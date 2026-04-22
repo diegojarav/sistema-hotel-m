@@ -2,7 +2,7 @@
 
 Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y medianos en Paraguay. Incluye gestión de reservas, caja, inventario, planes de comida, sincronización con OTAs y envío de documentos por email.
 
-**Versión**: v1.8.0 · **Estado**: en producción (cliente activo — Hospedaje Los Monges)
+**Versión**: v1.9.0 · **Estado**: en producción (cliente activo — Hospedaje Los Monges)
 
 ---
 
@@ -173,7 +173,7 @@ URLs por defecto: API en `http://localhost:8000` (Swagger en `/docs`), PC en `ht
 
 ## Tests
 
-**539 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
+**576 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
 
 ```bash
 cd backend
@@ -183,7 +183,7 @@ pytest -m kpi                                   # solo KPIs (9 métricas scoread
 pytest -m perf                                  # solo benchmarks de performance
 ```
 
-El CI de GitHub Actions corre los 539 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
+El CI de GitHub Actions corre los 576 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
 
 ---
 
@@ -216,7 +216,7 @@ sistema-hotel-m/
 │   └── package.json
 │
 ├── scripts/
-│   ├── migrations/             # migraciones numeradas (006 actuales)
+│   ├── migrations/             # migraciones numeradas (008 actuales)
 │   ├── deploy_staging.sh       # deploy one-command a GCP
 │   ├── seed_monges.py          # datos iniciales
 │   └── run_migrations.py       # runner idempotente
@@ -243,6 +243,7 @@ Ver [CHANGELOG.md](CHANGELOG.md) para el historial completo.
 
 **Últimas versiones:**
 
+- **v1.9.0** — Cleanup + Features 1 & 3 (eliminación de `migrate_monges.py`, RoomStatusLog audit trail, activación de AIAgentPermission con control granular de tools IA por rol)
 - **v1.8.0** — Email sending (envío del PDF de reserva al huésped, configuración SMTP encriptada, AI tool 18, historial de envíos con filtros)
 - **v1.7.0** — Meal plans y reportes de cocina (3 modos de servicio + rol `cocina` + página dedicada)
 - **v1.6.0** — Inventario y consumos por habitación (catálogo, stock tracking, folio del huésped al checkout)

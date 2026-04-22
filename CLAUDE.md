@@ -18,7 +18,7 @@ backend/          # FastAPI API + services + models
   hotel/          # Generated PDF documents (gitignored)
     Reservas/     # Reservation confirmation PDFs
     Clientes/     # Client registration PDFs
-  tests/          # pytest test suite (539 tests, 83% coverage)
+  tests/          # pytest test suite (576 tests, 83% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
   pages/          # Admin pages (Rooms, Users, Config, Documents, AI Assistant)
@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 539 tests (v1.8.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory + 44 meal plans & kitchen + 29 email) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 576 tests (v1.9.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory + 44 meal plans & kitchen + 29 email + 10 room status log + 27 ai agent permissions) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -358,7 +358,7 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 - **Never show meal UI when `meals_enabled=false`.** Every mobile surface must check `getMealsConfig().meals_enabled` before rendering. Every backend path that doesn't check this flag risks leaking "0 desayunos" widgets to hotels that don't serve meals.
 - **Kitchen date logic: night-of-(D-1)**, not "is staying on D". A guest checking in on D is NOT eating breakfast on D. A guest checking out on D IS. `KitchenReportService.get_daily_report` encodes this — don't re-invent it.
 - **System plans are un-deletable.** `MealPlanService.soft_delete` raises on `is_system=1`. Set `is_active=0` via update if you need to hide one.
-- **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Plan removal en una migración futura (v1.9+); migración 006 quedó tomada por `email_log` de Phase 5.
+- **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Slots 006/007/008 ya tomados (email_log/room_status_log/ai_agent_permissions); removal va a migración `009_*` o posterior. Tracked en ROADMAP.md backlog.
 
 ## AI Agent Tools (18 functions in ai_tools.py)
 
@@ -428,14 +428,85 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 - **TZ consistency en rate-limit**: `email_log.created_at`/`sent_at` se guardan con `datetime.now()` (local). El query de rate limit usa `datetime.now() - timedelta(hours=1)` (también local). NO mezclar con `datetime('now')` de SQLite (UTC) — falla silenciosamente cuando CI corre en otra TZ.
 - **Background task abre sesión propia**: `send_async(log_id)` NO reusa la `db` del endpoint (ya cerrada). Usa `SessionLocal()` directo y try/finally garantiza transición PENDIENTE → ENVIADO/FALLIDO incluso en crash.
 - **Discord alerts**: solo para fallos de infra (SMTP caído, PDF gen falla). NO para errores de validación del usuario (esos son 400/422/429 con mensaje en español).
-- **`AIAgentPermission` (database.py)** es andamio intencional para feature futura de control granular de tools IA por rol (ej: Recepcion no consulta reportes financieros via agente). No tiene endpoint ni servicio activo aún — **NO eliminar**.
+- **`AIAgentPermission` (database.py)** ahora ES feature activa desde v1.9.0 (Phase 6). No volver a la nota previa de "andamio intencional". Ver sección "AI Agent Permissions (v1.9.0 — Phase 6)" más abajo.
+
+## Room Status Audit Log (v1.9.0 — Phase 6)
+
+### Tabla
+- `room_status_log` (NEW) — append-only audit trail: `id, room_id (FK), previous_status, new_status, changed_by (username), reason, changed_at`. Indexes en `room_id` y `changed_at`.
+
+### Comportamiento
+- Cada `PATCH /api/v1/rooms/{id}/status` agrega automáticamente una fila — la lógica vive en el endpoint mismo (no servicio separado, es inserción directa via SQLAlchemy).
+- `previous_status` es nullable porque la primera vez que una habitación tiene un cambio puede no tener un estado previo conocido.
+- `changed_by` guarda el `username` (consistente con `room.status_changed_by` que ya usaba el patrón). NO un FK a `users.id` — ver gotcha más abajo.
+- Migración `007_room_status_log.py` tiene drop+recreate idempotente para la tabla phantom que dejaba `migrate_monges.py` (eliminado en v1.9.0).
+
+### API endpoints
+- `PATCH /api/v1/rooms/{id}/status` — admin/supervisor (sin cambio de permisos; ahora también escribe el log).
+- `GET /api/v1/rooms/{id}/status-log?limit=50` — admin/supervisor/recepcion/recepcionista/gerencia. Devuelve historial DESC por `changed_at`.
+
+### Frontend
+- **PC**: expander "📋 Historial de cambios de estado" en `98_🏠_Admin_Habitaciones.py` debajo del botón Eliminar (visible al seleccionar una habitación).
+- No mobile UI — es herramienta de admin operacional.
+
+### Gotcha
+- `changed_by VARCHAR` (username), NO `Integer FK users.id`. Sigue el patrón de `room.status_changed_by` y `email_log.sent_by` (también username). Si un usuario cambia su username, los logs históricos quedan con el username viejo — comportamiento aceptado (auditoría debe reflejar quién hizo la acción al momento, no la identidad actual).
+
+## AI Agent Permissions (v1.9.0 — Phase 6)
+
+### Tabla
+- `ai_agent_permissions` (existía como modelo desde v1.0, activada en v1.9 vía migración 008): `id, property_id, role, can_view_reservations, can_create_reservations, can_modify_reservations, can_cancel_reservations, can_view_guests, can_modify_guests, can_view_rooms, can_modify_rooms, can_modify_room_status, can_view_prices, can_modify_prices, can_view_reports, can_export_data, can_modify_settings, requires_confirmation, created_at, updated_at`. Una row por (property_id, role) — `property_id` actualmente nullable (single-tenant).
+- 14 columnas booleanas. Hoy v1.9 sólo 5 están realmente activas (las view_*); las demás están reservadas para tools de modificación futuras (ningún tool de v1.9 escribe).
+
+### Servicio
+- `AIAgentPermissionService` (`backend/services/ai_agent_permission_service.py`) — `get_or_create`, `list_all`, `update_permissions` (con safety anti-lockout para admin/supervisor/gerencia), `get_allowed_tools`.
+- Constantes exportadas: `PERMISSION_COLUMNS`, `TOOL_PERMISSION_MAP`, `DEFAULT_PERMISSIONS_BY_ROLE`.
+- Sigue convención `@with_db` con `db: Session` como PRIMER parámetro posicional.
+
+### Tool ↔ permission mapping
+Las 18 tools del agente se mapean a 5 columnas:
+| Permiso | Tools controladas |
+|---|---|
+| can_view_reservations | search_reservation, get_reservations_report, get_today_summary, get_occupancy_for_month |
+| can_view_guests | search_guest |
+| can_view_rooms | check_availability |
+| can_view_prices | get_hotel_rates, calculate_price |
+| can_view_reports | get_room_performance, get_booking_sources, get_parking_status, get_revenue_summary, consultar_caja, resumen_ingresos_por_metodo, consultar_inventario, consumos_habitacion, reporte_cocina, estado_email_reserva |
+
+Tools nuevos que no estén en `TOOL_PERMISSION_MAP` quedan **siempre permitidos** (defensive default — agregar al mapa antes del deploy).
+
+### Defaults seedeados por migración 008
+| Rol | Defaults |
+|---|---|
+| admin / supervisor / gerencia | TODO en true |
+| recepcion / recepcionista | view_reservations, view_guests, view_rooms, view_prices = true; resto false (incluyendo view_reports → bloquea las 10 tools de reportes) |
+| cocina | TODO en false (cocina usa la página dedicada, no el agente) |
+
+### Middleware en agent.py
+- `filter_tools_for_role(role)` filtra `TOOLS_LIST` antes de pasarlo a Gemini. Cuando una tool está bloqueada, Gemini simplemente no la conoce → responde naturalmente "no tengo herramienta para eso" sin necesidad de mensajes de error custom.
+- `query_agent` endpoint pasa `current_user.role` al `process_query()`.
+
+### API endpoints
+- `GET /api/v1/admin/ai-permissions` — listado completo (admin only). Auto-seedea defaults la primera vez.
+- `GET /api/v1/admin/ai-permissions/{role}` — detalle (admin only).
+- `PUT /api/v1/admin/ai-permissions/{role}` — partial update (admin only). Body: cualquier subset de las 14 columnas booleanas.
+- `GET /api/v1/admin/ai-permissions/{role}/allowed-tools` — diagnóstico, devuelve lista de tools + el `tool_permission_map` completo.
+
+### Frontend PC
+- Página nueva `93_🤖_Permisos_IA.py` (admin only). Por cada rol: expander con 14 checkboxes (uno por permiso) + tooltip que muestra qué tools controla. Form per-rol, partial update vía diff (sólo manda lo que cambió). Panel de referencia al final con mapeo agrupado por permiso.
+
+### Critical gotchas
+- **Defensive default**: tools sin entry en `TOOL_PERMISSION_MAP` son SIEMPRE permitidas para todos los roles. Agregar al mapa cuando se sume una tool nueva, o quedará accesible para cocina (etc).
+- **Safety anti-lockout**: `update_permissions` lanza `AIAgentPermissionError` si admin/supervisor/gerencia quedan con TODO en false (bloquearía el agente para roles de gestión). Otros roles sí pueden ser totalmente bloqueados.
+- **Convención `@with_db`**: `db: Session` debe ser el PRIMER parámetro posicional, NO kwarg con default. El decorador inserta db como primer arg en modo Streamlit. Los callers pueden mezclar `db=db, role=...` (todo kwargs) sin problema.
+- **`requires_confirmation` es columna sin uso activo en v1.9**. Reservada para feature futura donde el agente "sugiera y confirme" antes de acciones destructivas (cuando se agreguen tools de modificación).
 
 ## Two-Repo Architecture
 
 - **Public** (`sistema-hotel-m` / origin): deployment code only — no internal docs
 - **Private** (`hotel-PMS-dev` / private): full codebase + internal docs
 - `origin` has dual push URLs — single `git push origin dev` pushes to both repos
-- `.gitignore` excludes: `claude_audit/`, `PROJECT_CONTEXT*.md` (incluye archived), `REQUIREMENTS.md`, `.bat` scripts, `.claude/` configs
+- `.gitignore` excludes: `claude_audit/`, `PROJECT_CONTEXT*.md` (incluye archived), `.bat` scripts, `.claude/` configs
 
 ## Deployment to GCP Staging
 

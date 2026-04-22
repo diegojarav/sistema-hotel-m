@@ -12,6 +12,55 @@
 
 ---
 
+## [v1.9.0] — abril 2026 · Cleanup + Features 1 & 3
+
+### Cleanup
+- **D1 cerrado** — eliminado `scripts/migrate_monges.py` (731 LOC). Era 100% schema bootstrap, 0% seeding, completamente reemplazable por `database.init_db()` (Base.metadata.create_all). Actualizadas las 2 referencias UI: `seed_monges.py:750` y `frontend_pc/pages/98_🏠_Admin_Habitaciones.py:741` ahora apuntan al flujo canónico (`scripts/run_migrations.py`).
+- **D2 cerrado** — movidos `verify_mobile_api.py` y `verify_parking.py` de `backend/tests/` a `scripts/` (no eran tests automatizados sino scripts manuales de smoke/E2E). Fix de sys.path en `verify_parking.py`.
+- **D3 cerrado** — TODO de RoomStatusLog implementado (ver Feature 3 abajo).
+- Comentario stale en `database.py:347` actualizado: "Remove in v1.8" → "Removal tracked in ROADMAP.md (backlog)".
+
+### Feature 3 — RoomStatusLog (audit trail de estados de habitación)
+- Tabla nueva `room_status_log` (append-only): `id`, `room_id` FK, `previous_status`, `new_status`, `changed_by` (username), `reason`, `changed_at`. Indexes en `(room_id)` y `(changed_at)`.
+- Modelo `RoomStatusLog` agregado a `backend/database.py` (junto a las demás tablas v1.x).
+- Migración `007_room_status_log.py` aplicada. La migración detecta y limpia la tabla phantom dejada por `migrate_monges.py` antes de crear la nueva (el schema legacy tenía `property_id` y `changed_by_type`, sin `previous_status` — incompatible).
+- Endpoint nuevo `PATCH /api/v1/rooms/{id}/status` ahora inserta automáticamente una fila por cada cambio (admin/supervisor).
+- Endpoint nuevo `GET /api/v1/rooms/{id}/status-log?limit=N` (admin/supervisor/recepcion/recepcionista/gerencia). Devuelve historial DESC por `changed_at`.
+- TODO en `rooms.py:326` removido.
+- UI PC: nuevo expander "📋 Historial de cambios de estado" en `98_🏠_Admin_Habitaciones.py` debajo del botón Eliminar. Tabla con Fecha, Estado anterior, Estado nuevo, Usuario, Motivo.
+- Tests: `test_room_status_log.py` con 10 casos (write-on-change, captura previous/changed_by, GET listado/orden/limit/404/RBAC/unauth).
+
+### Feature 1 — AIAgentPermission activation (control granular de tools IA por rol)
+- La tabla `AIAgentPermission` (definida en `database.py:512` desde versiones tempranas) deja de ser andamio y pasa a estar activa.
+- Servicio nuevo `backend/services/ai_agent_permission_service.py` con: `get_or_create`, `list_all`, `update_permissions` (con safety check anti-lockout para admin/supervisor/gerencia), `get_allowed_tools`.
+- Mapeo `TOOL_PERMISSION_MAP` que asocia cada una de las 18 tools del agente a una de 5 columnas de permisos (`can_view_reservations`, `can_view_guests`, `can_view_rooms`, `can_view_prices`, `can_view_reports`). Las otras 9 columnas booleanas quedan reservadas para futuros tools de modificación.
+- Middleware `filter_tools_for_role()` en `backend/api/v1/endpoints/agent.py` filtra `TOOLS_LIST` antes de pasarlo a Gemini según el rol del JWT. Cuando una tool está bloqueada, Gemini simplemente no la conoce → responde naturalmente "no tengo herramienta para esa consulta".
+- 4 endpoints nuevos en `backend/api/v1/endpoints/admin.py` (todos admin-only):
+  - `GET /api/v1/admin/ai-permissions` — listado con seed automático
+  - `GET /api/v1/admin/ai-permissions/{role}` — detalle por rol
+  - `PUT /api/v1/admin/ai-permissions/{role}` — partial update
+  - `GET /api/v1/admin/ai-permissions/{role}/allowed-tools` — diagnóstico (devuelve también `tool_permission_map`)
+- Migración `008_ai_agent_permissions_activation.py` seedea defaults por rol (admin/supervisor/gerencia=all-true, recepcion/recepcionista=view-only sin reports, cocina=all-false).
+- UI PC: nueva página `93_🤖_Permisos_IA.py` (admin-only) con expander por rol, checkboxes con tooltip mostrando qué tools controla cada permiso, partial-update por diff, panel de referencia agrupado por permiso.
+- Schemas: `AIAgentPermissionDTO` + `AIAgentPermissionUpdate` en `backend/schemas.py`.
+- Tests: `test_ai_agent_permissions.py` con 27 casos (defaults por rol, normalización, get_allowed_tools, partial updates, safety anti-lockout, RBAC en endpoints, list/get/put endpoints, diagnostic endpoint, middleware filtering).
+
+### Tests
+- 37 tests nuevos (10 RoomStatusLog + 27 AIAgentPermission).
+- Total backend: **576 tests**, 0 regresiones, 83% cobertura.
+
+### Tech debt cerrada
+- T2: TODO RoomStatusLog implementado.
+- O1: `migrate_monges.py` eliminado.
+- O5: `verify_*.py` reclasificados como scripts manuales.
+
+### Decisión técnica destacada
+- **Tabla phantom de `migrate_monges.py`**: el script legacy creaba `room_status_log` con un schema incompatible (TEXT room_id + property_id + changed_by_type, sin previous_status) que ningún código usaba. La migración 007 detecta esta tabla legacy y la dropea antes de crear la nueva — sin pérdida de datos (la phantom nunca tuvo INSERTs).
+- **Tools sin gating son siempre permitidas**: el middleware tiene defensive default — si una tool nueva se agrega a `TOOLS_LIST` y se olvida agregar al `TOOL_PERMISSION_MAP`, queda accesible para todos los roles. Más fácil detectar "esta tool aparece para todos" que "los recepcionistas no pueden hacer X" después de un deploy.
+- **Safety anti-lockout en `update_permissions`**: admin/supervisor/gerencia no pueden quedar con TODOS los permisos en false (bloquearía el agente para roles de gestión). Otros roles sí pueden ser totalmente bloqueados (caso cocina).
+
+---
+
 ## [v1.8.0] — abril 2026 · Phase 5 — Email Sending
 
 ### Qué se agregó
@@ -248,6 +297,6 @@ Items identificados en la auditoría del 2026-04-21 (informe del Senior Software
 
 | ID | Descripción | Severidad | Estado |
 |---|---|---|---|
-| T2 | TODO `RoomStatusLog` en `backend/api/v1/endpoints/rooms.py:326` — feature de logging dormida (modelo planificado, no implementado) | Baja | Pendiente análisis |
-| O1 | `scripts/migrate_monges.py` legacy referenciado por `scripts/seed_monges.py:750` y `frontend_pc/pages/98_🏠_Admin_Habitaciones.py:741`. Convive con el sistema canónico `scripts/migrations/NNN_*.py` | Media | Pendiente análisis |
-| O5 | `backend/tests/verify_mobile_api.py` y `backend/tests/verify_parking.py` están en `tests/` pero sin prefijo `test_` — pytest no los colecta. Intención poco clara: ¿scripts manuales o tests rotos? | Baja | Pendiente análisis |
+| T2 | TODO `RoomStatusLog` en `backend/api/v1/endpoints/rooms.py:326` | Baja | ✅ Cerrada en v1.9.0 (Feature 3 implementada) |
+| O1 | `scripts/migrate_monges.py` legacy referenciado por `scripts/seed_monges.py:750` y `frontend_pc/pages/98_🏠_Admin_Habitaciones.py:741` | Media | ✅ Cerrada en v1.9.0 (script eliminado, refs actualizadas) |
+| O5 | `backend/tests/verify_mobile_api.py` y `backend/tests/verify_parking.py` están en `tests/` sin prefijo `test_` | Baja | ✅ Cerrada en v1.9.0 (movidos a `scripts/`) |

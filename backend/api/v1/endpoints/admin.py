@@ -18,12 +18,21 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
-from api.deps import require_role
+from api.deps import require_role, get_db
 from api.core.config import APP_VERSION
+from services import (
+    AIAgentPermissionService,
+    AIAgentPermissionError,
+    PERMISSION_COLUMNS,
+    TOOL_PERMISSION_MAP,
+    DEFAULT_PERMISSIONS_BY_ROLE,
+)
+from schemas import AIAgentPermissionDTO, AIAgentPermissionUpdate
 
 router = APIRouter()
 
@@ -237,4 +246,84 @@ def get_system_info():
         "database_size_mb": db_size_mb,
         "git_commit": git_commit,
         "backend_dir": str(BACKEND_DIR),
+    }
+
+
+# ==========================================
+# AI AGENT PERMISSIONS (Feature 1 — v1.9.0)
+# ==========================================
+
+def _row_to_dto(row) -> AIAgentPermissionDTO:
+    """Map an AIAgentPermission ORM row to the public DTO."""
+    payload = {col: bool(getattr(row, col, 0)) for col in PERMISSION_COLUMNS}
+    return AIAgentPermissionDTO(role=row.role, **payload)
+
+
+@router.get(
+    "/ai-permissions",
+    response_model=List[AIAgentPermissionDTO],
+    summary="List AI Agent Permissions per Role",
+    dependencies=[Depends(require_role("admin"))],
+)
+def list_ai_permissions(db: Session = Depends(get_db)):
+    """Return all known role-permission rows. Seeds defaults on first call."""
+    # Ensure every default role has a row, then list everything
+    for role in DEFAULT_PERMISSIONS_BY_ROLE.keys():
+        AIAgentPermissionService.get_or_create(db=db, role=role)
+    rows = AIAgentPermissionService.list_all(db=db)
+    return [_row_to_dto(r) for r in rows]
+
+
+@router.get(
+    "/ai-permissions/{role}",
+    response_model=AIAgentPermissionDTO,
+    summary="Get AI Agent Permissions for a Role",
+    dependencies=[Depends(require_role("admin"))],
+)
+def get_ai_permissions(role: str, db: Session = Depends(get_db)):
+    """Return permissions for a single role (auto-seeds if missing)."""
+    row = AIAgentPermissionService.get_or_create(db=db, role=role)
+    return _row_to_dto(row)
+
+
+@router.put(
+    "/ai-permissions/{role}",
+    response_model=AIAgentPermissionDTO,
+    summary="Update AI Agent Permissions for a Role",
+    dependencies=[Depends(require_role("admin"))],
+)
+def update_ai_permissions(
+    role: str,
+    updates: AIAgentPermissionUpdate,
+    db: Session = Depends(get_db),
+):
+    """Partial update of a role's AI permissions (only the fields sent are changed)."""
+    update_dict = updates.model_dump(exclude_unset=True)
+    if not update_dict:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe enviarse al menos un permiso para actualizar.",
+        )
+    try:
+        row = AIAgentPermissionService.update_permissions(
+            db=db, role=role, updates=update_dict
+        )
+    except AIAgentPermissionError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return _row_to_dto(row)
+
+
+@router.get(
+    "/ai-permissions/{role}/allowed-tools",
+    summary="List AI Tools Allowed for a Role",
+    dependencies=[Depends(require_role("admin"))],
+)
+def get_allowed_tools_for_role(role: str, db: Session = Depends(get_db)):
+    """Diagnostic endpoint — returns the AI tool names this role can use."""
+    AIAgentPermissionService.get_or_create(db=db, role=role)  # seed if missing
+    allowed = AIAgentPermissionService.get_allowed_tools(db=db, role=role)
+    return {
+        "role": role.lower().strip(),
+        "allowed_tools": sorted(allowed),
+        "tool_permission_map": TOOL_PERMISSION_MAP,
     }

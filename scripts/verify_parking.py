@@ -2,8 +2,8 @@ import sys
 import os
 from datetime import date, datetime, timedelta
 
-# Add backend to path to import services/db
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add backend/ to path to import services/db (script lives in scripts/, backend is a sibling)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
 
 from database import SessionLocal, Reservation, engine, Base
 from services import ReservationService, SettingsService, ReservationCreate

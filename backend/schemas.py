@@ -655,3 +655,44 @@ class EmailLogDTO(BaseModel):
     sent_at: Optional[datetime] = None
     sent_by: Optional[str] = None
     created_at: Optional[datetime] = None
+
+
+# ==========================================
+# AIAgentPermission DTOs (Feature 1 — v1.9.0)
+# ==========================================
+
+class AIAgentPermissionDTO(BaseModel):
+    """Per-role permissions for the AI agent's 18 tools."""
+    role: str
+    can_view_reservations: bool
+    can_create_reservations: bool
+    can_modify_reservations: bool
+    can_cancel_reservations: bool
+    can_view_guests: bool
+    can_modify_guests: bool
+    can_view_rooms: bool
+    can_modify_rooms: bool
+    can_modify_room_status: bool
+    can_view_prices: bool
+    can_modify_prices: bool
+    can_view_reports: bool
+    can_export_data: bool
+    can_modify_settings: bool
+
+
+class AIAgentPermissionUpdate(BaseModel):
+    """Partial update for a role's AI permissions. All fields optional."""
+    can_view_reservations: Optional[bool] = None
+    can_create_reservations: Optional[bool] = None
+    can_modify_reservations: Optional[bool] = None
+    can_cancel_reservations: Optional[bool] = None
+    can_view_guests: Optional[bool] = None
+    can_modify_guests: Optional[bool] = None
+    can_view_rooms: Optional[bool] = None
+    can_modify_rooms: Optional[bool] = None
+    can_modify_room_status: Optional[bool] = None
+    can_view_prices: Optional[bool] = None
+    can_modify_prices: Optional[bool] = None
+    can_view_reports: Optional[bool] = None
+    can_export_data: Optional[bool] = None
+    can_modify_settings: Optional[bool] = None

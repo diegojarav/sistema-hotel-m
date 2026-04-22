@@ -16,7 +16,7 @@ from datetime import date, datetime
 from api.deps import get_db, get_current_user, require_role
 
 # IMPORT FROM ROOT - Single Source of Truth
-from database import Room, RoomCategory, User
+from database import Room, RoomCategory, RoomStatusLog, User
 from services import ReservationService
 
 # Property ID (Los Monges for now - will be dynamic in multi-tenant)
@@ -93,6 +93,17 @@ class RoomStatisticsDTO(BaseModel):
     occupied: int
     maintenance: int
     cleaning: int
+
+
+class RoomStatusLogDTO(BaseModel):
+    """Single room status change log entry."""
+    id: int
+    room_id: str
+    previous_status: Optional[str] = None
+    new_status: str
+    changed_by: Optional[str] = None
+    reason: Optional[str] = None
+    changed_at: datetime
 
 
 # ==========================================
@@ -315,19 +326,66 @@ def update_room_status(
         raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
 
     old_status = room.status
+    now = datetime.now()
 
     # Update room
     room.status = request.status
     room.status_reason = request.reason
-    room.status_changed_at = datetime.now()
+    room.status_changed_at = now
     room.status_changed_by = current_user.username
-    room.updated_at = datetime.now()
+    room.updated_at = now
 
-    # TODO: Add RoomStatusLog model to database.py and enable logging
-    # For now, status changes are tracked in the room record itself
+    # Append-only audit log entry (Feature 3 — RoomStatusLog)
+    db.add(RoomStatusLog(
+        room_id=room.id,
+        previous_status=old_status,
+        new_status=request.status,
+        changed_by=current_user.username,
+        reason=request.reason,
+        changed_at=now,
+    ))
     db.commit()
 
     return {"success": True, "message": "Status updated"}
+
+
+@router.get(
+    "/{room_id}/status-log",
+    response_model=List[RoomStatusLogDTO],
+    summary="Get Room Status Change History",
+    description="Returns the audit trail of status changes for a room, newest first. Requires authentication."
+)
+def get_room_status_log(
+    room_id: str,
+    limit: int = Query(default=50, ge=1, le=500, description="Max entries to return"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "supervisor", "recepcion", "recepcionista", "gerencia"))
+):
+    """List the most recent status changes for the given room (DESC by changed_at)."""
+    # Validate room exists (consistent 404 with the rest of the endpoints)
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail=f"Room {room_id} not found")
+
+    entries = (
+        db.query(RoomStatusLog)
+        .filter(RoomStatusLog.room_id == room_id)
+        .order_by(RoomStatusLog.changed_at.desc(), RoomStatusLog.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        RoomStatusLogDTO(
+            id=e.id,
+            room_id=e.room_id,
+            previous_status=e.previous_status,
+            new_status=e.new_status,
+            changed_by=e.changed_by,
+            reason=e.reason,
+            changed_at=e.changed_at,
+        )
+        for e in entries
+    ]
 
 
 @router.patch(

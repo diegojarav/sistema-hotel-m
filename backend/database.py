@@ -344,7 +344,7 @@ class Property(Base):
     check_in_start = Column(String, default="07:00")
     check_in_end = Column(String, default="22:00")
     check_out_time = Column(String, default="10:00")
-    breakfast_included = Column(Integer, default=0)  # DEPRECATED v1.7: use meals_enabled + meal_inclusion_mode instead. Remove in v1.8.
+    breakfast_included = Column(Integer, default=0)  # DEPRECATED v1.7: use meals_enabled + meal_inclusion_mode instead. Removal tracked in ROADMAP.md (backlog).
     parking_available = Column(Integer, default=1)
     # v1.7.0 — Meal Plan Configuration (Phase 4)
     meals_enabled = Column(Integer, default=0)  # master on/off for meal features
@@ -507,6 +507,25 @@ class EmailLog(Base):
     sent_at = Column(DateTime, nullable=True, index=True)
     sent_by = Column(String, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
+
+
+class RoomStatusLog(Base):
+    """Append-only audit trail of room status changes (v1.9.0 — Feature 3).
+
+    Each PATCH /rooms/{id}/status writes one row capturing the transition
+    (previous_status -> new_status), the operator who triggered it
+    (changed_by stores username, matching the existing room.status_changed_by
+    convention), and an optional reason. Used by the Admin Habitaciones page
+    for the per-room change history sub-section.
+    """
+    __tablename__ = "room_status_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    room_id = Column(String, ForeignKey("rooms.id"), nullable=False, index=True)
+    previous_status = Column(String, nullable=True)  # nullable: very first status set has no prior value
+    new_status = Column(String, nullable=False)
+    changed_by = Column(String, nullable=True)  # username (matches room.status_changed_by)
+    reason = Column(String, nullable=True)
+    changed_at = Column(DateTime, default=datetime.now, index=True)
 
 
 class AIAgentPermission(Base):

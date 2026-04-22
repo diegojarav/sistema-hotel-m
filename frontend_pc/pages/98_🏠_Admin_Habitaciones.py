@@ -619,6 +619,39 @@ with tab_manage:
                     st.rerun()
                 else:
                     st.error(f"❌ {message}")
+
+        # ------------------------------------------
+        # Historial de cambios de estado (Feature 3 — RoomStatusLog)
+        # ------------------------------------------
+        st.markdown("---")
+        with st.expander("📋 Historial de cambios de estado", expanded=False):
+            try:
+                resp = _s.get(
+                    f"{API_BASE_URL}/rooms/{selected_room['id']}/status-log?limit=50",
+                    headers=get_auth_headers(),
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    entries = resp.json()
+                    if not entries:
+                        st.info("Sin cambios registrados para esta habitación.")
+                    else:
+                        history_df = pd.DataFrame([
+                            {
+                                "Fecha": datetime.fromisoformat(e["changed_at"]).strftime("%Y-%m-%d %H:%M"),
+                                "Estado anterior": ROOM_STATUSES.get(e["previous_status"], e["previous_status"] or "—"),
+                                "Estado nuevo": ROOM_STATUSES.get(e["new_status"], e["new_status"]),
+                                "Usuario": e["changed_by"] or "—",
+                                "Motivo": e["reason"] or "—",
+                            }
+                            for e in entries
+                        ])
+                        st.dataframe(history_df, hide_index=True, width="stretch")
+                        st.caption(f"Mostrando los últimos {len(entries)} cambios.")
+                else:
+                    st.warning(f"No se pudo cargar el historial (HTTP {resp.status_code}).")
+            except Exception as e:
+                st.error(f"Error consultando historial: {e}")
     else:
         st.info("No hay habitaciones para gestionar")
 
@@ -736,9 +769,9 @@ with tab_summary:
         )
     else:
         st.info("No hay datos de habitaciones disponibles")
-        st.warning("💡 Ejecute el script de migracion y seed para crear el inventario inicial:")
+        st.warning("💡 Ejecute las migraciones y el seed para crear el inventario inicial:")
         st.code("""
-python scripts/migrate_monges.py
+python scripts/run_migrations.py
 python scripts/seed_monges.py
         """)
 

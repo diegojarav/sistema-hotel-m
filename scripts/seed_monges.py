@@ -747,7 +747,8 @@ def run_seed(db_path: Path, dry_run: bool = False, reset: bool = False) -> bool:
     
     if not db_path.exists():
         log_error(f"Database not found: {db_path}")
-        log_info("Please run migrate_monges.py first.")
+        log_info("Initialize the schema first with: python -c \"from database import init_db; init_db()\"")
+        log_info("Then apply incremental migrations: python scripts/run_migrations.py")
         return False
     
     log_info(f"Database: {db_path}")

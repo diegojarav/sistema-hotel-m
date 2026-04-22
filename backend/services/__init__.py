@@ -21,6 +21,13 @@ from services.consumo_service import ConsumoService, ConsumoError
 from services.meal_plan_service import MealPlanService, MealPlanError
 from services.kitchen_report_service import KitchenReportService
 from services.email_service import EmailService, EmailError
+from services.ai_agent_permission_service import (
+    AIAgentPermissionService,
+    AIAgentPermissionError,
+    PERMISSION_COLUMNS,
+    TOOL_PERMISSION_MAP,
+    DEFAULT_PERMISSIONS_BY_ROLE,
+)
 
 # Backward compat: app.py imports schemas through services
 from schemas import ReservationCreate, CheckInCreate, UserDTO
@@ -37,5 +44,7 @@ __all__ = [
     "MealPlanService", "MealPlanError",
     "KitchenReportService",
     "EmailService", "EmailError",
+    "AIAgentPermissionService", "AIAgentPermissionError",
+    "PERMISSION_COLUMNS", "TOOL_PERMISSION_MAP", "DEFAULT_PERMISSIONS_BY_ROLE",
     "ReservationCreate", "CheckInCreate", "UserDTO",
 ]
