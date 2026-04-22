@@ -51,7 +51,9 @@ st.caption(
 # ==========================================
 
 def _auth_headers() -> dict:
-    token = st.session_state.get("access_token")
+    # BUG-TOKEN-PC: app.py guarda el JWT bajo `api_token`, no `access_token`.
+    # Mismo patrón que BUG-TOKEN-PC-01 / BUG-TOKEN-SETTINGS.
+    token = st.session_state.get("api_token")
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
