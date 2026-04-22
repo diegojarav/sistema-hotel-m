@@ -588,3 +588,70 @@ class ProductoMasVendidoDTO(BaseModel):
     units_sold: int
     revenue: float
     consumo_count: int
+
+
+# ==========================================
+# EMAIL (v1.8.0 — Phase 5)
+# ==========================================
+
+class SMTPConfigIn(BaseModel):
+    """Request body for PUT /settings/email. Password optional: if None or empty, keep existing."""
+    smtp_host: str = Field(..., min_length=1)
+    smtp_port: int = Field(..., ge=1, le=65535)
+    smtp_username: str = Field(..., min_length=1)
+    smtp_password: Optional[str] = Field(default=None, description="Plaintext; encrypted on save. Empty string or None keeps current.")
+    smtp_from_name: str = Field(..., min_length=1)
+    smtp_from_email: str = Field(..., min_length=3)
+    smtp_enabled: bool = False
+    email_body_template: Optional[str] = None
+
+    @field_validator("smtp_from_email")
+    @classmethod
+    def _validate_from_email(cls, v: str) -> str:
+        if "@" not in v:
+            raise ValueError("smtp_from_email debe ser un email válido")
+        return v.strip()
+
+
+class SMTPConfigOut(BaseModel):
+    """Response for GET /settings/email. Password is never exposed."""
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password_set: bool = False
+    smtp_from_name: Optional[str] = None
+    smtp_from_email: Optional[str] = None
+    smtp_enabled: bool = False
+    email_body_template: Optional[str] = None
+
+
+class SMTPTestResult(BaseModel):
+    success: bool
+    message: str
+
+
+class SendEmailRequest(BaseModel):
+    """Optional body for POST /email/reserva/{id}/enviar."""
+    email: Optional[str] = Field(default=None, description="Override recipient email; persisted to reservation if guest had none")
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        if "@" not in v:
+            raise ValueError("El email ingresado no es válido")
+        return v.strip()
+
+
+class EmailLogDTO(BaseModel):
+    """Single email_log row for historial responses."""
+    id: int
+    reserva_id: str
+    recipient_email: str
+    subject: str
+    status: str  # ENVIADO | FALLIDO | PENDIENTE
+    error_message: Optional[str] = None
+    sent_at: Optional[datetime] = None
+    sent_by: Optional[str] = None
+    created_at: Optional[datetime] = None

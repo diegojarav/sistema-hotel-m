@@ -171,3 +171,120 @@ class SettingsService:
             "meals_enabled": bool(prop.meals_enabled),
             "meal_inclusion_mode": prop.meal_inclusion_mode,
         }
+
+    # ==================================================================
+    # v1.8.0 — SMTP / Email configuration (Phase 5)
+    # ==================================================================
+    SMTP_KEYS = (
+        "smtp_host",
+        "smtp_port",
+        "smtp_username",
+        "smtp_password_encrypted",
+        "smtp_from_name",
+        "smtp_from_email",
+        "smtp_enabled",
+        "email_body_template",
+    )
+
+    DEFAULT_EMAIL_BODY_TEMPLATE = (
+        "Estimado/a {nombre_huesped},\n\n"
+        "Adjunto encontrará la confirmación de su reserva en {nombre_hotel}.\n\n"
+        "Ante cualquier consulta, no dude en contactarnos.\n\n"
+        "Saludos cordiales,\n"
+        "{nombre_hotel}"
+    )
+
+    @staticmethod
+    def _set_kv(db: Session, key: str, value: str, property_id: str = "los-monges") -> None:
+        """Upsert a single system_settings row. Caller is responsible for db.commit()."""
+        from database import SystemSetting
+        import uuid
+        setting = db.query(SystemSetting).filter(SystemSetting.setting_key == key).first()
+        if setting:
+            setting.setting_value = value
+        else:
+            db.add(SystemSetting(
+                id=str(uuid.uuid4()),
+                property_id=property_id,
+                setting_key=key,
+                setting_value=value,
+            ))
+
+    @staticmethod
+    @with_db
+    def get_smtp_config(db: Session = None, include_password: bool = False) -> dict:
+        """Return the SMTP config.
+
+        Args:
+            include_password: If True, returns plaintext password (decrypted). Only use server-side
+                when actually sending an email; never expose in API responses.
+
+        Returns:
+            dict with: smtp_host, smtp_port (int|None), smtp_username, smtp_from_name,
+            smtp_from_email, smtp_enabled (bool), email_body_template, smtp_password_set (bool),
+            and optionally smtp_password (plaintext) if include_password=True.
+        """
+        from database import SystemSetting
+        from api.core.security import decrypt_secret
+
+        rows = db.query(SystemSetting).filter(
+            SystemSetting.setting_key.in_(SettingsService.SMTP_KEYS)
+        ).all()
+        kv = {r.setting_key: r.setting_value for r in rows}
+
+        port_raw = kv.get("smtp_port")
+        try:
+            port = int(port_raw) if port_raw else None
+        except (TypeError, ValueError):
+            port = None
+
+        enabled_raw = (kv.get("smtp_enabled") or "").lower()
+        enabled = enabled_raw in ("1", "true", "yes")
+
+        encrypted_pw = kv.get("smtp_password_encrypted")
+        has_password = bool(encrypted_pw)
+
+        result = {
+            "smtp_host": kv.get("smtp_host"),
+            "smtp_port": port,
+            "smtp_username": kv.get("smtp_username"),
+            "smtp_password_set": has_password,
+            "smtp_from_name": kv.get("smtp_from_name"),
+            "smtp_from_email": kv.get("smtp_from_email"),
+            "smtp_enabled": enabled,
+            "email_body_template": kv.get("email_body_template") or SettingsService.DEFAULT_EMAIL_BODY_TEMPLATE,
+        }
+        if include_password:
+            result["smtp_password"] = decrypt_secret(encrypted_pw) if has_password else None
+        return result
+
+    @staticmethod
+    @with_db
+    def set_smtp_config(
+        db: Session,
+        smtp_host: str,
+        smtp_port: int,
+        smtp_username: str,
+        smtp_from_name: str,
+        smtp_from_email: str,
+        smtp_enabled: bool,
+        smtp_password: str = None,
+        email_body_template: str = None,
+        property_id: str = "los-monges",
+    ) -> dict:
+        """Upsert SMTP config. If smtp_password is None/empty, the existing encrypted password is preserved."""
+        from api.core.security import encrypt_secret
+
+        SettingsService._set_kv(db, "smtp_host", smtp_host, property_id)
+        SettingsService._set_kv(db, "smtp_port", str(smtp_port), property_id)
+        SettingsService._set_kv(db, "smtp_username", smtp_username, property_id)
+        SettingsService._set_kv(db, "smtp_from_name", smtp_from_name, property_id)
+        SettingsService._set_kv(db, "smtp_from_email", smtp_from_email, property_id)
+        SettingsService._set_kv(db, "smtp_enabled", "true" if smtp_enabled else "false", property_id)
+        if email_body_template is not None:
+            SettingsService._set_kv(db, "email_body_template", email_body_template, property_id)
+        if smtp_password:
+            SettingsService._set_kv(db, "smtp_password_encrypted", encrypt_secret(smtp_password), property_id)
+        db.commit()
+        logger.info(f"SMTP config updated: host={smtp_host}, enabled={smtp_enabled}")
+        return SettingsService.get_smtp_config(db=db, include_password=False)

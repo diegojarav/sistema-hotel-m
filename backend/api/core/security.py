@@ -130,10 +130,10 @@ def create_refresh_token(data: dict) -> str:
 def decode_token(token: str) -> Optional[dict]:
     """
     Decode and validate a JWT token.
-    
+
     Args:
         token: The JWT token string
-        
+
     Returns:
         Decoded payload if valid, None if invalid or expired
     """
@@ -142,3 +142,55 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+# ==========================================
+# SYMMETRIC ENCRYPTION (v1.8.0 — Phase 5)
+# ==========================================
+# Used to protect SMTP credentials stored in system_settings. The master key
+# is derived deterministically from SECRET_KEY via PBKDF2HMAC-SHA256 so that
+# (a) no extra secret needs to be managed and (b) rotating SECRET_KEY also
+# invalidates stored secrets (operator must re-enter SMTP password after rotation).
+
+import base64
+from functools import lru_cache
+
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+_FERNET_SALT = b"hotel-munich-smtp-v1"
+_FERNET_ITERATIONS = 200_000
+
+
+@lru_cache(maxsize=1)
+def _fernet() -> Fernet:
+    """Derive a stable Fernet key from SECRET_KEY. Cached for the process lifetime."""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=_FERNET_SALT,
+        iterations=_FERNET_ITERATIONS,
+    )
+    key_material = kdf.derive(SECRET_KEY.encode("utf-8"))
+    fernet_key = base64.urlsafe_b64encode(key_material)
+    return Fernet(fernet_key)
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """Encrypt a short string (e.g. SMTP password). Returns a base64 blob safe to store in DB."""
+    if plaintext is None:
+        raise ValueError("plaintext no puede ser None")
+    token = _fernet().encrypt(plaintext.encode("utf-8"))
+    return token.decode("ascii")
+
+
+def decrypt_secret(ciphertext: str) -> str:
+    """Decrypt a blob produced by encrypt_secret(). Raises ValueError on invalid/tampered token."""
+    if not ciphertext:
+        raise ValueError("ciphertext vacío")
+    try:
+        plain = _fernet().decrypt(ciphertext.encode("ascii"))
+    except InvalidToken as e:
+        raise ValueError("No se pudo desencriptar el valor (token inválido o SECRET_KEY rotada).") from e
+    return plain.decode("utf-8")

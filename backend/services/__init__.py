@@ -20,6 +20,7 @@ from services.product_service import ProductService, ProductError
 from services.consumo_service import ConsumoService, ConsumoError
 from services.meal_plan_service import MealPlanService, MealPlanError
 from services.kitchen_report_service import KitchenReportService
+from services.email_service import EmailService, EmailError
 
 # Backward compat: app.py imports schemas through services
 from schemas import ReservationCreate, CheckInCreate, UserDTO
@@ -35,5 +36,6 @@ __all__ = [
     "ConsumoService", "ConsumoError",
     "MealPlanService", "MealPlanError",
     "KitchenReportService",
+    "EmailService", "EmailError",
     "ReservationCreate", "CheckInCreate", "UserDTO",
 ]

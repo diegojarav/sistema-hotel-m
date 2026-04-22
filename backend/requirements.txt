@@ -12,9 +12,10 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
 
-# Security (JWT + Password Hashing + Rate Limiting)
+# Security (JWT + Password Hashing + Rate Limiting + SMTP secret encryption)
 bcrypt>=4.0.0
 python-jose[cryptography]>=3.3.0
+cryptography>=42.0.0
 slowapi>=0.1.9
 
 # Utilities

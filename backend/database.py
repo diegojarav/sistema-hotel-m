@@ -487,6 +487,28 @@ class MealPlan(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
+class EmailLog(Base):
+    """
+    Audit trail for outbound reservation-confirmation emails (v1.8.0 — Phase 5).
+
+    Append-only. Never updated except:
+      - PENDIENTE → ENVIADO (background success) sets sent_at
+      - PENDIENTE → FALLIDO (background error) sets error_message
+
+    Rate-limit window (3 per reserva per hour) counts only status='ENVIADO'.
+    """
+    __tablename__ = "email_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reserva_id = Column(String, ForeignKey("reservations.id"), nullable=False, index=True)
+    recipient_email = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="PENDIENTE", index=True)  # ENVIADO | FALLIDO | PENDIENTE
+    error_message = Column(String, nullable=True)
+    sent_at = Column(DateTime, nullable=True, index=True)
+    sent_by = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class AIAgentPermission(Base):
     """Permissions for AI Agents."""
     __tablename__ = "ai_agent_permissions"

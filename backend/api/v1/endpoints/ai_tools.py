@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 # Import services from root (Hybrid Monolith)
-from services import ReservationService, CajaService, TransaccionService, ProductService, ConsumoService, KitchenReportService, SettingsService
+from services import ReservationService, CajaService, TransaccionService, ProductService, ConsumoService, KitchenReportService, SettingsService, EmailService
 
 
 # ==========================================
@@ -1202,6 +1202,77 @@ def reporte_cocina(fecha: Optional[str] = None) -> str:
 
 
 # ==========================================
+# TOOL 18: Estado del email de una reserva (Phase 5 — v1.8.0)
+# ==========================================
+
+def estado_email_reserva(query: Optional[str] = None) -> str:
+    """
+    Consulta si se envió el correo de confirmación a una reserva y cuándo.
+
+    Úsala para preguntas como:
+      - "¿Se le mandó el correo a la reserva 1234?"
+      - "¿Cuándo se envió el email a Juan Pérez?"
+      - "¿El correo de la reserva 45 fue enviado?"
+      - "¿Se envió el correo de la reserva de García?"
+
+    Args:
+        query: ID de reserva (ej "0001234") o nombre del huésped (parcial OK).
+               Si es None o vacío, devuelve instrucciones.
+
+    Returns:
+        String descriptivo con:
+          - Nombre del huésped + ID de reserva
+          - Último envío (fecha, hora, email destino, estado)
+          - Total de envíos exitosos e intentos fallidos
+          - O "No se ha enviado ningún correo" si no hay registros.
+    """
+    try:
+        if not query or not query.strip():
+            return (
+                "Uso: pasá el ID de la reserva (ej. '0001234') o el nombre del huésped. "
+                "Ejemplo: estado_email_reserva('Juan Pérez')."
+            )
+
+        q = query.strip()
+        reservations = ReservationService.search_reservations(q)
+        if not reservations:
+            return f"No se encontraron reservas para '{q}'."
+
+        # Pick the most recent match (search returns list of dicts with id/guest_name/check_in)
+        reservation = reservations[0]
+        reserva_id = reservation.get("id") or reservation.get("reservation_id")
+        guest_name = reservation.get("guest_name") or "Sin nombre"
+
+        logs = EmailService.get_email_log(reserva_id=reserva_id, limit=50)
+        if not logs:
+            extra = f" (se encontraron {len(reservations)} reservas, mostrando la primera)" if len(reservations) > 1 else ""
+            return (
+                f"Reserva {reserva_id} — {guest_name}{extra}.\n"
+                f"No se ha enviado ningún correo a esta reserva."
+            )
+
+        ultimo = logs[0]
+        fecha_ref = ultimo.sent_at or ultimo.created_at
+        fecha_txt = fecha_ref.strftime("%d/%m/%Y %H:%M") if fecha_ref else "-"
+        enviados = sum(1 for l in logs if l.status == "ENVIADO")
+        fallidos = sum(1 for l in logs if l.status == "FALLIDO")
+        pendientes = sum(1 for l in logs if l.status == "PENDIENTE")
+
+        lines = [
+            f"Reserva {reserva_id} — {guest_name}",
+            f"Último intento: {fecha_txt} a {ultimo.recipient_email} ({ultimo.status})",
+        ]
+        if ultimo.status == "FALLIDO" and ultimo.error_message:
+            lines.append(f"  Error: {ultimo.error_message[:120]}")
+        lines.append(f"Total: {enviados} enviado(s), {fallidos} fallido(s), {pendientes} pendiente(s)")
+        if len(reservations) > 1:
+            lines.append(f"\n(Se encontraron {len(reservations)} reservas — mostrando la primera.)")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error al consultar estado del email: {e}"
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -1223,4 +1294,5 @@ TOOLS_LIST = [
     consultar_inventario,
     consumos_habitacion,
     reporte_cocina,
+    estado_email_reserva,
 ]

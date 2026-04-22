@@ -240,6 +240,126 @@ elif _meals_enabled_now and _meals_mode_now == "INCLUIDO":
 st.markdown("---")
 
 # ==========================================
+# EMAIL / SMTP CONFIGURATION (v1.8.0 — Phase 5)
+# ==========================================
+st.subheader("📧 Configuración de Correo")
+st.caption(
+    "Envío de confirmaciones de reserva por email. Contraseña almacenada encriptada."
+)
+
+from api_client import get_smtp_config, save_smtp_config, test_smtp
+
+_api_token = st.session_state.get("api_token", "")
+_smtp_cfg = get_smtp_config(_api_token) if _api_token else {}
+
+with st.form("smtp_config_form"):
+    c1, c2 = st.columns(2)
+    with c1:
+        smtp_host = st.text_input(
+            "Servidor SMTP (host)",
+            value=_smtp_cfg.get("smtp_host") or "",
+            placeholder="smtp.gmail.com",
+        )
+        smtp_username = st.text_input(
+            "Usuario / Email SMTP",
+            value=_smtp_cfg.get("smtp_username") or "",
+            placeholder="hotel@midominio.com",
+        )
+        smtp_from_name = st.text_input(
+            "Nombre del remitente",
+            value=_smtp_cfg.get("smtp_from_name") or "",
+            placeholder="Hotel Munich",
+        )
+    with c2:
+        smtp_port = st.number_input(
+            "Puerto",
+            min_value=1, max_value=65535,
+            value=int(_smtp_cfg.get("smtp_port") or 587),
+            step=1,
+        )
+        _pw_placeholder = (
+            "(ya hay una contraseña guardada — dejá vacío para mantenerla)"
+            if _smtp_cfg.get("smtp_password_set")
+            else "Contraseña del servidor SMTP"
+        )
+        smtp_password = st.text_input(
+            "Contraseña SMTP",
+            type="password",
+            value="",
+            placeholder=_pw_placeholder,
+            help="Se almacena encriptada con clave derivada de JWT_SECRET_KEY.",
+        )
+        smtp_from_email = st.text_input(
+            "Email del remitente",
+            value=_smtp_cfg.get("smtp_from_email") or "",
+            placeholder="hotel@midominio.com",
+        )
+
+    smtp_enabled = st.toggle(
+        "Habilitar envío de emails",
+        value=bool(_smtp_cfg.get("smtp_enabled")),
+        help="Cuando está deshabilitado, los botones de envío devuelven 400.",
+    )
+
+    email_body_template = st.text_area(
+        "Cuerpo del email",
+        value=_smtp_cfg.get("email_body_template") or "",
+        height=180,
+        help="Podés usar `{nombre_huesped}` y `{nombre_hotel}`. Se envía como texto plano.",
+    )
+
+    submitted = st.form_submit_button("💾 Guardar configuración SMTP", type="primary")
+    if submitted:
+        if not smtp_host or not smtp_username or not smtp_from_email:
+            st.error("Completá host, usuario y email del remitente.")
+        elif not _smtp_cfg.get("smtp_password_set") and not smtp_password:
+            st.error("Ingresá la contraseña SMTP (es la primera vez que se guarda).")
+        else:
+            payload = {
+                "smtp_host": smtp_host.strip(),
+                "smtp_port": int(smtp_port),
+                "smtp_username": smtp_username.strip(),
+                "smtp_password": smtp_password or None,
+                "smtp_from_name": smtp_from_name.strip() or smtp_username.strip(),
+                "smtp_from_email": smtp_from_email.strip(),
+                "smtp_enabled": bool(smtp_enabled),
+                "email_body_template": email_body_template or None,
+            }
+            ok, msg = save_smtp_config(payload, _api_token)
+            if ok:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+
+# Test button lives OUTSIDE the form (Streamlit rule: no side-effect buttons inside st.form)
+if _smtp_cfg.get("smtp_host") and _smtp_cfg.get("smtp_password_set"):
+    st.markdown("**Probar configuración:**")
+    colt1, colt2 = st.columns([2, 1])
+    with colt1:
+        _test_email = st.text_input(
+            "Email de prueba",
+            value=_smtp_cfg.get("smtp_from_email") or "",
+            key="smtp_test_email",
+            placeholder="admin@ejemplo.com",
+        )
+    with colt2:
+        st.write("")  # spacer
+        if st.button("✉️ Enviar email de prueba", key="smtp_test_btn"):
+            if not _test_email or "@" not in _test_email:
+                st.error("Ingresá un email válido.")
+            else:
+                ok, msg = test_smtp(_test_email, _api_token)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+else:
+    st.caption("Guardá una configuración completa primero para poder probar el envío.")
+
+st.markdown("---")
+
+# ==========================================
 # CHANNEL MANAGER v2 (v1.5.0) — iCal feeds + reviews
 # ==========================================
 st.subheader("📅 Channel Manager — Sincronización iCal")

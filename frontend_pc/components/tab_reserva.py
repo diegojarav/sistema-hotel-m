@@ -649,6 +649,57 @@ def render_tab_reserva():
                             key=f"pdf_dl_{rid}",
                         )
 
+        # ==========================================
+        # ENVIAR POR CORREO (v1.8.0 — Phase 5)
+        # Only shown in Editar Reserva mode after a reservation is loaded
+        # ==========================================
+        if res_data and res_id_load:
+            st.divider()
+            st.markdown("### 📧 Enviar confirmación por correo")
+
+            from api_client import send_reservation_email, get_email_history
+
+            _token = st.session_state.get("api_token", "")
+            history = get_email_history(res_id_load, _token) if _token else []
+
+            if history:
+                last = history[0]
+                status_map = {"ENVIADO": "✅", "FALLIDO": "❌", "PENDIENTE": "⏳"}
+                badge = status_map.get(last.get("status", ""), "·")
+                sent_at = (last.get("sent_at") or last.get("created_at") or "")[:16].replace("T", " ")
+                st.caption(
+                    f"Último envío: {sent_at} → {last.get('recipient_email', '')} {badge} {last.get('status', '')}"
+                )
+            else:
+                st.caption("Aún no se ha enviado ningún correo para esta reserva.")
+
+            existing_email = getattr(res_data, "contact_email", "") or ""
+            _email_col1, _email_col2 = st.columns([3, 1])
+            with _email_col1:
+                email_override = st.text_input(
+                    "Email destinatario",
+                    value=existing_email,
+                    key=f"email_override_{res_id_load}",
+                    placeholder="guest@email.com",
+                )
+            with _email_col2:
+                st.write("")
+                st.write("")
+                if st.button("📧 Enviar correo", key=f"send_email_btn_{res_id_load}", type="primary"):
+                    if not email_override or "@" not in email_override:
+                        st.error("Ingresá un email válido.")
+                    elif not _token:
+                        st.error("Sesión expirada. Volvé a iniciar sesión.")
+                    else:
+                        override = email_override if email_override != existing_email else None
+                        with st.spinner("Enviando..."):
+                            ok, msg = send_reservation_email(res_id_load, override, _token)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
         st.divider()
         st.markdown("### 📋 Listado de Reservas (Últimas)")
         all_res = ReservationService.get_all_reservations()

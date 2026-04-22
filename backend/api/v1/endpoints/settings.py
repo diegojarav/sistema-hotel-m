@@ -188,3 +188,76 @@ def set_meals_config(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al actualizar la configuración de comidas."
         )
+
+
+# ==========================================
+# v1.8.0 — EMAIL / SMTP CONFIGURATION (Phase 5)
+# ==========================================
+
+from schemas import SMTPConfigIn, SMTPConfigOut, SMTPTestResult
+from services import EmailService
+
+
+class SMTPTestRequest(BaseModel):
+    email: str = Field(..., description="Destino del email de prueba")
+
+
+@router.get(
+    "/email",
+    response_model=SMTPConfigOut,
+    summary="Get SMTP / Email Config",
+    description="Returns SMTP config. Password is never exposed — only `smtp_password_set` indicates if one is stored."
+)
+def get_email_config(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin"))
+):
+    cfg = SettingsService.get_smtp_config(db=db, include_password=False)
+    return SMTPConfigOut(**cfg)
+
+
+@router.put(
+    "/email",
+    response_model=SMTPConfigOut,
+    summary="Update SMTP / Email Config",
+    description="Upsert SMTP config. If `smtp_password` is null/empty, the stored password is preserved. Admin-only."
+)
+def set_email_config(
+    request: SMTPConfigIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin"))
+):
+    try:
+        cfg = SettingsService.set_smtp_config(
+            db=db,
+            smtp_host=request.smtp_host,
+            smtp_port=request.smtp_port,
+            smtp_username=request.smtp_username,
+            smtp_password=request.smtp_password,
+            smtp_from_name=request.smtp_from_name,
+            smtp_from_email=request.smtp_from_email,
+            smtp_enabled=request.smtp_enabled,
+            email_body_template=request.email_body_template,
+        )
+        return SMTPConfigOut(**cfg)
+    except Exception as e:
+        logger.error(f"Error updating SMTP config: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al actualizar la configuración de correo."
+        )
+
+
+@router.post(
+    "/email/test",
+    response_model=SMTPTestResult,
+    summary="Send SMTP Test Email",
+    description="Sends a test email to the given address using the saved SMTP config. Admin-only. Always returns 200 — check `success` field."
+)
+def test_email_config(
+    request: SMTPTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin"))
+):
+    result = EmailService.send_test_email(to_email=request.email)
+    return SMTPTestResult(**result)

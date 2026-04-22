@@ -20,6 +20,8 @@ import { getSaldoReserva, SaldoReserva, paymentMethodEmoji, paymentMethodLabel }
 import RegistrarPagoModal from '@/components/caja/RegistrarPagoModal';
 import { listConsumosByReserva, Consumo, formatPriceGs } from '@/services/consumos';
 import RegistrarConsumoModal from '@/components/consumos/RegistrarConsumoModal';
+import { getEmailHistory, EmailLogItem } from '@/services/email';
+import EnviarEmailModal from '@/components/email/EnviarEmailModal';
 
 function parseLocalDate(dateStr: string): Date {
     const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
@@ -44,6 +46,9 @@ export default function ReservationDetailPage() {
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
     const [showPagoModal, setShowPagoModal] = useState(false);
     const [showConsumoModal, setShowConsumoModal] = useState(false);
+    const [showEmailModal, setShowEmailModal] = useState(false);
+    const [emailHistory, setEmailHistory] = useState<EmailLogItem[]>([]);
+    const [emailToast, setEmailToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const loadSaldo = async () => {
         try {
@@ -63,6 +68,23 @@ export default function ReservationDetailPage() {
         }
     };
 
+    const loadEmailHistory = async () => {
+        try {
+            const h = await getEmailHistory(id);
+            setEmailHistory(h);
+        } catch {
+            // History is optional — don't block the page on it
+        }
+    };
+
+    const handleEmailSuccess = (recipient: string) => {
+        setShowEmailModal(false);
+        setEmailToast({ type: 'success', text: `Correo encolado para ${recipient}. Revisá el historial en unos segundos.` });
+        loadEmailHistory();
+        // Auto-dismiss after 6s
+        setTimeout(() => setEmailToast(null), 6000);
+    };
+
     useEffect(() => {
         if (authLoading || !id) return;
 
@@ -71,12 +93,14 @@ export default function ReservationDetailPage() {
                 const data = await getReservationById(id);
                 setReservation(data);
                 try {
-                    const [s, cs] = await Promise.all([
+                    const [s, cs, h] = await Promise.all([
                         getSaldoReserva(id),
                         listConsumosByReserva(id),
+                        getEmailHistory(id),
                     ]);
                     setSaldo(s);
                     setConsumos(cs);
+                    setEmailHistory(h);
                 } catch {
                     // Saldo/consumos are optional
                 }
@@ -493,6 +517,42 @@ export default function ReservationDetailPage() {
                         📄 Descargar Cuenta (folio)
                     </button>
 
+                    {/* Enviar por correo (v1.8.0 — Phase 5) */}
+                    <div>
+                        <button
+                            onClick={() => setShowEmailModal(true)}
+                            className="w-full py-3 px-4 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                        >
+                            📧 Enviar por correo
+                        </button>
+                        {emailHistory.length > 0 ? (
+                            <p className="mt-1 text-xs text-gray-500 text-center">
+                                Último envío:{' '}
+                                {(() => {
+                                    const last = emailHistory[0];
+                                    const when = last.sent_at || last.created_at;
+                                    const dt = when ? when.slice(0, 16).replace('T', ' ') : '—';
+                                    return `${dt} · ${last.recipient_email} · ${last.status}`;
+                                })()}
+                            </p>
+                        ) : (
+                            <p className="mt-1 text-xs text-gray-500 text-center">
+                                No enviado aún
+                            </p>
+                        )}
+                        {emailToast && (
+                            <div
+                                className={`mt-2 p-2 rounded-lg text-xs text-center ${
+                                    emailToast.type === 'success'
+                                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                                        : 'bg-red-50 border border-red-200 text-red-700'
+                                }`}
+                            >
+                                {emailToast.text}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Registrar Pago — shown for all active states with pending balance */}
                     {['pendiente', 'reservada', 'señada', 'senada', 'confirmada'].includes(reservation.status.toLowerCase()) && saldo && saldo.pending > 0 && (
                         <button
@@ -534,6 +594,17 @@ export default function ReservationDetailPage() {
                     guestName={reservation.guest_name}
                     onClose={() => setShowConsumoModal(false)}
                     onSuccess={handleConsumoRegistrado}
+                />
+            )}
+
+            {/* Enviar Email Modal (v1.8.0 — Phase 5) */}
+            {showEmailModal && reservation && (
+                <EnviarEmailModal
+                    reservaId={reservation.id}
+                    guestName={reservation.guest_name}
+                    initialEmail={reservation.contact_email || ''}
+                    onClose={() => setShowEmailModal(false)}
+                    onSuccess={handleEmailSuccess}
                 />
             )}
 
