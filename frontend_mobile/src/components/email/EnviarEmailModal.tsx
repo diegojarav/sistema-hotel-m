@@ -82,8 +82,13 @@ export default function EnviarEmailModal({
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="guest@email.com"
+                    placeholder="huesped@email.com"
                     disabled={isSubmitting}
+                    maxLength={254}            /* RFC 5321 max email length */
+                    inputMode="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl text-gray-900 focus:ring-2 focus:ring-amber-400 focus:border-amber-400 mb-2"
                 />
                 {initialEmail && email === initialEmail && (

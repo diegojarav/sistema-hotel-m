@@ -32,9 +32,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning on <html> and <body> is the standard Next.js
+    // fix for browser extensions that inject attributes into the document
+    // (QuillBot adds data-qb-installed; Grammarly adds data-gr-*; Dark Reader
+    // adds data-darkreader-*). Without this, every dev session with such an
+    // extension installed throws a hydration mismatch warning. Production
+    // users without these extensions see no difference. The flag only
+    // suppresses warnings for these two specific elements — hydration
+    // mismatches inside the tree are still reported.
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        suppressHydrationWarning
       >
         {children}
       </body>

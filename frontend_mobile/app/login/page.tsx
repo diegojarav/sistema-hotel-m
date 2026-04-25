@@ -29,7 +29,7 @@ export default function LoginPage() {
             await login(username, password);
             router.push('/dashboard');
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Login failed');
+            setError(err instanceof Error ? err.message : 'Error al iniciar sesión');
         } finally {
             setIsLoading(false);
         }
@@ -69,7 +69,7 @@ export default function LoginPage() {
                             {hotelName}
                         </h1>
                         <p className="text-gray-500 text-sm">
-                            Staff Portal
+                            Portal del Personal
                         </p>
                     </div>
 
@@ -101,7 +101,9 @@ export default function LoginPage() {
                             </div>
                             <input
                                 type="text"
-                                placeholder="Username"
+                                placeholder="Usuario"
+                                aria-label="Usuario"
+                                autoComplete="username"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
@@ -128,7 +130,9 @@ export default function LoginPage() {
                             </div>
                             <input
                                 type="password"
-                                placeholder="Password"
+                                placeholder="Contraseña"
+                                aria-label="Contraseña"
+                                autoComplete="current-password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
@@ -163,11 +167,11 @@ export default function LoginPage() {
                                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                                         />
                                     </svg>
-                                    Signing in...
+                                    Iniciando sesión...
                                 </>
                             ) : (
                                 <>
-                                    Sign In
+                                    Iniciar sesión
                                     <svg
                                         className="w-5 h-5"
                                         fill="none"
@@ -189,7 +193,7 @@ export default function LoginPage() {
                     {/* Footer */}
                     <div className="mt-8 text-center">
                         <p className="text-gray-400 text-xs">
-                            © 2026 {hotelName} Management System
+                            © 2026 {hotelName} · Sistema de gestión
                         </p>
                     </div>
                 </div>

@@ -164,19 +164,43 @@ with tab_emails:
         st.caption(f"{len(_rows)} registro(s) encontrado(s)")
 
         import pandas as pd
+
+        # Visual status: icon + label combined in the cell, color via Styler.
+        # ui-ux-pro-max rule `color-not-only` — never convey info by color alone.
+        _STATUS_LABELS = {
+            "ENVIADO": "✅ Enviado",
+            "FALLIDO": "❌ Fallido",
+            "PENDIENTE": "⏳ Pendiente",
+        }
+        _STATUS_BG = {
+            "ENVIADO": "background-color: #d4edda; color: #155724;",   # AA contrast
+            "FALLIDO": "background-color: #f8d7da; color: #721c24;",
+            "PENDIENTE": "background-color: #fff3cd; color: #856404;",
+        }
+
         _data = [
             {
                 "Fecha": (r.sent_at or r.created_at).strftime("%d/%m/%Y %H:%M") if (r.sent_at or r.created_at) else "-",
                 "Reserva": r.reserva_id,
                 "Destinatario": r.recipient_email,
                 "Asunto": r.subject,
-                "Estado": r.status,
+                # Pre-format Estado with icon + Spanish label so it stays readable in CSV export too.
+                "Estado": _STATUS_LABELS.get(r.status, r.status),
                 "Error": (r.error_message or "")[:120] if r.status == "FALLIDO" else "",
             }
             for r in _rows
         ]
         _df = pd.DataFrame(_data)
-        st.dataframe(_df, hide_index=True, use_container_width=True)
+
+        def _style_estado(val: str) -> str:
+            # Map back from "✅ Enviado" → "ENVIADO" by stripping the icon prefix.
+            for key, label in _STATUS_LABELS.items():
+                if val == label:
+                    return _STATUS_BG[key]
+            return ""
+
+        _styled = _df.style.map(_style_estado, subset=["Estado"])
+        st.dataframe(_styled, hide_index=True, use_container_width=True)
 
         # CSV export — MUST live outside any st.form per Streamlit rules.
         _csv = _df.to_csv(index=False, encoding="utf-8-sig")

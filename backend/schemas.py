@@ -653,7 +653,7 @@ class EmailLogDTO(BaseModel):
     status: str  # ENVIADO | FALLIDO | PENDIENTE
     error_message: Optional[str] = None
     sent_at: Optional[datetime] = None
-    sent_by: Optional[str] = None
+    sent_by: Optional[int] = None  # v1.10.0 Phase 1 Fix #2: int (was str, mismatch with users.id)
     created_at: Optional[datetime] = None
 
 

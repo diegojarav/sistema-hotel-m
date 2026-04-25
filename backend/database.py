@@ -1,5 +1,8 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime, Time, event, Boolean
+from sqlalchemy import (
+    create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime,
+    Time, event, Boolean, UniqueConstraint, CheckConstraint, Index,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from datetime import datetime
 import re
@@ -28,13 +31,19 @@ engine = create_engine(
     pool_pre_ping=True  # Verificar conexiones antes de usar
 )
 
-# 2. Habilitar WAL Mode al conectar
+# 2. Habilitar WAL Mode + foreign keys al conectar
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA synchronous=NORMAL")  # Balance rendimiento/seguridad
     cursor.execute("PRAGMA busy_timeout=30000")  # 30s timeout en nivel SQLite
+    # SQLite ships with foreign-key enforcement OFF by default. Enable it so the
+    # ondelete= cascades declared on every ForeignKey actually fire (Phase 1
+    # Fix #16). When the engine is later swapped for PostgreSQL, this whole
+    # block is replaced and the pragma becomes a no-op via the listener target
+    # — Postgres always enforces FKs.
+    cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
 
 Base = declarative_base()
@@ -51,7 +60,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False) # Plain text por compatibilidad v1, upgradear a hash después
+    password = Column(String, nullable=False)  # bcrypt hash ($2b$...). Verified by api/core/security.py:verify_password which rejects anything not starting with '$2'.
     role = Column(String)
     real_name = Column(String)
 
@@ -96,7 +105,8 @@ class Room(Base):
     # PERF-006: Added indexes for frequently filtered columns
     property_id = Column(String, nullable=False, index=True)
     building_id = Column(String, nullable=True)
-    category_id = Column(String, ForeignKey("room_categories.id"), nullable=True)
+    # Phase 1 #1: SET NULL — a room can sit "uncategorized" if its category is removed.
+    category_id = Column(String, ForeignKey("room_categories.id", ondelete="SET NULL"), nullable=True)
     floor = Column(Integer, nullable=True)
     room_number = Column(String, nullable=True)
     internal_code = Column(String, nullable=True)
@@ -111,6 +121,14 @@ class Room(Base):
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     active = Column(Integer, default=1)
+    # Phase 1 #15: enum CHECK — enforced on fresh init_db() and on Postgres migration.
+    # Existing SQLite data is unaffected (no rebuild). All current values are within the set.
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('available','occupied','maintenance','cleaning','out_of_service')",
+            name="ck_rooms_status",
+        ),
+    )
 
 class Reservation(Base):
     __tablename__ = "reservations"
@@ -122,7 +140,8 @@ class Reservation(Base):
     stay_days = Column(Integer)
     guest_name = Column(String) # A_Nombre_De
 
-    room_id = Column(String, ForeignKey("rooms.id"), index=True)
+    # Phase 1 #2: RESTRICT — never delete a room that has reservations.
+    room_id = Column(String, ForeignKey("rooms.id", ondelete="RESTRICT"), index=True)
     room_type = Column(String)
 
     price = Column(Float)
@@ -161,7 +180,8 @@ class Reservation(Base):
     review_reason = Column(String, nullable=True)
 
     # v1.7.0 — Meal Plan (Phase 4)
-    meal_plan_id = Column(String, ForeignKey("meal_plans.id"), nullable=True, index=True)
+    # Phase 1 #3: SET NULL — meal plan can be retired; reservation keeps its price snapshot.
+    meal_plan_id = Column(String, ForeignKey("meal_plans.id", ondelete="SET NULL"), nullable=True, index=True)
     breakfast_guests = Column(Integer, nullable=True)  # # of guests eating breakfast (0..guests_count)
 
 
@@ -170,8 +190,11 @@ class CheckIn(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(Date) # Fecha_Ingreso
 
-    room_id = Column(String, ForeignKey("rooms.id"))
-    reservation_id = Column(String, ForeignKey("reservations.id"), nullable=True, index=True)
+    # Phase 1 #4: RESTRICT — checkins are guest registry data, never lose them on room deletion.
+    room_id = Column(String, ForeignKey("rooms.id", ondelete="RESTRICT"))
+    # Phase 1 #5: SET NULL — checkins predate FEAT-LINK-01 and can exist without a reservation.
+    # Cancelling/deleting a reservation should not erase the guest registration record.
+    reservation_id = Column(String, ForeignKey("reservations.id", ondelete="SET NULL"), nullable=True, index=True)
     check_in_time = Column(Time) # Hora
     
     last_name = Column(String)
@@ -201,7 +224,8 @@ class CajaSesion(Base):
     """Cash register session. Tracks open/close of cash till per user."""
     __tablename__ = "caja_sesion"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # Phase 1 #11: RESTRICT — never delete a user with caja sessions (financial audit).
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     opened_at = Column(DateTime, default=datetime.now, nullable=False)
     closed_at = Column(DateTime, nullable=True)
     opening_balance = Column(Float, nullable=False, default=0.0)
@@ -210,14 +234,20 @@ class CajaSesion(Base):
     difference = Column(Float, nullable=True)
     status = Column(String, default="ABIERTA", index=True)  # ABIERTA | CERRADA
     notes = Column(String, nullable=True)
+    # Phase 1 #15: enum CHECK on status (Postgres migration will translate to ENUM).
+    __table_args__ = (
+        CheckConstraint("status IN ('ABIERTA','CERRADA')", name="ck_caja_sesion_status"),
+    )
 
 
 class Transaccion(Base):
     """Immutable payment transaction. Voided=True is the only way to nullify."""
     __tablename__ = "transaccion"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    reserva_id = Column(String, ForeignKey("reservations.id"), nullable=True, index=True)
-    caja_sesion_id = Column(Integer, ForeignKey("caja_sesion.id"), nullable=True, index=True)
+    # Phase 1 #6: RESTRICT — never delete a reservation with payments (financial audit).
+    reserva_id = Column(String, ForeignKey("reservations.id", ondelete="RESTRICT"), nullable=True, index=True)
+    # Phase 1 #7: RESTRICT — caja sessions are immutable post-close; never delete one with txns.
+    caja_sesion_id = Column(Integer, ForeignKey("caja_sesion.id", ondelete="RESTRICT"), nullable=True, index=True)
     amount = Column(Float, nullable=False)
     payment_method = Column(String, nullable=False, index=True)  # EFECTIVO | TRANSFERENCIA | POS
     reference_number = Column(String, nullable=True)
@@ -228,6 +258,15 @@ class Transaccion(Base):
     void_reason = Column(String, nullable=True)
     voided_at = Column(DateTime, nullable=True)
     voided_by = Column(String, nullable=True)
+    # Phase 1 #15: enum CHECK on payment_method.
+    # Phase 1 #19: composite index for the saldo() query that filters by reserva + voided.
+    __table_args__ = (
+        CheckConstraint(
+            "payment_method IN ('EFECTIVO','TRANSFERENCIA','POS')",
+            name="ck_transaccion_payment_method",
+        ),
+        Index("idx_transaccion_reserva_voided", "reserva_id", "voided"),
+    )
 
 
 class SystemSetting(Base):
@@ -241,6 +280,11 @@ class SystemSetting(Base):
     description = Column(String, nullable=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     updated_by = Column(String, nullable=True)
+    # Phase 1 #10: settings must be unique per (property, key) — service was already
+    # doing this implicitly via upsert; constraint makes it explicit + indexable.
+    __table_args__ = (
+        UniqueConstraint("property_id", "setting_key", name="uq_system_settings_property_key"),
+    )
 
 
 class ClientType(Base):
@@ -265,7 +309,8 @@ class ClientContract(Base):
     __tablename__ = "client_contracts"
     id = Column(String, primary_key=True)
     property_id = Column(String, nullable=False)
-    client_type_id = Column(String, ForeignKey("client_types.id"), nullable=False)
+    # Phase 1 #11-bis: RESTRICT — never delete a client_type that has contracts attached.
+    client_type_id = Column(String, ForeignKey("client_types.id", ondelete="RESTRICT"), nullable=False)
     company_name = Column(String, nullable=False)
     ruc = Column(String, nullable=True)
     contact_name = Column(String, nullable=True)
@@ -365,7 +410,9 @@ class ICalFeed(Base):
     """iCal feed URLs for OTA sync per room (Booking.com, Airbnb, Vrbo, Expedia, Custom)."""
     __tablename__ = "ical_feeds"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    room_id = Column(String, ForeignKey("rooms.id"), nullable=False)
+    # Phase 1 #12: CASCADE — feeds are room-bound config; if room is gone (after #2/#4 gates),
+    # the feed has no anchor.
+    room_id = Column(String, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False)
     source = Column(String, nullable=False)  # "Booking.com" | "Airbnb" | "Vrbo" | "Expedia" | "Custom" | <free text>
     ical_url = Column(String, nullable=False)
     last_synced_at = Column(DateTime, nullable=True)  # last successful sync
@@ -376,6 +423,13 @@ class ICalFeed(Base):
     last_sync_error = Column(String, nullable=True)  # truncated to 500 chars
     consecutive_failures = Column(Integer, default=0)
     last_sync_attempted_at = Column(DateTime, nullable=True)  # last attempt (success or fail)
+    # Phase 1 #15: enum CHECK on last_sync_status.
+    __table_args__ = (
+        CheckConstraint(
+            "last_sync_status IN ('OK','ERROR','NEVER')",
+            name="ck_ical_feeds_last_sync_status",
+        ),
+    )
 
 
 class ICalSyncLog(Base):
@@ -385,7 +439,8 @@ class ICalSyncLog(Base):
     """
     __tablename__ = "ical_sync_log"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    feed_id = Column(Integer, ForeignKey("ical_feeds.id"), nullable=False, index=True)
+    # Phase 1 #13: CASCADE — sync logs are pure operational debug, die with their feed.
+    feed_id = Column(Integer, ForeignKey("ical_feeds.id", ondelete="CASCADE"), nullable=False, index=True)
     attempted_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
     status = Column(String, nullable=False)  # OK | ERROR
     created_count = Column(Integer, default=0)
@@ -405,7 +460,8 @@ class Producto(Base):
     """
     __tablename__ = "producto"
     id = Column(String, primary_key=True)
-    property_id = Column(String, ForeignKey("properties.id"), nullable=True, index=True)
+    # Phase 1 #17: RESTRICT — properties don't get hard-deleted; force explicit cleanup.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=True, index=True)
     name = Column(String, nullable=False)
     category = Column(String, nullable=False, index=True)  # BEBIDA|SNACK|SERVICIO|MINIBAR|OTRO
     price = Column(Float, nullable=False, default=0.0)  # Current unit price in Gs
@@ -415,6 +471,15 @@ class Producto(Base):
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    # Phase 1 #15: enum CHECK on category.
+    # Phase 1 #19: composite index for low-stock query (filters by active + property).
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ('BEBIDA','SNACK','SERVICIO','MINIBAR','OTRO')",
+            name="ck_producto_category",
+        ),
+        Index("idx_producto_property_active", "property_id", "is_active"),
+    )
 
 
 class Consumo(Base):
@@ -426,8 +491,10 @@ class Consumo(Base):
     """
     __tablename__ = "consumo"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    reserva_id = Column(String, ForeignKey("reservations.id"), nullable=False, index=True)
-    producto_id = Column(String, ForeignKey("producto.id"), nullable=False, index=True)
+    # Phase 1 #8: RESTRICT — never delete a reservation with consumos (folio/billing audit).
+    reserva_id = Column(String, ForeignKey("reservations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # Phase 1 #9: RESTRICT — soft-delete via Producto.is_active=False; never hard-delete.
+    producto_id = Column(String, ForeignKey("producto.id", ondelete="RESTRICT"), nullable=False, index=True)
     producto_name = Column(String, nullable=False)  # snapshot at registration time
     quantity = Column(Integer, nullable=False, default=1)
     unit_price = Column(Float, nullable=False)  # snapshot at registration time
@@ -439,6 +506,10 @@ class Consumo(Base):
     void_reason = Column(String, nullable=True)
     voided_at = Column(DateTime, nullable=True)
     voided_by = Column(String, nullable=True)
+    # Phase 1 #19: composite index for the saldo() folio query that filters by reserva + voided.
+    __table_args__ = (
+        Index("idx_consumo_reserva_voided", "reserva_id", "voided"),
+    )
 
 
 class AjusteInventario(Base):
@@ -449,12 +520,22 @@ class AjusteInventario(Base):
     """
     __tablename__ = "ajuste_inventario"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    producto_id = Column(String, ForeignKey("producto.id"), nullable=False, index=True)
+    # Phase 1 #10: RESTRICT — soft-delete via Producto.is_active=False; never hard-delete.
+    producto_id = Column(String, ForeignKey("producto.id", ondelete="RESTRICT"), nullable=False, index=True)
     quantity_change = Column(Integer, nullable=False)  # signed
     reason = Column(String, nullable=False)  # COMPRA | MERMA | AJUSTE
     notes = Column(String, nullable=True)
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False, index=True)
+    # Phase 1 #15: enum CHECK on reason.
+    # Phase 1 #19: composite index for stock history (per-product chronological view).
+    __table_args__ = (
+        CheckConstraint(
+            "reason IN ('COMPRA','MERMA','AJUSTE')",
+            name="ck_ajuste_inventario_reason",
+        ),
+        Index("idx_ajuste_producto_created", "producto_id", "created_at"),
+    )
 
 
 class MealPlan(Base):
@@ -473,7 +554,8 @@ class MealPlan(Base):
     """
     __tablename__ = "meal_plans"
     id = Column(String, primary_key=True)
-    property_id = Column(String, ForeignKey("properties.id"), nullable=False, index=True)
+    # Phase 1 #18: RESTRICT — properties don't get hard-deleted; force explicit cleanup.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False, index=True)
     code = Column(String, nullable=False)  # CON_DESAYUNO, MEDIA_PENSION, SOLO_HABITACION, etc.
     name = Column(String, nullable=False)  # Display label
     description = Column(String, nullable=True)
@@ -485,6 +567,16 @@ class MealPlan(Base):
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    # Phase 1 #9 (audit ID): close model/migration drift — UNIQUE(property_id, code) was
+    # declared in migration 005 SQL but missing from the model. Fresh init_db() now
+    # picks it up too. Phase 1 #15: enum CHECK on applies_to_mode.
+    __table_args__ = (
+        UniqueConstraint("property_id", "code", name="uq_meal_plans_property_code"),
+        CheckConstraint(
+            "applies_to_mode IN ('ANY','INCLUIDO','OPCIONAL_PERSONA','OPCIONAL_HABITACION')",
+            name="ck_meal_plans_applies_to_mode",
+        ),
+    )
 
 
 class EmailLog(Base):
@@ -499,14 +591,28 @@ class EmailLog(Base):
     """
     __tablename__ = "email_log"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    reserva_id = Column(String, ForeignKey("reservations.id"), nullable=False, index=True)
+    # Phase 1 #14: RESTRICT — email is communication audit; never delete a reservation that was emailed.
+    reserva_id = Column(String, ForeignKey("reservations.id", ondelete="RESTRICT"), nullable=False, index=True)
     recipient_email = Column(String, nullable=False)
     subject = Column(String, nullable=False)
     status = Column(String, nullable=False, default="PENDIENTE", index=True)  # ENVIADO | FALLIDO | PENDIENTE
     error_message = Column(String, nullable=True)
     sent_at = Column(DateTime, nullable=True, index=True)
-    sent_by = Column(String, ForeignKey("users.id"), nullable=True)
+    # v1.10.0 — Phase 1 Fix #2: was String (mismatched users.id Integer). Existing
+    # data was numeric-string only (e.g. '1'), migrated by 009_fix_email_log_sent_by.
+    # Phase 1 #15 (cascade): SET NULL — email log survives user deletion (only attribution lost).
+    sent_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=datetime.now)
+    # Phase 1 #15 (CHECK): enum on status.
+    # Phase 1 #19: composite index for the rate-limit query
+    # (filter reserva_id + status='ENVIADO' + sent_at>cutoff).
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ENVIADO','FALLIDO','PENDIENTE')",
+            name="ck_email_log_status",
+        ),
+        Index("idx_email_log_reserva_status_sent", "reserva_id", "status", "sent_at"),
+    )
 
 
 class RoomStatusLog(Base):
@@ -520,19 +626,26 @@ class RoomStatusLog(Base):
     """
     __tablename__ = "room_status_log"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    room_id = Column(String, ForeignKey("rooms.id"), nullable=False, index=True)
+    # Phase 1 #16: CASCADE — log dies with the room it audits (room deletion already gated by #2/#4).
+    room_id = Column(String, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False, index=True)
     previous_status = Column(String, nullable=True)  # nullable: very first status set has no prior value
     new_status = Column(String, nullable=False)
     changed_by = Column(String, nullable=True)  # username (matches room.status_changed_by)
     reason = Column(String, nullable=True)
     changed_at = Column(DateTime, default=datetime.now, index=True)
+    # Phase 1 #19: composite index for the per-room history endpoint
+    # (GET /rooms/{id}/status-log ordered by changed_at DESC).
+    __table_args__ = (
+        Index("idx_room_status_log_room_changed", "room_id", "changed_at"),
+    )
 
 
 class AIAgentPermission(Base):
     """Permissions for AI Agents."""
     __tablename__ = "ai_agent_permissions"
     id = Column(String, primary_key=True)
-    property_id = Column(String, ForeignKey("properties.id"), nullable=True)
+    # Phase 1 #19 (cascade): CASCADE — permissions are pure config; meaningless without the property.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="CASCADE"), nullable=True)
     role = Column(String, nullable=False)
     can_view_reservations = Column(Integer, default=1)
     can_create_reservations = Column(Integer, default=1)
@@ -551,6 +664,33 @@ class AIAgentPermission(Base):
     requires_confirmation = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    # Phase 1 #10 (audit ID): UNIQUE(property_id, role) was assumed by the service but
+    # never enforced. Adding it now closes a silent-data-corruption hole.
+    __table_args__ = (
+        UniqueConstraint("property_id", "role", name="uq_ai_agent_permissions_property_role"),
+    )
+
+
+class MigrationHistory(Base):
+    """Tracks applied migrations (managed by scripts/run_migrations.py).
+
+    Modelled here in v1.10.0 (Phase 1 #20) so that init_db() creates this table
+    on a fresh install — previously the runner created it implicitly on first
+    use, which meant a fresh DB was missing the table until the first migration
+    ran. Having the model here also makes the schema completely self-documenting
+    and eases the future Alembic migration (`alembic_version` will replace this).
+    """
+    __tablename__ = "migration_history"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    applied_at = Column(DateTime, default=datetime.now)
+    applied_by = Column(String, default="run_migrations.py")
+    success = Column(Integer, default=1)
+    __table_args__ = (
+        UniqueConstraint("version", "name", name="uq_migration_history_version_name"),
+    )
 
 
 

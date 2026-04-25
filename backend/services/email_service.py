@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import smtplib
+import socket
 import ssl
 from datetime import datetime, timedelta
 from email.message import EmailMessage
@@ -38,6 +39,72 @@ class EmailError(Exception):
 # Rate limit window: 3 successful sends per hour per reservation.
 RATE_LIMIT_COUNT = 3
 RATE_LIMIT_WINDOW = timedelta(hours=1)
+
+
+def _humanize_smtp_error(exc: BaseException) -> str:
+    """Map low-level SMTP / socket exceptions to a clean Spanish message + recovery path.
+
+    The verbatim exception (with stack frames + raw bytes from the SMTP server)
+    is logged separately by the caller. Only this user-facing message reaches
+    the UI / email_log.error_message.
+
+    Follows ui-ux-pro-max rule `error-clarity`: every message states the cause
+    AND how to fix it. Receptionists are not expected to read SMTP RFC codes.
+    """
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return (
+            "Error de autenticación con el servidor de correo. "
+            "Revisá usuario y contraseña en Configuración → Configuración de Correo."
+        )
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return (
+            "El servidor rechazó la dirección del destinatario. "
+            "Verificá que el email del huésped sea correcto."
+        )
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return (
+            "El servidor rechazó la dirección del remitente. "
+            "Revisá el email del remitente en Configuración → Configuración de Correo."
+        )
+    if isinstance(exc, smtplib.SMTPConnectError):
+        return (
+            "No se pudo conectar al servidor de correo. "
+            "Verificá host y puerto en Configuración → Configuración de Correo."
+        )
+    if isinstance(exc, smtplib.SMTPServerDisconnected):
+        return (
+            "El servidor de correo cortó la conexión. "
+            "Probá nuevamente en unos minutos."
+        )
+    if isinstance(exc, smtplib.SMTPDataError):
+        return (
+            "El servidor rechazó el mensaje. "
+            "Es posible que el adjunto sea demasiado grande o el contenido no sea aceptado."
+        )
+    if isinstance(exc, ssl.SSLError):
+        return (
+            "Error TLS/SSL al conectar con el servidor de correo. "
+            "Probá con otro puerto (587 con STARTTLS o 465 con SSL)."
+        )
+    if isinstance(exc, socket.gaierror):
+        return (
+            "No se pudo resolver el servidor de correo. "
+            "Verificá el host SMTP en Configuración → Configuración de Correo."
+        )
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return (
+            "El servidor de correo tardó demasiado en responder. "
+            "Probá nuevamente o verificá la conexión a internet del servidor."
+        )
+    if isinstance(exc, smtplib.SMTPException):
+        return (
+            "No se pudo enviar el correo. "
+            "Verificá la configuración SMTP del hotel."
+        )
+    return (
+        "Error inesperado al enviar el correo. "
+        "Si persiste, contactá al administrador."
+    )
 
 
 class EmailService:
@@ -66,7 +133,7 @@ class EmailService:
         db: Session,
         reserva_id: str,
         override_email: Optional[str],
-        sent_by_user_id: Optional[str],
+        sent_by_user_id: Optional[int],   # v1.10.0 Phase 1 Fix #2: was Optional[str]
         now: Optional[datetime] = None,
     ) -> int:
         """
@@ -188,13 +255,17 @@ class EmailService:
                 )
 
             except Exception as e:
-                err_msg = str(e)[:500]
+                # Humanize the SMTP/socket exception for the operator. The raw
+                # exception is logged below for diagnostics, but never reaches
+                # the UI (no leaking of "(534, b'5.7.9 ...')" strings).
+                user_msg = _humanize_smtp_error(e)
                 log_row.status = "FALLIDO"
-                log_row.error_message = err_msg
+                log_row.error_message = user_msg
                 log_row.sent_at = datetime.now()
                 db.commit()
                 logger.error(
-                    f"Email send FAILED: reserva={log_row.reserva_id} err={err_msg}"
+                    f"Email send FAILED: reserva={log_row.reserva_id} "
+                    f"raw={str(e)[:300]} user_msg={user_msg}"
                 )
         except BaseException as e:
             # Last-resort safety net: never leave a PENDIENTE row without status
@@ -238,8 +309,9 @@ class EmailService:
         except EmailError as e:
             return {"success": False, "message": str(e)}
         except Exception as e:
-            logger.error(f"SMTP test failed: {e}")
-            return {"success": False, "message": f"Falla al enviar: {str(e)[:200]}"}
+            user_msg = _humanize_smtp_error(e)
+            logger.error(f"SMTP test failed: raw={str(e)[:300]} user_msg={user_msg}")
+            return {"success": False, "message": user_msg}
 
     # ------------------------------------------------------------------
     # Internal helpers (exposed for testability)

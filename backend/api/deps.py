@@ -77,7 +77,7 @@ def get_current_user(
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="No se pudo validar la sesión. Iniciá sesión nuevamente.",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
@@ -91,7 +91,7 @@ def get_current_user(
     if token_type != "access":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token type. Use access token.",
+            detail="Tipo de token inválido. Iniciá sesión nuevamente.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -109,7 +109,7 @@ def get_current_user(
         if session is None or session.status != "active":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session has been revoked",
+                detail="La sesión fue cerrada. Volvé a iniciar sesión.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -176,7 +176,7 @@ def require_role(*allowed_roles: str):
         if user_role not in {r.lower() for r in allowed_roles}:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions"
+                detail="No tenés permisos para realizar esta acción."
             )
         return current_user
     return _role_checker

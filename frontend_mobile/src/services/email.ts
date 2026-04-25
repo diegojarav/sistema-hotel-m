@@ -14,7 +14,7 @@ export interface EmailLogItem {
     status: 'ENVIADO' | 'FALLIDO' | 'PENDIENTE';
     error_message?: string | null;
     sent_at?: string | null;
-    sent_by?: string | null;
+    sent_by?: number | null;  // v1.10.0 Phase 1 Fix #2: was string (mismatched users.id Integer)
     created_at?: string | null;
 }
 

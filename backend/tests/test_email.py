@@ -308,7 +308,14 @@ class TestSendAsync:
         log = db_session.query(EmailLog).filter(EmailLog.id == log_id).first()
         assert log.status == "FALLIDO"
         assert log.error_message
-        assert "auth" in log.error_message.lower() or "535" in log.error_message
+        # v1.9.0+ UX polish: SMTP exceptions are humanized to Spanish user-facing
+        # messages via _humanize_smtp_error. The raw "(535, b'auth rejected')"
+        # only goes to logger.error — never reaches the UI / email_log.
+        assert "autenticación" in log.error_message.lower(), (
+            f"expected Spanish auth-error humanization, got: {log.error_message!r}"
+        )
+        assert "535" not in log.error_message
+        assert "auth rejected" not in log.error_message
 
 
 # ==========================================

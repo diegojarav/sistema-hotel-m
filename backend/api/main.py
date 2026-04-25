@@ -24,6 +24,7 @@ from pathlib import Path
 
 import requests as http_requests
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -94,6 +95,73 @@ A production-ready REST API for hotel management.
 # Add rate limiter to app state and exception handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# ==========================================
+# 422 VALIDATION ERROR HANDLER (Spanish)
+# ==========================================
+# Pydantic's defaults emit English messages ("Field required", "value is not a valid X").
+# Map the most common error types to Spanish so the operator sees actionable text.
+# Field name is included so the user knows WHICH input is the problem.
+_VALIDATION_TYPE_ES = {
+    "missing":              "es obligatorio",
+    "string_too_short":     "es demasiado corto",
+    "string_too_long":      "es demasiado largo",
+    "value_error":          "tiene un valor inválido",
+    "type_error":           "tiene un tipo inválido",
+    "int_parsing":          "debe ser un número entero",
+    "float_parsing":        "debe ser un número",
+    "decimal_parsing":      "debe ser un número",
+    "bool_parsing":         "debe ser verdadero o falso",
+    "date_parsing":         "tiene un formato de fecha inválido",
+    "datetime_parsing":     "tiene un formato de fecha/hora inválido",
+    "url_parsing":          "no es una URL válida",
+    "literal_error":        "tiene un valor no permitido",
+    "enum":                 "tiene un valor no permitido",
+    "greater_than":         "debe ser mayor",
+    "greater_than_equal":   "es demasiado pequeño",
+    "less_than":            "debe ser menor",
+    "less_than_equal":      "es demasiado grande",
+}
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Translate FastAPI/Pydantic 422 errors into Spanish, naming each offending field.
+
+    Custom field-level messages emitted by Pydantic validators (e.g. our own
+    `value_error` strings like "El email ingresado no es válido") are preserved
+    verbatim — they are already in Spanish and more specific than the type-based
+    fallback below.
+    """
+    messages = []
+    for err in exc.errors():
+        loc = err.get("loc", ())
+        # Skip the leading 'body'/'query'/'path' segment when present
+        field_parts = [str(p) for p in loc if p not in ("body", "query", "path")]
+        field = field_parts[-1] if field_parts else "campo"
+
+        err_type = err.get("type", "")
+        raw_msg = err.get("msg", "") or ""
+
+        # Custom Pydantic validator messages already in Spanish
+        if err_type == "value_error" and raw_msg.startswith("Value error, "):
+            messages.append(raw_msg.replace("Value error, ", "").strip())
+            continue
+
+        spanish = _VALIDATION_TYPE_ES.get(err_type, "tiene un valor inválido")
+        messages.append(f"El campo '{field}' {spanish}.")
+
+    detail = " ".join(messages) if messages else "Datos inválidos en la solicitud."
+    response = JSONResponse(status_code=422, content={"detail": detail})
+
+    # Preserve CORS headers (same pattern as global_exception_handler below).
+    origin = request.headers.get("origin")
+    if origin and origin in CORS_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

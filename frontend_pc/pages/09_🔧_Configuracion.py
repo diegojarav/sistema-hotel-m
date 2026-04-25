@@ -310,8 +310,21 @@ with st.form("smtp_config_form"):
 
     submitted = st.form_submit_button("💾 Guardar configuración SMTP", type="primary")
     if submitted:
-        if not smtp_host or not smtp_username or not smtp_from_email:
-            st.error("Completá host, usuario y email del remitente.")
+        # Build a granular list of missing fields so the operator knows exactly
+        # which input to complete (ui-ux-pro-max rule: error-clarity = cause + fix).
+        _missing = []
+        if not smtp_host:
+            _missing.append("Servidor SMTP (host)")
+        if not smtp_username:
+            _missing.append("Usuario / Email SMTP")
+        if not smtp_from_email:
+            _missing.append("Email del remitente")
+
+        if _missing:
+            if len(_missing) == 1:
+                st.error(f"Completá el campo: {_missing[0]}.")
+            else:
+                st.error("Completá los siguientes campos: " + ", ".join(_missing) + ".")
         elif not _smtp_cfg.get("smtp_password_set") and not smtp_password:
             st.error("Ingresá la contraseña SMTP (es la primera vez que se guarda).")
         else:

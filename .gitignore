@@ -33,6 +33,7 @@ PROJECT_CONTEXT*.md
 # Local dev config
 .claude/launch.json
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Dev-only debug/admin scripts
 scripts/reset_admin_password.py
