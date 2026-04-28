@@ -738,110 +738,110 @@ def render_tab_reserva():
                     logger.error(f"Error inesperado al guardar reserva: {e}", exc_info=True)
                     st.error("Ocurrió un error inesperado. Contacte al soporte.")
 
-        # PDF download buttons — OUTSIDE st.form (Streamlit forbids download_button inside forms)
-        if "_last_pdf_paths" in st.session_state:
-            import os
-            _pdf_paths = st.session_state.pop("_last_pdf_paths")
-            st.markdown("#### 📄 Documentos generados")
-            for rid, path in _pdf_paths.items():
-                if os.path.exists(path):
-                    with open(path, "rb") as f:
-                        st.download_button(
-                            f"📥 Descargar PDF — Reserva {rid}",
-                            data=f.read(),
-                            file_name=os.path.basename(path),
-                            mime="application/pdf",
-                            key=f"pdf_dl_{rid}",
-                        )
+    # PDF download buttons — OUTSIDE st.form (Streamlit forbids download_button inside forms)
+    if "_last_pdf_paths" in st.session_state:
+        import os
+        _pdf_paths = st.session_state.pop("_last_pdf_paths")
+        st.markdown("#### 📄 Documentos generados")
+        for rid, path in _pdf_paths.items():
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    st.download_button(
+                        f"📥 Descargar PDF — Reserva {rid}",
+                        data=f.read(),
+                        file_name=os.path.basename(path),
+                        mime="application/pdf",
+                        key=f"pdf_dl_{rid}",
+                    )
 
-        # ==========================================
-        # ENVIAR POR CORREO (v1.8.0 — Phase 5)
-        # Only shown in Editar Reserva mode after a reservation is loaded
-        # ==========================================
-        if res_data and res_id_load:
-            st.divider()
-            st.markdown("### 📧 Enviar confirmación por correo")
-
-            from api_client import send_reservation_email, get_email_history, get_smtp_config
-
-            _token = st.session_state.get("api_token", "")
-            history = get_email_history(res_id_load, _token) if _token else []
-
-            # Probe SMTP config so we can disable the send button BEFORE the user
-            # clicks (ui-ux-pro-max rule: disabled-states + error-recovery — show
-            # the recovery path next to the disabled control).
-            # Recepcion role gets 403 on /settings/email; treat as "unknown" → keep
-            # the button enabled (backend will still reject with a Spanish 400).
-            _smtp_state = get_smtp_config(_token) if _token else {}
-            _smtp_ready = bool(_smtp_state.get("smtp_enabled")) and bool(_smtp_state.get("smtp_password_set"))
-            _smtp_state_known = bool(_smtp_state)  # empty dict if 403/401/network error
-
-            if history:
-                last = history[0]
-                status_map = {"ENVIADO": "✅", "FALLIDO": "❌", "PENDIENTE": "⏳"}
-                badge = status_map.get(last.get("status", ""), "·")
-                sent_at = (last.get("sent_at") or last.get("created_at") or "")[:16].replace("T", " ")
-                st.caption(
-                    f"Último envío: {sent_at} → {last.get('recipient_email', '')} {badge} {last.get('status', '')}"
-                )
-            else:
-                st.caption("Aún no se ha enviado ningún correo para esta reserva.")
-
-            existing_email = getattr(res_data, "contact_email", "") or ""
-            _email_col1, _email_col2 = st.columns([3, 1])
-            with _email_col1:
-                email_override = st.text_input(
-                    "Email destinatario",
-                    value=existing_email,
-                    key=f"email_override_{res_id_load}",
-                    placeholder="guest@email.com",
-                    disabled=(_smtp_state_known and not _smtp_ready),
-                )
-            with _email_col2:
-                st.write("")
-                st.write("")
-                _btn_disabled = _smtp_state_known and not _smtp_ready
-                _btn_help = (
-                    "Activá el envío de emails en Configuración → 📧 Configuración de Correo."
-                    if _btn_disabled
-                    else None
-                )
-                if st.button(
-                    "📧 Enviar correo",
-                    key=f"send_email_btn_{res_id_load}",
-                    type="primary",
-                    disabled=_btn_disabled,
-                    help=_btn_help,
-                ):
-                    if not email_override or "@" not in email_override:
-                        st.error("Ingresá un email válido.")
-                    elif not _token:
-                        st.error("Sesión expirada. Volvé a iniciar sesión.")
-                    else:
-                        override = email_override if email_override != existing_email else None
-                        with st.spinner("Enviando..."):
-                            ok, msg = send_reservation_email(res_id_load, override, _token)
-                        if ok:
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
-            if _btn_disabled:
-                st.caption(
-                    "ℹ️ El envío de emails está deshabilitado. Pedile a un Admin "
-                    "que lo active en **Configuración → Configuración de Correo**."
-                )
-
+    # ==========================================
+    # ENVIAR POR CORREO (v1.8.0 — Phase 5)
+    # Only shown in Editar Reserva mode after a reservation is loaded
+    # ==========================================
+    if res_data and res_id_load:
         st.divider()
-        st.markdown("### 📋 Listado de Reservas (Últimas)")
-        all_res = ReservationService.get_all_reservations()
-        if all_res:
-            df_res = pd.DataFrame([r.model_dump() for r in all_res])
-            if "room_internal_code" in df_res.columns:
-                df_res = df_res[["id", "guest_name", "check_in", "status", "room_internal_code"]]
-                df_res = df_res.rename(columns={"room_internal_code": "habitacion"})
-            else:
-                df_res = df_res[["id", "guest_name", "check_in", "status", "room_id"]]
-            st.dataframe(df_res, hide_index=True)
+        st.markdown("### 📧 Enviar confirmación por correo")
+
+        from api_client import send_reservation_email, get_email_history, get_smtp_config
+
+        _token = st.session_state.get("api_token", "")
+        history = get_email_history(res_id_load, _token) if _token else []
+
+        # Probe SMTP config so we can disable the send button BEFORE the user
+        # clicks (ui-ux-pro-max rule: disabled-states + error-recovery — show
+        # the recovery path next to the disabled control).
+        # Recepcion role gets 403 on /settings/email; treat as "unknown" → keep
+        # the button enabled (backend will still reject with a Spanish 400).
+        _smtp_state = get_smtp_config(_token) if _token else {}
+        _smtp_ready = bool(_smtp_state.get("smtp_enabled")) and bool(_smtp_state.get("smtp_password_set"))
+        _smtp_state_known = bool(_smtp_state)  # empty dict if 403/401/network error
+
+        if history:
+            last = history[0]
+            status_map = {"ENVIADO": "✅", "FALLIDO": "❌", "PENDIENTE": "⏳"}
+            badge = status_map.get(last.get("status", ""), "·")
+            sent_at = (last.get("sent_at") or last.get("created_at") or "")[:16].replace("T", " ")
+            st.caption(
+                f"Último envío: {sent_at} → {last.get('recipient_email', '')} {badge} {last.get('status', '')}"
+            )
         else:
-            st.info("No hay reservas registradas.")
+            st.caption("Aún no se ha enviado ningún correo para esta reserva.")
+
+        existing_email = getattr(res_data, "contact_email", "") or ""
+        _email_col1, _email_col2 = st.columns([3, 1])
+        with _email_col1:
+            email_override = st.text_input(
+                "Email destinatario",
+                value=existing_email,
+                key=f"email_override_{res_id_load}",
+                placeholder="guest@email.com",
+                disabled=(_smtp_state_known and not _smtp_ready),
+            )
+        with _email_col2:
+            st.write("")
+            st.write("")
+            _btn_disabled = _smtp_state_known and not _smtp_ready
+            _btn_help = (
+                "Activá el envío de emails en Configuración → 📧 Configuración de Correo."
+                if _btn_disabled
+                else None
+            )
+            if st.button(
+                "📧 Enviar correo",
+                key=f"send_email_btn_{res_id_load}",
+                type="primary",
+                disabled=_btn_disabled,
+                help=_btn_help,
+            ):
+                if not email_override or "@" not in email_override:
+                    st.error("Ingresá un email válido.")
+                elif not _token:
+                    st.error("Sesión expirada. Volvé a iniciar sesión.")
+                else:
+                    override = email_override if email_override != existing_email else None
+                    with st.spinner("Enviando..."):
+                        ok, msg = send_reservation_email(res_id_load, override, _token)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        if _btn_disabled:
+            st.caption(
+                "ℹ️ El envío de emails está deshabilitado. Pedile a un Admin "
+                "que lo active en **Configuración → Configuración de Correo**."
+            )
+
+    st.divider()
+    st.markdown("### 📋 Listado de Reservas (Últimas)")
+    all_res = ReservationService.get_all_reservations()
+    if all_res:
+        df_res = pd.DataFrame([r.model_dump() for r in all_res])
+        if "room_internal_code" in df_res.columns:
+            df_res = df_res[["id", "guest_name", "check_in", "status", "room_internal_code"]]
+            df_res = df_res.rename(columns={"room_internal_code": "habitacion"})
+        else:
+            df_res = df_res[["id", "guest_name", "check_in", "status", "room_id"]]
+        st.dataframe(df_res, hide_index=True)
+    else:
+        st.info("No hay reservas registradas.")
