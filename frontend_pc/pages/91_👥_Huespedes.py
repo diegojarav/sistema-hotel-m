@@ -101,6 +101,18 @@ def _api_put(path: str, payload: dict):
     return r.json()
 
 
+def _api_delete(path: str):
+    r = requests.delete(f"{API_BASE_URL}{path}", headers=_auth_headers(), timeout=15)
+    if r.status_code != 200:
+        try:
+            detail = r.json().get("detail", r.text)
+        except Exception:
+            detail = r.text
+        st.error(f"Error {r.status_code}: {detail}")
+        return None
+    return r.json()
+
+
 def _format_price(amount) -> str:
     try:
         return f"{float(amount or 0):,.0f} Gs"
@@ -345,7 +357,9 @@ with col_detail:
     m3.metric("Promedio", f"{history.get('avg_stay_length', 0)}n")
     m4.metric("Última visita", _format_date(history.get("last_visit_at")))
 
-    tab_info, tab_hist = st.tabs(["📝 Datos", "📜 Historial"])
+    tab_info, tab_hist, tab_billing, tab_vehicles = st.tabs(
+        ["📝 Datos", "📜 Historial", "🧾 Facturación", "🚗 Vehículos"]
+    )
 
     # --- Datos tab ---
     with tab_info:
@@ -363,6 +377,24 @@ with col_detail:
                 ph = st.text_input("Teléfono", value=detail.get("phone") or "", key=f"e_ph_{sel_id}")
                 country = st.text_input("País", value=detail.get("country") or "", key=f"e_country_{sel_id}")
                 src = st.text_input("Origen", value=detail.get("source") or "Direct", key=f"e_src_{sel_id}")
+            # v1.10.0 Phase 2a-ext: birth_date (hook for birthday automation)
+            from datetime import date as _date_t
+            existing_bd = detail.get("birth_date")
+            try:
+                bd_default = (
+                    _date_t.fromisoformat(existing_bd[:10]) if existing_bd else None
+                )
+            except Exception:
+                bd_default = None
+            bd = st.date_input(
+                "🎂 Fecha de nacimiento",
+                value=bd_default,
+                min_value=_date_t(1900, 1, 1),
+                max_value=_date_t.today(),
+                key=f"e_bd_{sel_id}",
+                help="Opcional. Habilita futuros saludos de cumpleaños automáticos.",
+                format="DD/MM/YYYY",
+            )
             notes = st.text_area("Notas internas", value=detail.get("notes") or "", key=f"e_notes_{sel_id}")
             active = st.checkbox("Activo", value=detail.get("is_active", True), key=f"e_act_{sel_id}")
             saved = st.form_submit_button("Guardar cambios", type="primary")
@@ -379,6 +411,7 @@ with col_detail:
                     "city": city.strip() or None,
                     "source": src.strip() or None,
                     "notes": notes.strip() or None,
+                    "birth_date": bd.isoformat() if bd else None,
                     "is_active": active,
                 }
                 updated = _api_put(f"/huespedes/{sel_id}", payload)
@@ -406,3 +439,146 @@ with col_detail:
                     "Importe": _format_price(r.get("price", 0)),
                 })
             st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    # --- Facturación tab (Phase 2a-ext) ---
+    with tab_billing:
+        st.caption(
+            "Perfiles de facturación reutilizables. El predeterminado se autoselecciona "
+            "en el formulario de check-in (a menos que el recepcionista elija otro)."
+        )
+        profiles = _api_get(f"/huespedes/{sel_id}/billing") or []
+        if profiles:
+            for p in profiles:
+                with st.container(border=True):
+                    head_l, head_r = st.columns([4, 1])
+                    label_txt = p.get("label") or "(sin etiqueta)"
+                    head_l.markdown(f"**{label_txt}**" + ("  ⭐ Predeterminado" if p.get("is_default") else ""))
+                    if not p.get("is_default"):
+                        if head_r.button("Marcar predet.", key=f"_def_{p['id']}", use_container_width=True):
+                            _api_post(f"/huespedes/{sel_id}/billing/{p['id']}/default", {})
+                            st.rerun()
+                    bits = []
+                    if p.get("tax_id_type"):
+                        bits.append(f"**{p['tax_id_type']}** {p.get('tax_id_number') or ''}")
+                    elif p.get("tax_id_number"):
+                        bits.append(f"Doc {p['tax_id_number']}")
+                    if p.get("business_name"):
+                        bits.append(f"Razón Social: {p['business_name']}")
+                    addr_bits = [p.get(c) or "" for c in ("address", "city", "state", "country")]
+                    addr = ", ".join([a for a in addr_bits if a])
+                    if addr:
+                        bits.append(addr)
+                    st.caption("  ·  ".join(bits) or "—")
+                    with st.popover("✏️ Editar"):
+                        with st.form(f"_edit_bp_{p['id']}", clear_on_submit=False):
+                            new_label = st.text_input("Etiqueta", value=p.get("label") or "", key=f"bp_lbl_{p['id']}")
+                            new_type = st.text_input("Tipo", value=p.get("tax_id_type") or "", key=f"bp_tt_{p['id']}", placeholder="RUC | CI | CUIT | CPF | CNPJ")
+                            new_num = st.text_input("Número", value=p.get("tax_id_number") or "", key=f"bp_tn_{p['id']}")
+                            new_bn = st.text_input("Razón Social", value=p.get("business_name") or "", key=f"bp_bn_{p['id']}")
+                            cca, ccb = st.columns(2)
+                            new_addr = cca.text_input("Dirección", value=p.get("address") or "", key=f"bp_ad_{p['id']}")
+                            new_city = ccb.text_input("Ciudad", value=p.get("city") or "", key=f"bp_ci_{p['id']}")
+                            new_state = cca.text_input("Estado/Depto.", value=p.get("state") or "", key=f"bp_st_{p['id']}")
+                            new_country = ccb.text_input("País", value=p.get("country") or "", key=f"bp_co_{p['id']}")
+                            cdel, csave = st.columns([1, 2])
+                            del_clicked = cdel.form_submit_button("🗑 Eliminar")
+                            save_clicked = csave.form_submit_button("Guardar", type="primary")
+                            if save_clicked:
+                                _api_put(f"/huespedes/{sel_id}/billing/{p['id']}", {
+                                    "label": new_label.strip() or None,
+                                    "tax_id_type": new_type.strip() or None,
+                                    "tax_id_number": new_num.strip() or None,
+                                    "business_name": new_bn.strip() or None,
+                                    "address": new_addr.strip() or None,
+                                    "city": new_city.strip() or None,
+                                    "state": new_state.strip() or None,
+                                    "country": new_country.strip() or None,
+                                })
+                                st.rerun()
+                            if del_clicked:
+                                _api_delete(f"/huespedes/{sel_id}/billing/{p['id']}")
+                                st.rerun()
+        else:
+            st.info("Sin perfiles de facturación. Agregá uno abajo.")
+
+        st.divider()
+        with st.expander("➕ Agregar perfil de facturación"):
+            with st.form(f"_create_bp_{sel_id}", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                lbl = c1.text_input("Etiqueta", placeholder="Personal / Empresa XYZ")
+                make_default = c2.checkbox("Marcar como predeterminado", value=False)
+                c1, c2 = st.columns(2)
+                tt = c1.text_input("Tipo de documento fiscal", placeholder="RUC | CI | CUIT | CPF | CNPJ")
+                tn = c2.text_input("Número")
+                bn = st.text_input("Razón Social")
+                c1, c2 = st.columns(2)
+                addr = c1.text_input("Dirección")
+                city = c2.text_input("Ciudad")
+                c1, c2 = st.columns(2)
+                state = c1.text_input("Estado / Departamento")
+                country = c2.text_input("País")
+                if st.form_submit_button("Crear perfil", type="primary"):
+                    _api_post(f"/huespedes/{sel_id}/billing", {
+                        "label": lbl.strip() or None,
+                        "is_default": make_default,
+                        "tax_id_type": tt.strip() or None,
+                        "tax_id_number": tn.strip() or None,
+                        "business_name": bn.strip() or None,
+                        "address": addr.strip() or None,
+                        "city": city.strip() or None,
+                        "state": state.strip() or None,
+                        "country": country.strip() or None,
+                    })
+                    st.rerun()
+
+    # --- Vehículos tab (Phase 2a-ext) ---
+    with tab_vehicles:
+        vehicles = _api_get(f"/huespedes/{sel_id}/vehicles") or []
+        st.caption(f"{len(vehicles)}/5 vehículos registrados.")
+        if vehicles:
+            for v in vehicles:
+                with st.container(border=True):
+                    cv1, cv2, cv3 = st.columns([2, 3, 1])
+                    cv1.markdown(f"**{v['plate_number']}**")
+                    cv2.caption(
+                        (v.get("model") or "—")
+                        + (f" · {v['color']}" if v.get("color") else "")
+                    )
+                    if cv3.button("🗑", key=f"_rm_v_{v['id']}", help="Dar de baja"):
+                        _api_delete(f"/huespedes/{sel_id}/vehicles/{v['id']}")
+                        st.rerun()
+                    with st.popover("✏️ Editar"):
+                        with st.form(f"_edit_v_{v['id']}", clear_on_submit=False):
+                            new_plate = st.text_input("Chapa", value=v["plate_number"])
+                            new_model = st.text_input("Modelo", value=v.get("model") or "")
+                            new_color = st.text_input("Color", value=v.get("color") or "")
+                            if st.form_submit_button("Guardar", type="primary"):
+                                _api_put(f"/huespedes/{sel_id}/vehicles/{v['id']}", {
+                                    "plate_number": new_plate.strip() or None,
+                                    "model": new_model.strip() or None,
+                                    "color": new_color.strip() or None,
+                                })
+                                st.rerun()
+        else:
+            st.info("Sin vehículos registrados. Agregá uno abajo (máx. 5).")
+
+        st.divider()
+        if len(vehicles) < 5:
+            with st.expander("➕ Agregar vehículo"):
+                with st.form(f"_create_v_{sel_id}", clear_on_submit=True):
+                    plate = st.text_input("Chapa *", placeholder="ABC-123")
+                    cv1, cv2 = st.columns(2)
+                    model = cv1.text_input("Modelo / Año", placeholder="Toyota Corolla 2020")
+                    color = cv2.text_input("Color", placeholder="Blanco")
+                    if st.form_submit_button("Registrar vehículo", type="primary"):
+                        if not plate.strip():
+                            st.error("La chapa es obligatoria.")
+                        else:
+                            _api_post(f"/huespedes/{sel_id}/vehicles", {
+                                "plate_number": plate.strip(),
+                                "model": model.strip() or None,
+                                "color": color.strip() or None,
+                            })
+                            st.rerun()
+        else:
+            st.warning("Límite de 5 vehículos alcanzado. Eliminá uno antes de agregar otro.")

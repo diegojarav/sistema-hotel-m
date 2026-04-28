@@ -92,6 +92,8 @@ export default function NewReservationPage() {
         parkingNeeded: boolean;
         vehicleModel: string;
         vehiclePlate: string;
+        // v1.10.0 Phase 2a-ext — color propagates to master GuestVehicle
+        vehicleColor: string;
         source: string;
         // v1.10.0 Phase 2a Bug #2 Fix A — explicit master Guest link
         guestId?: number | null;
@@ -111,6 +113,7 @@ export default function NewReservationPage() {
         parkingNeeded: false,
         vehicleModel: '',
         vehiclePlate: '',
+        vehicleColor: '',
         source: 'Direct',
         guestId: null,
     });
@@ -396,6 +399,8 @@ export default function NewReservationPage() {
                 parking_needed: formData.parkingNeeded,
                 vehicle_model: formData.vehicleModel || null,
                 vehicle_plate: formData.vehiclePlate || null,
+                // v1.10.0 Phase 2a-ext — color propagates to master GuestVehicle
+                vehicle_color: formData.vehicleColor || null,
                 source: formData.source,
                 paid: paid,
                 // v1.7.0 — Meal Plan (Phase 4) — only sent when user selected a plan

@@ -13,7 +13,7 @@ Validaciones implementadas:
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import date, datetime, time
 import re
 
@@ -89,6 +89,11 @@ class ReservationCreate(BaseModel):
     parking_needed: bool = Field(default=False, description="Indica si se necesita parking")
     vehicle_model: Optional[str] = Field(default=None, description="Modelo del vehículo")
     vehicle_plate: Optional[str] = Field(default=None, description="Chapa/Patente del vehículo")
+    # v1.10.0 Phase 2a-ext: color passthrough — propagates to master GuestVehicle.
+    # Not stored on the Reservation row (avoids a column add); the auxiliary
+    # metadata lives only on the master vehicle, which is the canonical place
+    # to ask "¿de quién es el auto blanco?".
+    vehicle_color: Optional[str] = Field(default=None, description="Color del vehículo")
     source: Optional[str] = Field(default="Direct", description="Origen de la reserva (ej. Direct, Booking.com)")
     external_id: Optional[str] = Field(default=None, description="ID externo de la reserva (ej. de OTA)")
     paid: Optional[bool] = Field(default=True, description="Si el huesped ya pago. True=Confirmada, False=Pendiente")
@@ -257,6 +262,8 @@ class CheckInCreate(BaseModel):
     # Vehículo
     vehicle_model: str = Field(default="", description="Modelo del vehículo")
     vehicle_plate: str = Field(default="", description="Chapa/Patente del vehículo")
+    # v1.10.0 Phase 2a-ext: color passthrough (propagates to GuestVehicle, not stored on CheckIn row)
+    vehicle_color: Optional[str] = Field(default=None, description="Color del vehículo")
 
     @field_validator('document_number')
     @classmethod
@@ -728,6 +735,8 @@ class GuestCreate(BaseModel):
     city: Optional[str] = Field(default=None)
     notes: Optional[str] = Field(default=None)
     source: Optional[str] = Field(default="Direct")
+    # v1.10.0 Phase 2a-ext — birthday automation hook
+    birth_date: Optional[date] = Field(default=None, description="Fecha de nacimiento")
     property_id: Optional[str] = Field(default="los-monges")
 
     @field_validator("first_name", "last_name")
@@ -776,6 +785,7 @@ class GuestUpdate(BaseModel):
     city: Optional[str] = None
     notes: Optional[str] = None
     source: Optional[str] = None
+    birth_date: Optional[date] = None  # v1.10.0 Phase 2a-ext
     is_active: Optional[bool] = None
 
     @field_validator("email")
@@ -806,6 +816,7 @@ class GuestDTO(BaseModel):
     city: Optional[str] = None
     notes: Optional[str] = None
     source: Optional[str] = None
+    birth_date: Optional[date] = None  # v1.10.0 Phase 2a-ext
     is_active: bool
     total_stays: int = 0
     total_spent: float = 0.0
@@ -884,3 +895,133 @@ class BuildingDTO(BaseModel):
     room_count: int = 0  # populated by service when listing
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+# ==========================================
+# BILLING PROFILES (v1.10.0 — Phase 2a-ext)
+# ==========================================
+
+class BillingProfileCreate(BaseModel):
+    """Request body for POST /huespedes/{guest_id}/billing."""
+    label: Optional[str] = Field(default=None, description="Etiqueta legible (Personal, Empresa XYZ, etc.)")
+    is_default: bool = Field(default=False)
+    tax_id_type: Optional[str] = Field(default=None, description="RUC | CI | CUIT | CPF | CNPJ | NIT | Otro")
+    tax_id_number: Optional[str] = Field(default=None)
+    business_name: Optional[str] = Field(default=None, description="Razón Social")
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+
+
+class BillingProfileUpdate(BaseModel):
+    """Partial update — all fields optional."""
+    label: Optional[str] = None
+    is_default: Optional[bool] = None
+    tax_id_type: Optional[str] = None
+    tax_id_number: Optional[str] = None
+    business_name: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class BillingProfileDTO(BaseModel):
+    """Full billing profile record."""
+    id: int
+    guest_id: int
+    property_id: str
+    label: Optional[str] = None
+    is_default: bool = False
+    tax_id_type: Optional[str] = None
+    tax_id_number: Optional[str] = None
+    business_name: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+# ==========================================
+# GUEST VEHICLES (v1.10.0 — Phase 2a-ext)
+# ==========================================
+
+class GuestVehicleCreate(BaseModel):
+    """Request body for POST /huespedes/{guest_id}/vehicles."""
+    plate_number: str = Field(..., min_length=1, description="Chapa / patente")
+    model: Optional[str] = Field(default=None, description="Modelo y año")
+    color: Optional[str] = None
+
+    @field_validator("plate_number")
+    @classmethod
+    def _norm_plate(cls, v: str) -> str:
+        cleaned = (v or "").strip().upper()
+        if not cleaned:
+            raise ValueError("La chapa no puede estar vacía")
+        return cleaned
+
+
+class GuestVehicleUpdate(BaseModel):
+    """Partial update — all fields optional."""
+    plate_number: Optional[str] = None
+    model: Optional[str] = None
+    color: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("plate_number")
+    @classmethod
+    def _norm_plate(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip().upper()
+        return cleaned or None
+
+
+class GuestVehicleDTO(BaseModel):
+    """Full vehicle record."""
+    id: int
+    guest_id: int
+    property_id: str
+    plate_number: str
+    model: Optional[str] = None
+    color: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class VehicleSearchResultDTO(BaseModel):
+    """Result of /vehicles/search?plate=... — vehicle + guest + active reservation if any.
+
+    Powers the "whose car is this?" lookup AND the future OCR pipeline.
+    Compact shape because the OCR webhook will likely turn this into a push
+    notification on the receptionist's phone.
+    """
+    vehicle: GuestVehicleDTO
+    guest: GuestDTO
+    active_reservation: Optional[Dict[str, Any]] = None  # {id, room_id, room_internal_code, check_in_date, check_out_date}
+
+
+class CheckinVehicleLink(BaseModel):
+    """Body for linking a vehicle to a checkin (parking spot, key deposit)."""
+    parking_spot: Optional[str] = None
+    key_deposited: bool = False
+
+
+class CheckinVehicleDTO(BaseModel):
+    """A vehicle currently associated with a specific check-in (per-stay link)."""
+    id: int
+    checkin_id: int
+    vehicle_id: int
+    parking_spot: Optional[str] = None
+    key_deposited: bool = False
+    created_at: Optional[datetime] = None
+    # Convenience-flattened vehicle fields for table renders
+    plate_number: Optional[str] = None
+    model: Optional[str] = None
+    color: Optional[str] = None

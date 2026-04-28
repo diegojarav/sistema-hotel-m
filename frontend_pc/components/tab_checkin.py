@@ -200,6 +200,10 @@ def render_tab_checkin():
         contact_email_val = c_email.text_input("Email", value=def_email_val, placeholder="correo@ejemplo.com")
 
         st.markdown("### 🧾 Datos de Facturación")
+        st.caption(
+            "Estos datos se guardan en la ficha **y** se replican como perfil "
+            "reutilizable en el huésped maestro (visible en _Huéspedes → Facturación_)."
+        )
 
         billing_profiles = CheckInService.get_all_billing_profiles()
         billing_options = [f"{p['name']} | {p['ruc']}" for p in billing_profiles]
@@ -229,9 +233,19 @@ def render_tab_checkin():
         fac_r = st.text_input("RUC", value=billing_ruc_val)
 
         st.markdown("### 🚗 Datos del Vehículo")
-        c_v1, c_v2 = st.columns(2)
+        st.caption(
+            "Si ingresás chapa, queda registrado en _Huéspedes → Vehículos_ "
+            "(máx. 5 por huésped) y se vincula a esta estadía. Habilita el lookup "
+            "\"¿de quién es este auto?\" y el futuro OCR en la entrada."
+        )
+        c_v1, c_v2, c_v3 = st.columns(3)
         vehiculo_modelo = c_v1.text_input("Modelo Vehículo", value=def_v_modelo)
         vehiculo_chapa = c_v2.text_input("Nro. Chapa", value=def_v_chapa)
+        # v1.10.0 Phase 2a-ext — color → propagates to master GuestVehicle.
+        vehiculo_color = c_v3.text_input(
+            "Color",
+            placeholder="Blanco / Negro / ...",
+        )
 
         btn_label = "Actualizar Ficha" if cid_to_load else "Guardar Ficha"
 
@@ -254,7 +268,8 @@ def render_tab_checkin():
                     billing_name=fac_n,
                     billing_ruc=fac_r,
                     vehicle_model=vehiculo_modelo,
-                    vehicle_plate=vehiculo_chapa
+                    vehicle_plate=vehiculo_chapa,
+                    vehicle_color=vehiculo_color or None,
                 )
 
                 if cid_to_load:

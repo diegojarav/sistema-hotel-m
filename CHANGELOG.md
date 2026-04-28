@@ -14,7 +14,61 @@
 
 ## [v1.10.0] — abril 2026 · DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests & Buildings)
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) ya en `dev`; Phase 2b (type harmonization, retención de tablas append-only, drop de `breakfast_included`) pendiente antes del tag v1.10.0 final.
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) ya en `dev`; Phase 2b (type harmonization, retención de tablas append-only, drop de `breakfast_included`) pendiente antes del tag v1.10.0 final.
+
+### Phase 2a-ext — Guest Domain Completion (commit pendiente)
+
+Tres adiciones que cierran el dominio de huésped sin depender de Phase 2b:
+
+#### `guests.birth_date`
+- Date column nueva. `find_or_create_guest`, `_augment_guest_if_empty` y `_augment_guest_from_checkin` la propagan ("fill empty, never overwrite").
+- UI PC: date picker en tab "Datos" del huésped.
+- Hook documentado para futura automatización de saludos de cumpleaños (ROADMAP.md backlog).
+
+#### `billing_profiles` (perfiles de facturación reutilizables)
+- Modelo nuevo: `id`, `guest_id` FK CASCADE, `property_id` FK RESTRICT, `label`, `is_default`, `tax_id_type` (RUC | CI | CUIT | CPF | CNPJ | NIT | …), `tax_id_number`, `business_name`, address fields, `is_active`. Indexes en (guest, active), (property), (property, tax_id).
+- `BillingProfileService` con CRUD + `set_default` (clears siblings) + `find_or_create_from_checkin` (priority: tax_id → business_name → create). Excepción `BillingProfileError`.
+- 5 endpoints: GET/POST list+create, PUT/DELETE update+soft-delete, POST `/default` para marcar predeterminado.
+- `checkins.billing_profile_id` FK SET NULL (snapshot fields `billing_name`/`billing_ruc` se conservan).
+- UI PC: tab "🧾 Facturación" en página Huéspedes (lista, marcar predet, editar/eliminar, agregar).
+- Service-layer auto-create: `CheckInService.register_checkin`/`update_checkin` ahora corren `_propagate_billing_to_profile` después de linkear el guest — la data fluye automáticamente desde la ficha legacy hacia el master.
+
+#### `guest_vehicles` + `checkin_vehicles`
+- `guest_vehicles`: `id`, `guest_id` FK CASCADE, `property_id` FK RESTRICT, `plate_number`, `model`, `color`, `is_active`. Plate normalisation (uppercase + trim) en service y schema validator. Indexes en (guest), (property, plate) — el lookup hot del OCR futuro —, (guest, active).
+- `checkin_vehicles` (N:M): `id`, `checkin_id` FK CASCADE, `vehicle_id` FK CASCADE, `parking_spot`, `key_deposited`. UNIQUE (checkin_id, vehicle_id). Permite registrar 2+ autos en una misma estadía con metadata per-vehículo.
+- `MAX_VEHICLES_PER_GUEST = 5` enforced en `GuestVehicleService.create_vehicle`. Soft-deleted no cuenta.
+- `GuestVehicleService.search_by_plate(property_id, plate)` — case-insensitive, exact-first-then-partial. Retorna `{vehicle, guest, active_reservation}` o None. Powers "¿de quién es este auto?" + futuro OCR pipeline.
+- 4 endpoints `/huespedes/{id}/vehicles*` (CRUD) + 1 `GET /vehicles/search?plate=` + 3 `/checkins/{id}/vehicles*` (per-stay link).
+- AI tool #20 `buscar_vehiculo` mapeada a `can_view_guests`.
+- UI PC: tab "🚗 Vehículos" en página Huéspedes con counter "N/5", popover de edit, soft-delete inline. Bloqueado al alcanzar 5.
+- Service-layer auto-create: `_propagate_vehicle_to_master` se ejecuta después del guest-link en `register_checkin`/`update_checkin`.
+
+#### Migración 013 (`013_guest_domain_ext.py`)
+- Crea `birth_date` column + 3 nuevas tablas + `checkins.billing_profile_id`.
+- Auto-pobla desde data legacy:
+  - Por cada checkin con `billing_name`/`billing_ruc` → 1 BillingProfile (primer perfil por guest = default), back-fill de `checkin.billing_profile_id`.
+  - Por cada checkin con `vehicle_plate` → 1 GuestVehicle (deduped por (guest, plate)) + 1 CheckinVehicle link.
+  - Legacy data >5 vehículos por guest se trunca silenciosamente al límite (la recepción puede re-registrar manualmente si hace falta).
+- Idempotente: skip de la fase de auto-populate si ambas tablas tienen rows.
+- Resultado en dev DB: **27 BillingProfiles + 18 GuestVehicles + 18 CheckinVehicles + 27 checkins back-filled con billing_profile_id**.
+
+#### Tests
+- 44 nuevos: `test_billing_profiles.py` (20) + `test_guest_vehicles.py` (24).
+  - Billing: CRUD, set_default clears siblings, soft-delete clears default flag, find_or_create_from_checkin priority (tax_id → name → create), checkin auto-creates profile + links, RBAC, 404 paths.
+  - Vehicles: CRUD with plate normalisation, dedup returns existing, 5-limit enforcement, soft-deleted doesn't count, search by exact + partial + case-insensitive, returns active_reservation when present, link to checkin idempotent, unlink, get_checkin_vehicles, register_checkin auto-creates vehicle + link, RBAC, 404 paths.
+- Total backend: **652 + 44 = 696 tests** (target — verificación full suite en proceso).
+
+#### Critical gotchas (added to CLAUDE.md + skill)
+- 5-vehicle limit hard-enforced; soft-deleted doesn't count.
+- Plate normalisation: uppercase + trim everywhere — never compare raw.
+- `CheckInCreate.billing_ruc` validator strips non-digit/non-hyphen (RUC paraguayo). Tests must use numeric RUCs.
+- BillingProfile NO es UNIQUE por (guest, tax_id) — un guest puede tener personal + corporate con el mismo RUC.
+- Snapshot pattern preservado: `checkins.billing_*`/`vehicle_*` siguen como snapshots frozen-at-registration.
+
+#### Próximo slot de migración: `014_*.py`.
+
+---
+
 
 ### Phase 2a Bug #2 — Guest-flow consolidation (single entry point)
 

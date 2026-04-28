@@ -21,6 +21,8 @@ interface FormData {
     parkingNeeded: boolean;
     vehicleModel: string;
     vehiclePlate: string;
+    // v1.10.0 Phase 2a-ext — color propagates to master GuestVehicle catalog
+    vehicleColor: string;
     source: string;
     // v1.10.0 Phase 2a Bug #2 Fix A — explicit master Guest link
     guestId?: number | null;
@@ -257,28 +259,44 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                 </label>
 
                 {formData.parkingNeeded && (
-                    <div className="grid grid-cols-2 gap-3 mt-3">
-                        <div>
-                            <label className="text-gray-600 text-xs mb-1 block">Modelo</label>
+                    <>
+                        <div className="grid grid-cols-2 gap-3 mt-3">
+                            <div>
+                                <label className="text-gray-600 text-xs mb-1 block">Modelo</label>
+                                <input
+                                    type="text"
+                                    value={formData.vehicleModel}
+                                    onChange={(e) => onFormChange({ vehicleModel: e.target.value })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                    placeholder="Toyota Corolla"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-gray-600 text-xs mb-1 block">Chapa</label>
+                                <input
+                                    type="text"
+                                    value={formData.vehiclePlate}
+                                    onChange={(e) => onFormChange({ vehiclePlate: e.target.value })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                    placeholder="ABC 123"
+                                />
+                            </div>
+                        </div>
+                        {/* v1.10.0 Phase 2a-ext — color propagates to master vehicle catalog */}
+                        <div className="mt-3">
+                            <label className="text-gray-600 text-xs mb-1 block">Color</label>
                             <input
                                 type="text"
-                                value={formData.vehicleModel}
-                                onChange={(e) => onFormChange({ vehicleModel: e.target.value })}
+                                value={formData.vehicleColor}
+                                onChange={(e) => onFormChange({ vehicleColor: e.target.value })}
                                 className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                                placeholder="Toyota Corolla"
+                                placeholder="Blanco, Negro, Rojo..."
                             />
+                            <p className="text-xs text-gray-400 mt-1">
+                                Se guarda en el catálogo del huésped — habilita el lookup &quot;¿de quién es el auto blanco?&quot;.
+                            </p>
                         </div>
-                        <div>
-                            <label className="text-gray-600 text-xs mb-1 block">Chapa</label>
-                            <input
-                                type="text"
-                                value={formData.vehiclePlate}
-                                onChange={(e) => onFormChange({ vehiclePlate: e.target.value })}
-                                className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-                                placeholder="ABC 123"
-                            />
-                        </div>
-                    </div>
+                    </>
                 )}
             </div>
 

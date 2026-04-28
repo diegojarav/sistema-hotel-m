@@ -72,6 +72,7 @@ def render_tab_reserva():
     d_parking = False
     d_vehicle_model = ""
     d_vehicle_plate = ""
+    d_vehicle_color = ""  # v1.10.0 Phase 2a-ext
     d_source = "Direct"
     d_external_id = ""
 
@@ -506,6 +507,14 @@ def render_tab_reserva():
             parking = st.checkbox("Requiere Parking", value=d_parking)
             v_model = st.text_input("Modelo Vehículo", value=d_vehicle_model, help="Opcional")
             v_plate = st.text_input("Chapa/Patente", value=d_vehicle_plate, help="Opcional")
+            # v1.10.0 Phase 2a-ext: color → propagates a master GuestVehicle on save.
+            # Habilita el lookup "¿de quién es el auto blanco?" + futuro OCR.
+            v_color = st.text_input(
+                "Color del Vehículo",
+                value=d_vehicle_color,
+                placeholder="Blanco, Negro, Rojo...",
+                help="Se guarda en el catálogo del huésped (visible en Huéspedes → Vehículos).",
+            )
 
         st.markdown("---")
 
@@ -595,6 +604,7 @@ def render_tab_reserva():
                             parking_needed=parking,
                             vehicle_model=v_model,
                             vehicle_plate=v_plate,
+                            vehicle_color=v_color or None,
                             source=source,
                             # Identity fields from document scan (FEAT-LINK-01)
                             document_number=ia_data.get("Nro_Documento", ""),
@@ -656,6 +666,7 @@ def render_tab_reserva():
                                     parking_needed=parking,
                                     vehicle_model=v_model,
                                     vehicle_plate=v_plate,
+                                    vehicle_color=v_color or None,
                                     source=source,
                                     paid=is_paid,
                                     # Identity fields from document scan (FEAT-LINK-01)

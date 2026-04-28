@@ -77,6 +77,7 @@ TOOL_PERMISSION_MAP = {
     # Guests
     "search_guest":                  "can_view_guests",
     "buscar_huesped_historial":      "can_view_guests",  # v1.10.0 — Phase 2a
+    "buscar_vehiculo":               "can_view_guests",  # v1.10.0 — Phase 2a-ext
     # Rooms
     "check_availability":            "can_view_rooms",
     # Pricing

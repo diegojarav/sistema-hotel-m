@@ -399,6 +399,54 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 - **011_guests_table.py**: crea `guests`, agrega `guest_id` a `reservations` y `checkins`, autopobla en cuatro pasos (documento → nombre → backfill reservations.guest_id + checkins.guest_id → refresca agregados). Resultado en dev DB: 107 reservas + 52 checkins → 96 guests, 100% linkeados.
 - **012_buildings_table.py**: crea `buildings`, seedea `<property_id>-principal` "Edificio Principal" por property, backfillea `rooms.building_id` donde NULL.
 
+### Phase 2a-ext — Guest Domain Completion (v1.10.0)
+
+#### Tablas nuevas
+- `guests.birth_date` (NEW Date) — hook para futura automatización de saludos de cumpleaños (ver ROADMAP.md). `find_or_create_guest` y `_augment_guest_if_empty` lo aceptan/propagan ("fill empty, never overwrite").
+- `billing_profiles` (NEW) — perfiles de facturación reutilizables por huésped. Schema: `id` (Integer), `guest_id` FK CASCADE, `property_id` FK RESTRICT, `label`, `is_default` (Boolean), `tax_id_type` (RUC | CI | CUIT | CPF | CNPJ | NIT | …), `tax_id_number`, `business_name`, address fields, `is_active`. UNIQUE no declarado (mismo RUC puede aparecer bajo dos guests legítimamente — corporate + personal).
+- `guest_vehicles` (NEW) — vehículos registrados por huésped, máx 5 (enforced en `GuestVehicleService.create_vehicle` → `MAX_VEHICLES_PER_GUEST = 5`). Plate normalizado a uppercase + trim. Soft-deleted no cuenta para el límite.
+- `checkin_vehicles` (NEW N:M) — vincula `checkins` ↔ `guest_vehicles` por estadía + `parking_spot` + `key_deposited`. UNIQUE (checkin_id, vehicle_id).
+- `checkins.billing_profile_id` (NEW Integer FK SET NULL) — qué perfil se usó para esta estadía. Snapshot fields `checkins.billing_name`/`billing_ruc` se conservan.
+
+#### Servicios nuevos
+- `BillingProfileService` — CRUD + `set_default` (clears siblings) + `find_or_create_from_checkin` (priority: tax_id → business_name → create). Excepción `BillingProfileError`.
+- `GuestVehicleService` — CRUD + 5-limit enforcement + `search_by_plate` (case-insensitive, exact-then-partial, returns vehicle + guest + active reservation if any) + `link_to_checkin`/`unlink_from_checkin`/`get_checkin_vehicles`. Excepción `GuestVehicleError`.
+
+#### Auto-propagación desde CheckIn (load-bearing)
+`CheckInService.register_checkin` y `update_checkin` ahora corren **dos hooks adicionales** después del guest-link:
+- `_propagate_billing_to_profile`: si la ficha tiene billing_name/billing_ruc + guest_id + sin billing_profile_id explícito → crea/encuentra BillingProfile y linkea.
+- `_propagate_vehicle_to_master`: si la ficha tiene vehicle_plate + guest_id → crea/encuentra GuestVehicle y crea CheckinVehicle link.
+Best-effort: errores se loguean y se ignoran (la ficha es load-bearing, los side effects no).
+
+#### API endpoints
+- `GET/POST/PUT/DELETE /api/v1/huespedes/{id}/billing[/{profile_id}]` (admin/supervisor/gerencia/recepcion/recepcionista para todo).
+- `POST /api/v1/huespedes/{id}/billing/{profile_id}/default` — marcar predeterminado.
+- `GET/POST/PUT/DELETE /api/v1/huespedes/{id}/vehicles[/{vehicle_id}]`.
+- `GET /api/v1/vehicles/search?plate=ABC` — "¿de quién es este auto?" + futuro OCR. Retorna vehicle + guest + active_reservation (404 si no hay match).
+- `GET/POST/DELETE /api/v1/checkins/{checkin_id}/vehicles[/{vehicle_id}]` — per-stay link con parking_spot/key_deposited.
+
+#### AI Tool nuevo (#20)
+- `buscar_vehiculo(plate)` — busca por chapa, devuelve dueño + reserva activa/próxima. Mapeada a `can_view_guests`. Total tools = 20.
+
+#### Migración 013
+- Crea las 3 tablas + agrega `birth_date` y `billing_profile_id`.
+- Auto-pobla desde data legacy: por cada checkin con `billing_name`/`billing_ruc` → 1 BillingProfile (primer perfil por guest = default), por cada checkin con `vehicle_plate` → 1 GuestVehicle + 1 CheckinVehicle.
+- Resultado en dev DB: 27 BillingProfiles + 18 GuestVehicles + 18 CheckinVehicles + 27 checkins back-filled con billing_profile_id.
+- Idempotente: re-run no duplica (skip si tablas tienen rows).
+
+#### UI
+- **PC `91_👥_Huespedes.py`**: tab "Datos" agrega "🎂 Fecha de nacimiento". Dos tabs nuevos: "🧾 Facturación" (lista perfiles, marcar predet., editar/eliminar, agregar) y "🚗 Vehículos" (lista, agregar con cap visible "N/5", editar/eliminar).
+- **PC `tab_checkin.py`**: captions agregadas explicando que los datos de Facturación + Vehículo se replican automáticamente al huésped maestro (formularios viejos sin cambios — service-layer hace el trabajo). El dropdown rico (perfil predet. → preselect) queda como follow-up UX.
+
+#### Critical gotchas
+- **5-vehicle limit**: hard-enforced en service. Re-intento en migración: legacy data con >5 plates por guest se trunca silenciosamente al límite.
+- **Plate normalisation**: el validator de `GuestVehicleCreate` y `_norm_plate` en service uppercase + trim. Nunca comparar plates raw.
+- **`billing_ruc` validator strip**: `CheckInCreate.billing_ruc` solo permite dígitos + guiones (RUC paraguayo XXXXXXXX-X). Si testing con valores tipo "MY-RUC" → quedan "--" después del strip. Usar números reales (e.g. "80012345-6").
+- **BillingProfile no es UNIQUE por (guest, tax_id)**: un mismo huésped puede tener dos perfiles con el mismo RUC (e.g. personal + empresa). El de-dup lo hace el service en `find_or_create_from_checkin`, no la base.
+- **Snapshot pattern preservado** (igual que Phase 2a): `checkins.billing_name`/`billing_ruc`/`vehicle_model`/`vehicle_plate` siguen como snapshots frozen-at-registration. Las nuevas tablas son la versión "viva".
+
+#### Próximo slot de migración: `014_*.py`.
+
 ### Critical gotchas
 - **NUNCA mezclar GuestService y CheckInService**. `from services import GuestService` ahora trae la entidad maestra (Phase 2a). `from services import CheckInService` trae las fichas (renombrada). Cualquier import viejo que esperaba CheckIn methods en GuestService falla en runtime con `AttributeError: 'GuestService' has no attribute 'register_checkin'`. Los 7 sitios afectados ya están actualizados; nuevos sitios deben elegir el correcto según concepto.
 - **Snapshot pattern preservado**: `reservations.guest_name`, `reservations.contact_email`, `checkins.last_name`/`first_name` siguen como valores frozen-at-creation. El Guest es la versión "viva". No replicar `find_or_create_guest`/`update_guest` en cada lugar — solo en el flujo donde el dato cambia.
@@ -438,7 +486,7 @@ Toda creación o referencia a un huésped pasa por **un único punto**: `GuestSe
 **Removed**:
 - `CheckInService.get_all_guest_names` ya no es la fuente del dropdown de reservas. Sigue existiendo para `tab_checkin.py` (billing profiles + ficha edit search), pero el dropdown de "A nombre de" ahora viene del master Guest. `frontend_services/cache_service.get_all_guest_names_cached` sigue funcional pero ahora lee de `GuestService.list_guests_for_dropdown`.
 
-## AI Agent Tools (19 functions in ai_tools.py)
+## AI Agent Tools (20 functions in ai_tools.py)
 
 1. `check_availability` — Room availability for date/stay
 2. `get_hotel_rates` — Pricing by category
@@ -459,6 +507,7 @@ Toda creación o referencia a un huésped pasa por **un único punto**: `GuestSe
 17. `reporte_cocina` — Daily breakfast/meal count (or "no habilitado" if disabled) — **v1.7.0**
 18. `estado_email_reserva` — Consulta si se envió el correo de una reserva, cuándo, a quién, y total de envíos exitosos/fallidos — **v1.8.0**
 19. `buscar_huesped_historial` — Busca por nombre/doc/email/teléfono en la **entidad maestra Guest** y devuelve estadías previas, total gastado, promedio, últimas 5 reservas. Distinto de `search_guest` (que busca en CheckIn). Mapeada a `can_view_guests`. — **v1.10.0**
+20. `buscar_vehiculo` — Busca un vehículo por chapa (case-insensitive, exact-then-partial). Retorna dueño + reserva activa o próxima si existe. Mapeada a `can_view_guests`. Pensado para "¿de quién es el auto blanco?" + futuro OCR en la entrada. — **v1.10.0 Phase 2a-ext**
 
 ## Email Sending (v1.8.0 — Phase 5)
 

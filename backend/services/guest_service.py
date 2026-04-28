@@ -86,6 +86,7 @@ class GuestService:
             city=_strip_or_none(data.get("city")),
             notes=_strip_or_none(data.get("notes")),
             source=data.get("source") or "Direct",
+            birth_date=data.get("birth_date"),  # Phase 2a-ext
             is_active=True,
             total_stays=0,
             total_spent=0.0,
@@ -124,6 +125,10 @@ class GuestService:
                 if isinstance(val, str):
                     val = val.strip() or None
                 setattr(guest, col, val)
+
+        if "birth_date" in data:
+            # `None` is a valid clear; date stays as-is. No string trim needed.
+            guest.birth_date = data["birth_date"]
 
         if "is_active" in data and data["is_active"] is not None:
             guest.is_active = bool(data["is_active"])
@@ -270,6 +275,7 @@ class GuestService:
         country: Optional[str] = None,
         guest_name: Optional[str] = None,  # legacy "Lastname, Firstname" or full
         source: Optional[str] = None,
+        birth_date: Optional[date] = None,  # v1.10.0 Phase 2a-ext
     ) -> Optional[Guest]:
         """Smart match against existing Guest records, or create if new.
 
@@ -384,6 +390,7 @@ class GuestService:
                     phone=phone_norm,
                     nationality=(nationality or "").strip() or None,
                     country=(country or "").strip() or None,
+                    birth_date=birth_date,  # v1.10.0 Phase 2a-ext
                 )
                 return hit
 
@@ -400,6 +407,7 @@ class GuestService:
                     "nationality": (nationality or "").strip() or None,
                     "country": (country or "").strip() or None,
                     "source": source or "Direct",
+                    "birth_date": birth_date,  # v1.10.0 Phase 2a-ext
                 },
             )
         except Exception as e:
@@ -586,6 +594,7 @@ def _augment_guest_if_empty(
     phone: Optional[str] = None,
     nationality: Optional[str] = None,
     country: Optional[str] = None,
+    birth_date: Optional[date] = None,
 ) -> bool:
     """Backfill empty fields on an existing guest. Never overwrite.
 
@@ -608,6 +617,9 @@ def _augment_guest_if_empty(
         changed = True
     if country and not (guest.country or "").strip():
         guest.country = country
+        changed = True
+    if birth_date is not None and guest.birth_date is None:
+        guest.birth_date = birth_date
         changed = True
     if changed:
         guest.updated_at = datetime.now()

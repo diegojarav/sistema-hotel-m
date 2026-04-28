@@ -11,14 +11,14 @@
 | Item | Estado |
 |---|---|
 | Versión | v1.10.0-dev |
-| Tests | 590 · 83% cobertura (606 con KPI+perf) |
+| Tests | 696 · 83% cobertura |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
-| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings, v1.10.0-dev) |
-| Próxima migración | `013_*.py` |
-| AI tools | 19 (último: `buscar_huesped_historial`) |
-| Tablas | 25 (incluye `guests` + `buildings` desde Phase 2a) |
+| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) |
+| Próxima migración | `014_*.py` |
+| AI tools | 20 (último: `buscar_vehiculo`) |
+| Tablas | 28 (suma `billing_profiles` + `guest_vehicles` + `checkin_vehicles` desde Phase 2a-ext) |
 
 ---
 
@@ -102,6 +102,18 @@ Continuación de la auditoría DB. **No agrega features**, prepara el cutover a 
 
 Ideas documentadas para no perderlas. **No tienen estimación ni fecha.**
 
+- **OCR de chapas en la entrada** (Phase 2a-ext follow-up — premium feature): cámara IP en la entrada del hotel lee la chapa de cualquier vehículo que llega. El sistema:
+  1. Recibe la chapa via webhook/API del proveedor de OCR (e.g. OpenALPR, AWS Rekognition, Plate Recognizer).
+  2. Llama `GuestVehicleService.search_by_plate(property_id, plate)`.
+  3. Si hay match con reserva activa o próxima → push notification a recepción: "Llegando: [Apellido, Nombre], reserva #[id], habitación [X], check-in [fecha]".
+  4. Si no hay match → log en panel "Vehículos no identificados" para que recepción pueda asociar manualmente al check-in que se haga después.
+  - Dependencias: hardware (cámara con visión IP en la entrada), proveedor de OCR (≈ USD 0.001-0.01 por lectura según volumen), webhook receptor en el backend.
+  - Tabla `guest_vehicles` ya está lista (Phase 2a-ext) con el index `idx_vehicle_property_plate` para hacer el lookup en O(log n).
+- **Saludo de cumpleaños automático** (Phase 2a-ext follow-up): scheduled job diario que:
+  1. Query: guests donde `MONTH(birth_date) = MONTH(today) AND DAY(birth_date) = DAY(today) AND is_active = true`.
+  2. Para cada uno: si tiene reserva activa, mandar email + WhatsApp con saludo personalizado.
+  3. Opcional: auto-aplicar un descuento o consumo complementario (caja de bombones, copa de vino) vía `ConsumoService`.
+  - Tabla ya tiene `birth_date` en `guests` (Phase 2a-ext). Falta el job + plantilla de mensaje + integración con WhatsApp Business API.
 - **De-dup / merge tool de huéspedes** (Phase 2a follow-up): UI admin para detectar candidatos (nombre similar, mismo phone, etc.) y mergear dos rows en uno. Reasigna `reservations.guest_id` y `checkins.guest_id` al canónico, soft-deletea el otro. Útil porque la entrada manual + auto-creación generan duplicados con tiempo.
 - **Sistema de plantillas de email** — continuación de Phase 5. Templates configurables para pre-checkin reminder (X días antes), post-checkout thank-you, recordatorio de pago pendiente. Requiere extender `email_body_template` a múltiples templates por evento.
 - **OTA API nativa** — integración directa con Booking.com / Expedia / Airbnb API en lugar de iCal. Elimina el delay de 15 min de polling pero requiere certificación con cada OTA, costos y mantenimiento de credenciales.

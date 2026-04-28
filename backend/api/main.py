@@ -48,7 +48,7 @@ _main_logger = get_logger("api.main")
 from api.core.config import APP_VERSION, CORS_ORIGINS, HEALTHCHECK_PING_URL, DISCORD_WEBHOOK_URL
 
 # Import routers
-from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin, documents, caja, transacciones, reportes_financieros, productos, consumos, meal_plans, reportes_cocina, email, huespedes, buildings
+from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin, documents, caja, transacciones, reportes_financieros, productos, consumos, meal_plans, reportes_cocina, email, huespedes, buildings, billing_profiles, guest_vehicles
 
 # Track server start time for uptime reporting
 _START_TIME = time.time()
@@ -305,6 +305,11 @@ app.include_router(email.router, prefix="/api/v1/email", tags=["Email"])
 # v1.10.0 — Phase 2a (Master Guest entity + Buildings)
 app.include_router(huespedes.router, prefix="/api/v1/huespedes", tags=["Huespedes (Guest Master)"])
 app.include_router(buildings.router, prefix="/api/v1/buildings", tags=["Buildings"])
+# v1.10.0 — Phase 2a-ext (BillingProfiles + GuestVehicles)
+# These routers use multi-prefix paths (/huespedes/{id}/billing AND /vehicles/search
+# AND /checkins/{id}/vehicles), so they're mounted at /api/v1 without further prefix.
+app.include_router(billing_profiles.router, prefix="/api/v1", tags=["Billing Profiles"])
+app.include_router(guest_vehicles.router, prefix="/api/v1", tags=["Guest Vehicles"])
 
 
 # ==========================================

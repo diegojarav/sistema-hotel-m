@@ -24,6 +24,16 @@ from services.guest_service import GuestService, GuestServiceError
 from services.checkin_service import CheckInService
 # Phase 2a: NEW Building entity
 from services.building_service import BuildingService, BuildingServiceError
+# Phase 2a-ext: BillingProfile + GuestVehicle services
+from services.billing_profile_service import (
+    BillingProfileService,
+    BillingProfileError,
+)
+from services.guest_vehicle_service import (
+    GuestVehicleService,
+    GuestVehicleError,
+    MAX_VEHICLES_PER_GUEST,
+)
 from services.settings_service import SettingsService
 from services.pricing_service import PricingService
 from services.room_service import RoomService
@@ -54,6 +64,9 @@ __all__ = [
     "GuestService", "GuestServiceError",      # NEW Phase 2a master entity
     "CheckInService",                         # renamed from GuestService
     "BuildingService", "BuildingServiceError",
+    "BillingProfileService", "BillingProfileError",  # Phase 2a-ext
+    "GuestVehicleService", "GuestVehicleError",       # Phase 2a-ext
+    "MAX_VEHICLES_PER_GUEST",
     "SettingsService", "PricingService", "RoomService",
     "ICalService", "ICalSyncLogService", "DocumentService",
     "CajaService", "CajaSessionError",

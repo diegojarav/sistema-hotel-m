@@ -246,6 +246,15 @@ class CheckIn(Base):
     # is later merged or deleted, the historical ficha stays intact for audit.
     guest_id = Column(Integer, ForeignKey("guests.id", ondelete="SET NULL"), nullable=True, index=True)
 
+    # v1.10.0 — Phase 2a-ext — link to the BillingProfile selected for this stay.
+    # SET NULL: the legacy billing_name/billing_ruc columns above stay as the
+    # frozen snapshot, so even if the profile is later deleted the ficha keeps
+    # the invoice details that were used at the time of registration.
+    billing_profile_id = Column(
+        Integer, ForeignKey("billing_profiles.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+
 
 class CajaSesion(Base):
     """Cash register session. Tracks open/close of cash till per user."""
@@ -774,6 +783,16 @@ class Guest(Base):
     country = Column(String, nullable=True)
     city = Column(String, nullable=True)
 
+    # Demographic — added in v1.10.0 Phase 2a-ext.
+    # FUTURE: Birthday greeting automation
+    # When birth_date is set, a scheduled job could:
+    #   1. Query guests with birth_date matching today (any year)
+    #   2. Check if guest has an active or upcoming reservation
+    #   3. Send birthday greeting + special offer via email/WhatsApp
+    #   4. Optionally auto-apply a discount or complimentary item (drink, etc.)
+    # Tracked in ROADMAP.md "Birthday automation" backlog item.
+    birth_date = Column(Date, nullable=True)
+
     # Metadata
     notes = Column(String, nullable=True)
     source = Column(String, default="Direct")           # Direct | Booking.com | Airbnb | Walk-in | etc.
@@ -826,6 +845,146 @@ class Building(Base):
     __table_args__ = (
         UniqueConstraint("property_id", "name", name="uq_buildings_property_name"),
         Index("idx_buildings_property_active", "property_id", "is_active"),
+    )
+
+
+class BillingProfile(Base):
+    """Reusable invoice profile attached to a Guest (v1.10.0 — Phase 2a-ext).
+
+    A guest can carry multiple billing profiles (Personal CI for individual
+    invoices, RUC + Razón Social for their company, a different identity for
+    cross-border travel). Pre-Phase-2a-ext the legacy `checkins.billing_name`
+    + `checkins.billing_ruc` columns held this data — they're kept as the
+    frozen-at-registration snapshot, while this table is the *living* version.
+
+    Country-flexible
+    ----------------
+    `tax_id_type` is free-text (no enum) so each property can use the local
+    tax-document name without needing a model change:
+      - "RUC"   — Paraguay
+      - "CI"    — Paraguay (cédula de identidad, individual factura)
+      - "CUIT"  — Argentina
+      - "CPF"   — Brasil (individuals)
+      - "CNPJ"  — Brasil (companies)
+      - "NIT"   — Bolivia / others
+      - … plus whatever future hotels need
+
+    `is_default`
+    ------------
+    Exactly one profile per guest may be the default — the one that
+    auto-selects in the checkin form unless the recepcionist picks another.
+    Service-level enforced (`set_default` clears the flag on siblings).
+    """
+    __tablename__ = "billing_profiles"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guest_id = Column(Integer, ForeignKey("guests.id", ondelete="CASCADE"), nullable=False)
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
+
+    # Profile identification
+    label = Column(String, nullable=True)               # "Personal", "Empresa XYZ"
+    is_default = Column(Boolean, default=False)
+
+    # Tax identification (flexible per country)
+    tax_id_type = Column(String, nullable=True)         # RUC | CI | CUIT | CPF | CNPJ | NIT
+    tax_id_number = Column(String, nullable=True)       # the actual digits / format
+    business_name = Column(String, nullable=True)       # Razón Social / Razão Social
+
+    # Address (some countries print it on the invoice)
+    address = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+
+    # Metadata
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        Index("idx_billing_guest_active", "guest_id", "is_active"),
+        Index("idx_billing_property", "property_id"),
+        # Tax-id lookup ("does this RUC already exist for this hotel?") — composite
+        # so the same RUC can theoretically appear under two different guests
+        # (corporate + personal accounts of the same person are possible).
+        Index("idx_billing_property_tax_id", "property_id", "tax_id_number"),
+    )
+
+
+class GuestVehicle(Base):
+    """Vehicle registered to a Guest (v1.10.0 — Phase 2a-ext).
+
+    A guest can register up to 5 vehicles (limit enforced at the service
+    layer — a familia con 3 autos + 2 motos is a real edge case but more
+    than that crosses into "this is a fleet, not a personal vehicle list").
+
+    Why per-guest, not per-checkin
+    ------------------------------
+    The legacy `checkins.vehicle_model` + `checkins.vehicle_plate` captured
+    "the car for THIS visit". That works for one car at a time but loses the
+    relationship across stays — the same car shows up as a new entry every
+    time the guest returns. With this table, we register the car once and
+    just link it to each visit (via `checkin_vehicles`).
+
+    Future
+    ------
+    The `idx_vehicle_property_plate` index is built for the OCR scenario:
+    a camera at the entrance reads a plate, the system queries this table
+    by `(property_id, plate_number)`, and identifies the arriving guest
+    + their active reservation in O(log n). See ROADMAP.md "OCR vehicle
+    recognition" backlog item.
+    """
+    __tablename__ = "guest_vehicles"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    guest_id = Column(Integer, ForeignKey("guests.id", ondelete="CASCADE"), nullable=False)
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
+
+    # Vehicle identification — plate is the canonical lookup key
+    plate_number = Column(String, nullable=False)       # "ABC-123", "XYZ 4567"
+    model = Column(String, nullable=True)               # "Toyota Corolla 2020"
+    color = Column(String, nullable=True)               # "Blanco" / "Negro"
+
+    # Metadata
+    is_active = Column(Boolean, default=True)           # soft delete
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        Index("idx_vehicle_guest", "guest_id"),
+        # Property + plate is THE hot lookup ("whose car is this?" / OCR).
+        # Not declared UNIQUE because two guests might legitimately share a
+        # car (couple registers same plate under both names) — service-level
+        # de-dup is enough.
+        Index("idx_vehicle_property_plate", "property_id", "plate_number"),
+        Index("idx_vehicle_guest_active", "guest_id", "is_active"),
+    )
+
+
+class CheckinVehicle(Base):
+    """Per-stay vehicle ↔ checkin link (v1.10.0 — Phase 2a-ext).
+
+    N:M between checkins and guest_vehicles. A checkin records WHICH of the
+    guest's registered vehicles they brought THIS time, plus visit-specific
+    data (parking spot, key deposited for valet).
+
+    UNIQUE on (checkin_id, vehicle_id) prevents the same car from appearing
+    twice on one checkin. To bring 2 cars on one stay → 2 rows (one per
+    vehicle).
+    """
+    __tablename__ = "checkin_vehicles"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    checkin_id = Column(Integer, ForeignKey("checkins.id", ondelete="CASCADE"), nullable=False)
+    vehicle_id = Column(Integer, ForeignKey("guest_vehicles.id", ondelete="CASCADE"), nullable=False)
+
+    # Per-visit parking metadata (optional — a hotel without valet may leave both NULL)
+    parking_spot = Column(String, nullable=True)        # "A-12", "Garage 2", "Calle"
+    key_deposited = Column(Boolean, default=False)      # valet: did the guest leave the key?
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("checkin_id", "vehicle_id", name="uq_checkin_vehicle"),
+        Index("idx_checkin_vehicles_checkin", "checkin_id"),
+        Index("idx_checkin_vehicles_vehicle", "vehicle_id"),
     )
 
 

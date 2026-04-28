@@ -89,6 +89,12 @@ class CheckInService:
                 if not existing.guest_id:
                     existing.guest_id = _try_link_guest(db, existing)
                 _augment_guest_from_checkin(db, existing)
+                # Phase 2a-ext: auto-create BillingProfile + GuestVehicle from
+                # the snapshot fields so the master domain stays in sync.
+                _propagate_billing_to_profile(db, existing)
+                _propagate_vehicle_to_master(
+                    db, existing, color=getattr(data, 'vehicle_color', None),
+                )
                 db.commit()
                 return existing.id
 
@@ -120,6 +126,13 @@ class CheckInService:
 
         # Phase 2a: link to master Guest (best-effort)
         new_checkin.guest_id = _try_link_guest(db, new_checkin)
+
+        # Phase 2a-ext: auto-propagate to BillingProfile + GuestVehicle
+        # (does nothing if guest_id couldn't be resolved or fields are blank).
+        _propagate_billing_to_profile(db, new_checkin)
+        _propagate_vehicle_to_master(
+            db, new_checkin, color=getattr(data, 'vehicle_color', None),
+        )
 
         db.commit()
         db.refresh(new_checkin)
@@ -234,6 +247,12 @@ class CheckInService:
             c.guest_id = _try_link_guest(db, c)
         _augment_guest_from_checkin(db, c)
 
+        # Phase 2a-ext: keep BillingProfile + GuestVehicle in sync with edits.
+        _propagate_billing_to_profile(db, c)
+        _propagate_vehicle_to_master(
+            db, c, color=getattr(data, 'vehicle_color', None),
+        )
+
         db.commit()
         return True
 
@@ -330,6 +349,7 @@ def _try_link_guest(db: Session, checkin: CheckIn) -> Optional[int]:
             phone=checkin.contact_phone,
             nationality=checkin.nationality,
             country=checkin.country,
+            birth_date=checkin.birth_date,  # Phase 2a-ext
         )
         return guest.id if guest else None
     except Exception as e:
@@ -363,7 +383,103 @@ def _augment_guest_from_checkin(db: Session, checkin: CheckIn) -> bool:
             phone=(checkin.contact_phone or "").strip() or None,
             nationality=(checkin.nationality or "").strip() or None,
             country=(checkin.country or "").strip() or None,
+            birth_date=checkin.birth_date,  # Phase 2a-ext
         )
     except Exception as e:
         logger.warning(f"_augment_guest_from_checkin failed for CheckIn #{checkin.id}: {e}")
         return False
+
+
+def _propagate_billing_to_profile(db: Session, checkin: CheckIn) -> None:
+    """Phase 2a-ext: ensure the checkin's billing data also exists as a
+    BillingProfile under the linked guest, and that `checkin.billing_profile_id`
+    points at it.
+
+    No-op when:
+      - checkin has no guest_id (can't attach a profile)
+      - billing_name AND billing_ruc are both blank
+      - checkin.billing_profile_id is already set (recepcionist explicitly
+        picked an existing profile via the dropdown — respect that choice)
+    """
+    if not checkin.guest_id or checkin.billing_profile_id:
+        return
+    name = (checkin.billing_name or "").strip()
+    ruc = (checkin.billing_ruc or "").strip()
+    if not name and not ruc:
+        return
+    try:
+        from database import Guest
+        from services.billing_profile_service import BillingProfileService
+        guest = db.query(Guest).filter(Guest.id == checkin.guest_id).first()
+        if guest is None:
+            return
+        prof = BillingProfileService.find_or_create_from_checkin(
+            db=db, guest_id=checkin.guest_id, property_id=guest.property_id,
+            razon_social=name, ruc=ruc,
+        )
+        if prof is not None:
+            checkin.billing_profile_id = prof.id
+    except Exception as e:
+        logger.warning(f"_propagate_billing_to_profile failed for CheckIn #{checkin.id}: {e}")
+
+
+def _propagate_vehicle_to_master(
+    db: Session,
+    checkin: CheckIn,
+    color: Optional[str] = None,
+) -> None:
+    """Phase 2a-ext: ensure the checkin's vehicle data exists as a
+    GuestVehicle, and that there's a CheckinVehicle link for this stay.
+
+    `color` is a separate kwarg (not stored on the CheckIn row — see
+    schemas.py CheckInCreate.vehicle_color comment). Passed through to the
+    master GuestVehicle, which is the canonical home for color metadata.
+
+    No-op when:
+      - checkin has no guest_id
+      - vehicle_plate is blank (model alone is not enough — plate is the key)
+    """
+    if not checkin.guest_id:
+        return
+    plate = (checkin.vehicle_plate or "").strip().upper()
+    if not plate:
+        return
+    try:
+        from database import Guest
+        from services.guest_vehicle_service import (
+            GuestVehicleError,
+            GuestVehicleService,
+        )
+        guest = db.query(Guest).filter(Guest.id == checkin.guest_id).first()
+        if guest is None:
+            return
+        # Create-or-find vehicle (create_vehicle is idempotent on plate per guest)
+        try:
+            v = GuestVehicleService.create_vehicle(
+                db=db, guest_id=checkin.guest_id, property_id=guest.property_id,
+                data={
+                    "plate_number": plate,
+                    "model": (checkin.vehicle_model or "").strip() or None,
+                    "color": (color or "").strip() or None,
+                },
+            )
+        except GuestVehicleError as e:
+            # 5-vehicle limit — log + skip the link (data still saved on the snapshot)
+            logger.warning(
+                f"Vehicle auto-register skipped for CheckIn #{checkin.id} "
+                f"(guest #{checkin.guest_id}): {e}"
+            )
+            return
+        # Backfill color on existing vehicle if it was blank (fill empty, never overwrite).
+        if color and color.strip() and not (v.color or "").strip():
+            v.color = color.strip()
+            db.commit()
+        # Link to this checkin (idempotent)
+        try:
+            GuestVehicleService.link_to_checkin(
+                db=db, checkin_id=checkin.id, vehicle_id=v.id,
+            )
+        except GuestVehicleError as e:
+            logger.warning(f"link_to_checkin failed for CheckIn #{checkin.id}: {e}")
+    except Exception as e:
+        logger.warning(f"_propagate_vehicle_to_master failed for CheckIn #{checkin.id}: {e}")

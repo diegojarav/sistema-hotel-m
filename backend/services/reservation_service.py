@@ -278,6 +278,45 @@ class ReservationService:
             except Exception as _e:
                 logger.warning(f"Guest aggregate refresh skipped: {_e}")
 
+        # v1.10.0 — Phase 2a-ext: propagate vehicle data from the reservation
+        # form to the master GuestVehicle catalogue. Pre-fix this only happened
+        # at check-in time, which left the guest's vehicle list empty until
+        # arrival. Now the OCR lookup ("¿de quién es el auto blanco?") and
+        # the future plate-recognition pipeline have something to query the
+        # moment the booking is created.
+        #
+        # Best-effort: 5-vehicle limit / DB errors are logged and swallowed —
+        # the reservation has already committed and is the load-bearing op.
+        plate_for_master = (getattr(data, 'vehicle_plate', None) or '').strip().upper()
+        if guest_id_for_booking is not None and plate_for_master:
+            try:
+                from services.guest_vehicle_service import (
+                    GuestVehicleError as _GVErr,
+                    GuestVehicleService as _GVSvc,
+                )
+                _v = _GVSvc.create_vehicle(
+                    db=db,
+                    guest_id=guest_id_for_booking,
+                    property_id=booking_property_id,
+                    data={
+                        "plate_number": plate_for_master,
+                        "model": (getattr(data, 'vehicle_model', None) or '').strip() or None,
+                        "color": (getattr(data, 'vehicle_color', None) or '').strip() or None,
+                    },
+                )
+                # Backfill color on existing vehicle if it was blank.
+                _color = (getattr(data, 'vehicle_color', None) or '').strip()
+                if _color and not (_v.color or '').strip():
+                    _v.color = _color
+                    db.commit()
+            except _GVErr as _e:
+                logger.warning(
+                    f"Reservation vehicle auto-register skipped for guest "
+                    f"#{guest_id_for_booking}: {_e}"
+                )
+            except Exception as _e:
+                logger.warning(f"Reservation vehicle propagation failed: {_e}")
+
         # FEAT-LINK-01: Auto-create CheckIn if document was scanned
         if data.document_number and data.document_number.strip():
             from database import CheckIn
@@ -315,6 +354,32 @@ class ReservationService:
                 db.add(new_checkin)
                 db.commit()
                 logger.info(f"Auto-created CheckIn for doc {data.document_number[:5]}... linked to reservation {created_ids[0]}")
+                # Phase 2a-ext: also link the vehicle to this auto-checkin
+                # (the GuestVehicle was already create-or-fetched above when
+                # the reservation propagation ran). Best-effort.
+                if guest_id_for_booking is not None and plate_for_master:
+                    try:
+                        from database import GuestVehicle as _GV
+                        from services.guest_vehicle_service import (
+                            GuestVehicleService as _GVSvc,
+                        )
+                        v_match = (
+                            db.query(_GV)
+                            .filter(
+                                _GV.guest_id == guest_id_for_booking,
+                                _GV.plate_number == plate_for_master,
+                                _GV.is_active == True,  # noqa: E712
+                            )
+                            .first()
+                        )
+                        if v_match is not None:
+                            _GVSvc.link_to_checkin(
+                                db=db, checkin_id=new_checkin.id, vehicle_id=v_match.id,
+                            )
+                    except Exception as _e:
+                        logger.warning(
+                            f"Auto-CheckIn vehicle link skipped for #{new_checkin.id}: {_e}"
+                        )
             else:
                 # Link existing checkin to this reservation (and to the guest
                 # if it isn't already linked — Phase 2a Bug #2 Fix B).

@@ -1385,4 +1385,100 @@ TOOLS_LIST = [
     reporte_cocina,
     estado_email_reserva,
     buscar_huesped_historial,  # v1.10.0 — Phase 2a
+    # buscar_vehiculo defined below (declared after the existing TOOLS_LIST so
+    # it can use logger/services already imported at module top).
+]
+
+
+# ==========================================
+# TOOL 20: Buscar Vehículo por Chapa (v1.10.0 — Phase 2a-ext)
+# ==========================================
+
+def buscar_vehiculo(plate: Optional[str] = None) -> str:
+    """
+    Busca un vehículo registrado por chapa/patente y devuelve a quién pertenece
+    + su reserva activa o próxima si la tiene.
+
+    Úsala para preguntas como:
+      - "¿De quién es el auto con chapa ABC-123?"
+      - "¿Qué vehículo tiene el huésped de la 101?"
+      - "¿Hay un Toyota blanco registrado?"
+      - "Busco la chapa AAA 999"
+
+    Args:
+        plate: Chapa o fragmento de chapa (mín. 2 caracteres). Si está vacío
+               o es None, devuelve instrucciones.
+
+    Returns:
+        String con el vehículo encontrado, propietario, doc, teléfono y la
+        reserva activa/próxima si existe. Si no hay match, devuelve mensaje
+        informativo.
+    """
+    from services import GuestVehicleService
+
+    if not plate or not plate.strip() or len(plate.strip()) < 2:
+        return (
+            "Para buscar un vehículo indicá la chapa (mínimo 2 caracteres). "
+            "Ejemplo: 'busco chapa ABC-123'."
+        )
+
+    try:
+        result = GuestVehicleService.search_by_plate(
+            property_id="los-monges", plate=plate.strip(),
+        )
+        if result is None:
+            return f"No encontré ningún vehículo registrado con chapa '{plate}'."
+
+        v = result["vehicle"]
+        g = result["guest"]
+        active = result.get("active_reservation")
+
+        lines = [
+            f"Vehículo: {v.plate_number}"
+            + (f" — {v.model}" if v.model else "")
+            + (f" ({v.color})" if v.color else ""),
+            f"Propietario: {g.last_name}, {g.first_name}"
+            + (f" — Doc {g.document_number}" if g.document_number else ""),
+        ]
+        if g.phone:
+            lines.append(f"Tel: {g.phone}")
+        if active:
+            fecha_in = active.get("check_in_date")
+            fecha_out = active.get("check_out_date")
+            fecha_in_str = fecha_in.strftime("%d/%m/%Y") if fecha_in else "?"
+            fecha_out_str = fecha_out.strftime("%d/%m/%Y") if fecha_out else "?"
+            lines.append(
+                f"Reserva activa/próxima: #{active['id']} | Hab. "
+                f"{active.get('room_internal_code') or active.get('room_id') or '?'} | "
+                f"{fecha_in_str} → {fecha_out_str} | {active.get('status', '')}"
+            )
+        else:
+            lines.append("Sin reserva activa o próxima en los próximos 7 días.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error al buscar vehículo: {e}"
+
+
+# Re-define TOOLS_LIST to include the new tool (overrides the temporary list above).
+TOOLS_LIST = [
+    check_availability,
+    get_hotel_rates,
+    get_today_summary,
+    search_guest,
+    search_reservation,
+    get_reservations_report,
+    calculate_price,
+    get_occupancy_for_month,
+    get_room_performance,
+    get_booking_sources,
+    get_parking_status,
+    get_revenue_summary,
+    consultar_caja,
+    resumen_ingresos_por_metodo,
+    consultar_inventario,
+    consumos_habitacion,
+    reporte_cocina,
+    estado_email_reserva,
+    buscar_huesped_historial,  # v1.10.0 — Phase 2a
+    buscar_vehiculo,           # v1.10.0 — Phase 2a-ext
 ]
