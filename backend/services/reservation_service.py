@@ -100,6 +100,76 @@ class ReservationService:
         rooms_data = db.query(Room).filter(Room.id.in_(data.room_ids)).all()
         room_lookup = {r.id: r for r in rooms_data}
 
+        # v1.10.0 — Phase 2a: resolve master Guest entity ONCE for the booking.
+        # All N reservations created by this call (one per room) link to the
+        # same Guest.
+        #
+        # Phase 2a Bug #2 Fix A: if the front-end passed an explicit `guest_id`
+        # (PC + mobile dropdown selection), trust it. The user already picked
+        # the guest from the master list — no fuzzy match needed, no new guest
+        # creation. Falls back to find_or_create_guest when guest_id is absent
+        # (manual name entry, OTA imports, scripts).
+        #
+        # Both paths are best-effort: if resolution fails, guest_id stays NULL
+        # and the reservation creation continues unaffected.
+        from services.guest_service import GuestService as _GuestSvc
+        guest_id_for_booking: Optional[int] = None
+
+        # Pick property_id from the first room (single-tenant today).
+        first_room = room_lookup.get(data.room_ids[0]) if data.room_ids else None
+        booking_property_id = (
+            (first_room.property_id if first_room else None)
+            or data.property_id
+            or "los-monges"
+        )
+
+        explicit_guest_id = getattr(data, 'guest_id', None)
+        if explicit_guest_id is not None:
+            # Front-end sent a picked guest. Validate it exists + belongs to
+            # this property; on mismatch log and fall through to fuzzy match.
+            picked = _GuestSvc.get_guest(db=db, guest_id=explicit_guest_id)
+            if picked is not None and picked.property_id == booking_property_id and picked.is_active:
+                guest_id_for_booking = picked.id
+                # Backfill any new contact info the form may have added (the
+                # user may have edited the auto-filled fields).
+                from services.guest_service import _augment_guest_if_empty
+                try:
+                    _augment_guest_if_empty(
+                        db, picked,
+                        document_number=(getattr(data, 'document_number', None) or '').strip() or None,
+                        email=(getattr(data, 'contact_email', None) or '').strip() or None,
+                        phone=(getattr(data, 'contact_phone', None) or '').strip() or None,
+                        nationality=(getattr(data, 'nationality', None) or '').strip() or None,
+                        country=(getattr(data, 'country', None) or '').strip() or None,
+                    )
+                except Exception as _e:
+                    logger.warning(f"Guest augment from reservation form skipped: {_e}")
+            else:
+                logger.info(
+                    f"Explicit guest_id={explicit_guest_id} not usable "
+                    f"(missing/inactive/wrong property); falling back to find_or_create."
+                )
+
+        if guest_id_for_booking is None:
+            try:
+                _g = _GuestSvc.find_or_create_guest(
+                    db=db,
+                    property_id=booking_property_id,
+                    first_name=getattr(data, 'guest_first_name', '') or '',
+                    last_name=getattr(data, 'guest_last_name', '') or '',
+                    document_number=getattr(data, 'document_number', None),
+                    email=getattr(data, 'contact_email', None),
+                    phone=getattr(data, 'contact_phone', None),
+                    nationality=getattr(data, 'nationality', None),
+                    country=getattr(data, 'country', None),
+                    guest_name=data.guest_name,
+                    source=data.source,
+                )
+                if _g is not None:
+                    guest_id_for_booking = _g.id
+            except Exception as _e:
+                logger.warning(f"Guest resolve skipped during reservation creation: {_e}")
+
         for i, room_id in enumerate(data.room_ids):
             res_id = f"{next_id + i:07d}"
 
@@ -187,6 +257,9 @@ class ReservationService:
                 # v1.7.0 — Meal Plan (Phase 4)
                 meal_plan_id=effective_meal_plan_id,
                 breakfast_guests=effective_breakfast_guests,
+
+                # v1.10.0 — Phase 2a: master Guest link
+                guest_id=guest_id_for_booking,
             )
             db.add(new_res)
             created_ids.append(res_id)
@@ -194,6 +267,16 @@ class ReservationService:
 
 
         db.commit()
+
+        # v1.10.0 — Phase 2a: refresh guest aggregates after the new bookings
+        # land (cheap convenience — total_stays / total_spent / last_visit_at).
+        # Best-effort: failure does not roll back the reservation.
+        if guest_id_for_booking is not None:
+            try:
+                from services.guest_service import GuestService as _GuestSvc
+                _GuestSvc.refresh_aggregates(db=db, guest_id=guest_id_for_booking)
+            except Exception as _e:
+                logger.warning(f"Guest aggregate refresh skipped: {_e}")
 
         # FEAT-LINK-01: Auto-create CheckIn if document was scanned
         if data.document_number and data.document_number.strip():
@@ -206,10 +289,14 @@ class ReservationService:
 
             if not existing:
                 # Create new CheckIn linked to first reservation
+                # v1.10.0 Phase 2a Bug #2 Fix B: also link guest_id so the
+                # checkin row directly points at the master Guest (matches the
+                # FK on reservation, no double-indirection through res→guest).
                 new_checkin = CheckIn(
                     created_at=date.today(),
                     reservation_id=created_ids[0],
                     room_id=data.room_ids[0] if data.room_ids else None,
+                    guest_id=guest_id_for_booking,  # Fix B
                     last_name=data.guest_last_name or "",
                     first_name=data.guest_first_name or "",
                     document_number=data.document_number.strip(),
@@ -229,11 +316,21 @@ class ReservationService:
                 db.commit()
                 logger.info(f"Auto-created CheckIn for doc {data.document_number[:5]}... linked to reservation {created_ids[0]}")
             else:
-                # Link existing checkin to this reservation
+                # Link existing checkin to this reservation (and to the guest
+                # if it isn't already linked — Phase 2a Bug #2 Fix B).
+                changed = False
                 if not existing.reservation_id:
                     existing.reservation_id = created_ids[0]
+                    changed = True
+                if not existing.guest_id and guest_id_for_booking:
+                    existing.guest_id = guest_id_for_booking
+                    changed = True
+                if changed:
                     db.commit()
-                    logger.info(f"Linked existing CheckIn #{existing.id} to reservation {created_ids[0]}")
+                    logger.info(
+                        f"Linked existing CheckIn #{existing.id} to reservation "
+                        f"{created_ids[0]} (guest_id={existing.guest_id})"
+                    )
 
         return created_ids
 
@@ -544,6 +641,8 @@ class ReservationService:
             meal_plan_code=_resolve_meal_plan_field(db, getattr(r, "meal_plan_id", None), "code"),
             meal_plan_name=_resolve_meal_plan_field(db, getattr(r, "meal_plan_id", None), "name"),
             breakfast_guests=getattr(r, "breakfast_guests", None),
+            # v1.10.0 — Phase 2a — Master Guest link
+            guest_id=getattr(r, "guest_id", None),
         )
 
     @staticmethod

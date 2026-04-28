@@ -48,7 +48,7 @@ _main_logger = get_logger("api.main")
 from api.core.config import APP_VERSION, CORS_ORIGINS, HEALTHCHECK_PING_URL, DISCORD_WEBHOOK_URL
 
 # Import routers
-from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin, documents, caja, transacciones, reportes_financieros, productos, consumos, meal_plans, reportes_cocina, email
+from api.v1.endpoints import auth, reservations, guests, calendar, rooms, agent, vision, settings, pricing, users, ical, admin, documents, caja, transacciones, reportes_financieros, productos, consumos, meal_plans, reportes_cocina, email, huespedes, buildings
 
 # Track server start time for uptime reporting
 _START_TIME = time.time()
@@ -302,6 +302,9 @@ app.include_router(consumos.router, prefix="/api/v1/consumos", tags=["Consumos"]
 app.include_router(meal_plans.router, prefix="/api/v1/meal-plans", tags=["Meal Plans"])
 app.include_router(reportes_cocina.router, prefix="/api/v1/reportes", tags=["Reportes Cocina"])
 app.include_router(email.router, prefix="/api/v1/email", tags=["Email"])
+# v1.10.0 — Phase 2a (Master Guest entity + Buildings)
+app.include_router(huespedes.router, prefix="/api/v1/huespedes", tags=["Huespedes (Guest Master)"])
+app.include_router(buildings.router, prefix="/api/v1/buildings", tags=["Buildings"])
 
 
 # ==========================================

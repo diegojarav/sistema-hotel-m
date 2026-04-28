@@ -1,6 +1,9 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
+
 import { ClientType } from '@/services/pricing';
+import { searchGuests, GuestSearchResult } from '@/services/guests';
 
 interface FormData {
     apellidos: string;
@@ -19,6 +22,8 @@ interface FormData {
     vehicleModel: string;
     vehiclePlate: string;
     source: string;
+    // v1.10.0 Phase 2a Bug #2 Fix A — explicit master Guest link
+    guestId?: number | null;
 }
 
 interface GuestFormProps {
@@ -30,9 +35,121 @@ interface GuestFormProps {
 }
 
 export default function GuestForm({ formData, onFormChange, clientTypes, selectedClientType, onClientTypeChange }: GuestFormProps) {
+    // Guest autocomplete (Phase 2a Bug #2 Fix A — mobile parity)
+    const [guestQuery, setGuestQuery] = useState('');
+    const [guestResults, setGuestResults] = useState<GuestSearchResult[]>([]);
+    const [showGuestSuggestions, setShowGuestSuggestions] = useState(false);
+    const [pickedGuest, setPickedGuest] = useState<GuestSearchResult | null>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Debounced search whenever the query changes (skip when a guest is locked in)
+    useEffect(() => {
+        if (pickedGuest) return;
+        if (guestQuery.trim().length < 2) {
+            setGuestResults([]);
+            return;
+        }
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(async () => {
+            try {
+                const results = await searchGuests(guestQuery, 10);
+                setGuestResults(results);
+                setShowGuestSuggestions(true);
+            } catch (err) {
+                console.warn('searchGuests failed:', err);
+            }
+        }, 250);
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+        };
+    }, [guestQuery, pickedGuest]);
+
+    const pickGuest = (g: GuestSearchResult) => {
+        setPickedGuest(g);
+        setGuestQuery(g.label);
+        setShowGuestSuggestions(false);
+        // Pre-fill the form with master guest data. Only fill blank fields —
+        // never override what the user has already typed (e.g. via document scan).
+        const updates: Partial<FormData> = { guestId: g.id };
+        if (!formData.apellidos.trim() && g.last_name) updates.apellidos = g.last_name;
+        if (!formData.nombres.trim() && g.first_name) updates.nombres = g.first_name;
+        if (!formData.documento.trim() && g.document_number) updates.documento = g.document_number;
+        if (!formData.telefono.trim() && g.phone) updates.telefono = g.phone;
+        if (!formData.email.trim() && g.email) updates.email = g.email;
+        onFormChange(updates);
+    };
+
+    const clearPick = () => {
+        setPickedGuest(null);
+        setGuestQuery('');
+        setGuestResults([]);
+        onFormChange({ guestId: null });
+    };
+
     return (
         <>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Datos del Cliente</h3>
+
+            {/* Guest autocomplete (Phase 2a Fix A) */}
+            <div className="mb-4">
+                <label className="text-gray-600 text-xs mb-1 block">
+                    🔍 Buscar huésped existente
+                </label>
+                {pickedGuest ? (
+                    <div className="flex items-center justify-between gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                        <div className="text-sm">
+                            <p className="font-semibold text-emerald-900">{pickedGuest.label}</p>
+                            {pickedGuest.total_stays > 0 && (
+                                <p className="text-xs text-emerald-700 mt-0.5">
+                                    {pickedGuest.total_stays} estadía{pickedGuest.total_stays !== 1 ? 's' : ''} previa{pickedGuest.total_stays !== 1 ? 's' : ''}
+                                </p>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={clearPick}
+                            className="shrink-0 text-xs text-emerald-700 hover:text-emerald-900 font-medium underline"
+                        >
+                            Limpiar
+                        </button>
+                    </div>
+                ) : (
+                    <div className="relative">
+                        <input
+                            type="text"
+                            value={guestQuery}
+                            onChange={(e) => setGuestQuery(e.target.value)}
+                            onFocus={() => guestResults.length > 0 && setShowGuestSuggestions(true)}
+                            placeholder="Apellido, nombre, doc, email o teléfono…"
+                            className="w-full px-3 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                        />
+                        {showGuestSuggestions && guestResults.length > 0 && (
+                            <ul className="absolute z-10 mt-1 w-full max-h-64 overflow-auto bg-white border border-gray-200 rounded-xl shadow-lg">
+                                {guestResults.map((g) => (
+                                    <li
+                                        key={g.id}
+                                        onClick={() => pickGuest(g)}
+                                        className="px-3 py-2 text-sm cursor-pointer hover:bg-amber-50 active:bg-amber-100 border-b border-gray-100 last:border-0"
+                                    >
+                                        <div className="font-medium text-gray-900">{g.last_name}, {g.first_name}</div>
+                                        <div className="text-xs text-gray-500 flex flex-wrap gap-x-2">
+                                            {g.document_number && <span>Doc {g.document_number}</span>}
+                                            {g.phone && <span>📞 {g.phone}</span>}
+                                            {g.email && <span>✉️ {g.email}</span>}
+                                            {g.total_stays > 0 && <span>· {g.total_stays} est.</span>}
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        {guestQuery.trim().length >= 2 && guestResults.length === 0 && (
+                            <p className="text-xs text-gray-400 mt-1">
+                                Sin coincidencias. Continuá completando los datos abajo y se creará un nuevo huésped al guardar.
+                            </p>
+                        )}
+                    </div>
+                )}
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
                 <div>

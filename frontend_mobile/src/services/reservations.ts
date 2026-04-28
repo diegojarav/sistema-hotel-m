@@ -44,6 +44,8 @@ export interface ReservationDetail extends Reservation {
     meal_plan_code?: string | null;
     meal_plan_name?: string | null;
     breakfast_guests?: number | null;
+    // v1.10.0 — Phase 2a — Master Guest entity link
+    guest_id?: number | null;
 }
 
 /**

@@ -76,7 +76,26 @@ export default function NewReservationPage() {
 
     // Form state — dates initialized empty to avoid SSR hydration mismatch,
     // then set to today/tomorrow on client mount via useEffect below.
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<{
+        apellidos: string;
+        nombres: string;
+        documento: string;
+        nacionalidad: string;
+        pais: string;
+        fechaNacimiento: string;
+        telefono: string;
+        email: string;
+        arrivalTime: string;
+        checkIn: string;
+        checkOut: string;
+        precio: number;
+        parkingNeeded: boolean;
+        vehicleModel: string;
+        vehiclePlate: string;
+        source: string;
+        // v1.10.0 Phase 2a Bug #2 Fix A — explicit master Guest link
+        guestId?: number | null;
+    }>({
         apellidos: '',
         nombres: '',
         documento: '',
@@ -93,6 +112,7 @@ export default function NewReservationPage() {
         vehicleModel: '',
         vehiclePlate: '',
         source: 'Direct',
+        guestId: null,
     });
 
     // Set default dates on client only (avoids SSR hydration mismatch)
@@ -390,7 +410,9 @@ export default function NewReservationPage() {
                 guest_first_name: formData.nombres || '',
                 nationality: formData.nacionalidad || '',
                 birth_date: formData.fechaNacimiento || null,
-                country: formData.pais || ''
+                country: formData.pais || '',
+                // v1.10.0 Phase 2a Bug #2 Fix A — explicit Guest link from autocomplete
+                guest_id: formData.guestId ?? null,
             };
 
             try {

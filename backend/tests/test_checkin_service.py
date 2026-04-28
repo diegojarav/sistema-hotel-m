@@ -1,9 +1,14 @@
 """
-Phase 2 — Service-layer tests for GuestService (PC/Streamlit path).
+Phase 2 — Service-layer tests for CheckInService (PC/Streamlit path).
+
+Renamed from test_guest_service.py in v1.10.0 Phase 2a (the class was
+renamed from GuestService to CheckInService when the master Guest entity
+was introduced — this service manages per-stay registration records, not
+the master guest).
 """
 
 from datetime import date, timedelta
-from services.guest_service import GuestService
+from services.checkin_service import CheckInService
 from schemas import CheckInCreate
 from database import CheckIn
 
@@ -17,7 +22,7 @@ class TestRegisterCheckin:
             document_number="1234567",
             nationality="Paraguaya",
         )
-        cid = GuestService.register_checkin(db_session, data)
+        cid = CheckInService.register_checkin(db_session, data)
         assert cid is not None
         assert isinstance(cid, int)
 
@@ -28,7 +33,7 @@ class TestRegisterCheckin:
             first_name="Juan",
             document_number="1234567",
         )
-        id1 = GuestService.register_checkin(db_session, data1)
+        id1 = CheckInService.register_checkin(db_session, data1)
 
         data2 = CheckInCreate(
             room_id=seed_rooms["rooms"][1].id,
@@ -36,7 +41,7 @@ class TestRegisterCheckin:
             first_name="Juan",
             document_number="1234567",
         )
-        id2 = GuestService.register_checkin(db_session, data2)
+        id2 = CheckInService.register_checkin(db_session, data2)
         assert id1 == id2  # Same record updated
 
         checkin = db_session.query(CheckIn).filter(CheckIn.id == id1).first()
@@ -53,7 +58,7 @@ class TestRegisterCheckin:
             billing_name="Corp SA",
             billing_ruc="80012345-6",
         )
-        cid = GuestService.register_checkin(db_session, data)
+        cid = CheckInService.register_checkin(db_session, data)
         ci = db_session.query(CheckIn).filter(CheckIn.id == cid).first()
         assert ci.last_name == "López"
         assert ci.nationality == "Argentina"
@@ -67,13 +72,13 @@ class TestGetCheckin:
             last_name="Test",
             document_number="111111",
         )
-        cid = GuestService.register_checkin(db_session, data)
-        result = GuestService.get_checkin(db_session, cid)
+        cid = CheckInService.register_checkin(db_session, data)
+        result = CheckInService.get_checkin(db_session, cid)
         assert result is not None
         assert result.last_name == "Test"
 
     def test_not_found(self, db_session):
-        result = GuestService.get_checkin(db_session, 99999)
+        result = CheckInService.get_checkin(db_session, 99999)
         assert result is None
 
 
@@ -84,14 +89,14 @@ class TestUpdateCheckin:
             last_name="Original",
             document_number="222222",
         )
-        cid = GuestService.register_checkin(db_session, data)
+        cid = CheckInService.register_checkin(db_session, data)
 
         updated_data = CheckInCreate(
             room_id=seed_rooms["rooms"][0].id,
             last_name="Updated",
             document_number="222222",
         )
-        result = GuestService.update_checkin(db_session, cid, updated_data)
+        result = CheckInService.update_checkin(db_session, cid, updated_data)
         assert result is True
 
         ci = db_session.query(CheckIn).filter(CheckIn.id == cid).first()
@@ -99,46 +104,46 @@ class TestUpdateCheckin:
 
     def test_not_found(self, db_session):
         data = CheckInCreate(last_name="X", document_number="000")
-        result = GuestService.update_checkin(db_session, 99999, data)
+        result = CheckInService.update_checkin(db_session, 99999, data)
         assert result is False
 
 
 class TestSearchCheckins:
     def test_finds_by_name(self, db_session, seed_rooms):
-        GuestService.register_checkin(db_session, CheckInCreate(
+        CheckInService.register_checkin(db_session, CheckInCreate(
             room_id=seed_rooms["rooms"][0].id,
             last_name="Fernández",
             first_name="Carlos",
             document_number="333333",
         ))
-        results = GuestService.search_checkins(db_session, "Fernández")
+        results = CheckInService.search_checkins(db_session, "Fernández")
         assert len(results) >= 1
         assert results[0]["last_name"] == "Fernández"
 
 
 class TestGuestNames:
     def test_returns_sorted(self, db_session, seed_rooms):
-        GuestService.register_checkin(db_session, CheckInCreate(
+        CheckInService.register_checkin(db_session, CheckInCreate(
             room_id=seed_rooms["rooms"][0].id,
             last_name="Zelaya", first_name="Ana", document_number="A1",
         ))
-        GuestService.register_checkin(db_session, CheckInCreate(
+        CheckInService.register_checkin(db_session, CheckInCreate(
             room_id=seed_rooms["rooms"][1].id,
             last_name="Acuña", first_name="Pedro", document_number="A2",
         ))
-        names = GuestService.get_all_guest_names(db_session)
+        names = CheckInService.get_all_guest_names(db_session)
         assert len(names) >= 2
         assert names[0].startswith("Acuña")
 
 
 class TestBillingProfiles:
     def test_returns_unique(self, db_session, seed_rooms):
-        GuestService.register_checkin(db_session, CheckInCreate(
+        CheckInService.register_checkin(db_session, CheckInCreate(
             room_id=seed_rooms["rooms"][0].id,
             last_name="X", document_number="B1",
             billing_name="Empresa SA", billing_ruc="12345-6",
         ))
-        profiles = GuestService.get_all_billing_profiles(db_session)
+        profiles = CheckInService.get_all_billing_profiles(db_session)
         assert len(profiles) >= 1
         assert profiles[0]["name"] == "Empresa SA"
 
@@ -146,7 +151,7 @@ class TestBillingProfiles:
 class TestUnlinkedReservations:
     def test_returns_unlinked(self, db_session, seed_rooms, make_reservation):
         res = make_reservation(guest_name="Unlinked Guest")
-        unlinked = GuestService.get_unlinked_reservations(db_session)
+        unlinked = CheckInService.get_unlinked_reservations(db_session)
         ids = [u["id"] for u in unlinked]
         assert res.id in ids
 
@@ -163,6 +168,6 @@ class TestUnlinkedReservations:
         db_session.add(ci)
         db_session.commit()
 
-        unlinked = GuestService.get_unlinked_reservations(db_session)
+        unlinked = CheckInService.get_unlinked_reservations(db_session)
         ids = [u["id"] for u in unlinked]
         assert res.id not in ids

@@ -105,6 +105,13 @@ class ReservationCreate(BaseModel):
     birth_date: Optional[date] = Field(default=None, description="Fecha de nacimiento del huésped")
     country: Optional[str] = Field(default="", description="País del huésped")
 
+    # v1.10.0 Phase 2a Bug #2 Fix A — explicit Guest link
+    # When the front-end has the user pick from a Guest dropdown (PC + mobile),
+    # send the picked id here. The service uses it directly and skips the
+    # find_or_create_guest fuzzy match. If absent (legacy callers, manual name
+    # entry, OTA imports), fallback resolution by name+doc kicks in.
+    guest_id: Optional[int] = Field(default=None, description="ID del huésped maestro (si fue seleccionado del dropdown)")
+
     @field_validator('guest_name')
     @classmethod
     def validate_guest_name(cls, v: str) -> str:
@@ -182,6 +189,8 @@ class ReservationDetailDTO(ReservationDTO):
     meal_plan_code: Optional[str] = None
     meal_plan_name: Optional[str] = None
     breakfast_guests: Optional[int] = None
+    # v1.10.0 — Phase 2a — Master Guest entity link
+    guest_id: Optional[int] = None
 
 
 class CalendarEventDTO(BaseModel):
@@ -696,3 +705,182 @@ class AIAgentPermissionUpdate(BaseModel):
     can_view_reports: Optional[bool] = None
     can_export_data: Optional[bool] = None
     can_modify_settings: Optional[bool] = None
+
+
+# ==========================================
+# GUEST MASTER (v1.10.0 — Phase 2a)
+# ==========================================
+# IMPORTANT: these schemas are for the *master* Guest entity (one row per
+# person, persists across stays). The legacy CheckInCreate above represents
+# the per-stay registration record (ficha) — different concept, kept as-is
+# for backward compatibility with /api/v1/guests/* endpoints + PC tab_checkin.
+
+class GuestCreate(BaseModel):
+    """Request to create a new master Guest record."""
+    first_name: str = Field(..., min_length=1, description="Nombres del huésped")
+    last_name: str = Field(..., min_length=1, description="Apellidos del huésped")
+    document_type: Optional[str] = Field(default=None, description="CI | Pasaporte | DNI | RUC | Otro")
+    document_number: Optional[str] = Field(default=None, description="Número de documento")
+    email: Optional[str] = Field(default=None)
+    phone: Optional[str] = Field(default=None)
+    nationality: Optional[str] = Field(default=None)
+    country: Optional[str] = Field(default=None)
+    city: Optional[str] = Field(default=None)
+    notes: Optional[str] = Field(default=None)
+    source: Optional[str] = Field(default="Direct")
+    property_id: Optional[str] = Field(default="los-monges")
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _strip_name(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("El nombre no puede estar vacío")
+        return cleaned
+
+    @field_validator("document_number")
+    @classmethod
+    def _norm_doc(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not v.strip():
+            return None
+        return validate_document_format(v)
+
+    @field_validator("phone")
+    @classmethod
+    def _norm_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not v.strip():
+            return None
+        return validate_phone_format(v)
+
+    @field_validator("email")
+    @classmethod
+    def _norm_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not v.strip():
+            return None
+        v = v.strip()
+        if "@" not in v:
+            raise ValueError("El email ingresado no es válido")
+        return v
+
+
+class GuestUpdate(BaseModel):
+    """Partial update of a Guest. All fields optional."""
+    first_name: Optional[str] = Field(default=None, min_length=1)
+    last_name: Optional[str] = Field(default=None, min_length=1)
+    document_type: Optional[str] = None
+    document_number: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    nationality: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
+    source: Optional[str] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("email")
+    @classmethod
+    def _norm_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if "@" not in v:
+            raise ValueError("El email ingresado no es válido")
+        return v
+
+
+class GuestDTO(BaseModel):
+    """Full Guest record for detail views."""
+    id: int
+    property_id: str
+    first_name: str
+    last_name: str
+    document_type: Optional[str] = None
+    document_number: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    nationality: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
+    source: Optional[str] = None
+    is_active: bool
+    total_stays: int = 0
+    total_spent: float = 0.0
+    last_visit_at: Optional[date] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class GuestSearchResult(BaseModel):
+    """Lightweight guest result for autocomplete / dropdowns."""
+    id: int
+    first_name: str
+    last_name: str
+    document_number: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    total_stays: int = 0
+    label: str  # Pre-formatted "Lastname, Firstname (CI)" for display
+
+
+class GuestReservationItemDTO(BaseModel):
+    """Single reservation row in a guest's history view."""
+    id: str
+    check_in_date: date
+    check_out_date: date
+    stay_days: int
+    room_id: str
+    room_internal_code: Optional[str] = None
+    status: str
+    price: float
+    source: Optional[str] = None
+
+
+class GuestHistoryDTO(BaseModel):
+    """Guest history aggregate: reservations list + totals."""
+    guest: GuestDTO
+    reservations: List[GuestReservationItemDTO]
+    total_stays: int
+    total_spent: float
+    last_visit_at: Optional[date] = None
+    avg_stay_length: float = 0.0
+
+
+# ==========================================
+# BUILDING (v1.10.0 — Phase 2a)
+# ==========================================
+
+class BuildingCreate(BaseModel):
+    """Request to create a new building."""
+    id: str = Field(..., min_length=3, description="Slug id, e.g. 'los-monges-anexo'")
+    name: str = Field(..., min_length=2)
+    description: Optional[str] = None
+    floors: Optional[int] = Field(default=None, ge=1, le=200)
+    sort_order: int = 0
+    property_id: Optional[str] = Field(default="los-monges")
+
+
+class BuildingUpdate(BaseModel):
+    """Partial update of a building."""
+    name: Optional[str] = Field(default=None, min_length=2)
+    description: Optional[str] = None
+    floors: Optional[int] = Field(default=None, ge=1, le=200)
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class BuildingDTO(BaseModel):
+    """Full building record."""
+    id: str
+    property_id: str
+    name: str
+    description: Optional[str] = None
+    floors: Optional[int] = None
+    sort_order: int = 0
+    is_active: bool
+    room_count: int = 0  # populated by service when listing
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None

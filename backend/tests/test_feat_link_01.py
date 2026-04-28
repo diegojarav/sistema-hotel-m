@@ -7,7 +7,7 @@ a CheckIn, prevents duplicates, and supports manual linking.
 
 from datetime import date, timedelta
 from services.reservation_service import ReservationService
-from services.guest_service import GuestService
+from services.checkin_service import CheckInService
 from schemas import ReservationCreate, CheckInCreate
 from database import CheckIn, Reservation
 
@@ -85,7 +85,7 @@ class TestManualLinking:
             first_name="Link",
             document_number="MAN001",
         )
-        cid = GuestService.register_checkin(db_session, ci_data)
+        cid = CheckInService.register_checkin(db_session, ci_data)
 
         ci = db_session.query(CheckIn).filter(CheckIn.id == cid).first()
         assert ci.reservation_id == res.id
@@ -95,7 +95,7 @@ class TestManualLinking:
         res = make_reservation(guest_name="To Be Linked")
 
         # Before linking
-        unlinked = GuestService.get_unlinked_reservations(db_session)
+        unlinked = CheckInService.get_unlinked_reservations(db_session)
         assert any(u["id"] == res.id for u in unlinked)
 
         # Link it
@@ -110,5 +110,5 @@ class TestManualLinking:
         db_session.commit()
 
         # After linking
-        unlinked = GuestService.get_unlinked_reservations(db_session)
+        unlinked = CheckInService.get_unlinked_reservations(db_session)
         assert not any(u["id"] == res.id for u in unlinked)

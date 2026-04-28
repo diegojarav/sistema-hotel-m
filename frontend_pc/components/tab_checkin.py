@@ -3,7 +3,7 @@ from datetime import datetime, date, timedelta
 from pydantic import ValidationError
 
 from logging_config import get_logger
-from services import GuestService, CheckInCreate
+from services import CheckInService, GuestService, CheckInCreate
 from helpers.ui_helpers import _format_validation_error, analizar_documento_con_ia
 
 logger = get_logger(__name__)
@@ -30,18 +30,66 @@ def render_tab_checkin():
     if mode_ficha == "Editar Existente":
         search_q = col_search.text_input("Buscar por Apellido o Documento", key="search_guest_q")
         if search_q:
-            results = GuestService.search_checkins(search_q)
+            results = CheckInService.search_checkins(search_q)
             opts = {r['label']: r['id'] for r in results}
             selected_label = st.selectbox("Seleccionar Ficha", options=list(opts.keys()), key="sel_guest_res")
             if selected_label:
                 cid_to_load = opts[selected_label]
+
+    # === BUSCAR EN HUÉSPEDES MAESTROS (Phase 2a Bug #2 Fix E) ===
+    # When creating a new ficha, offer to pre-fill from the master Guest
+    # record. Useful for returning guests whose contact info already lives in
+    # the central catalogue.
+    prefill_guest_data: dict | None = st.session_state.pop("_ficha_prefill_data", None)
+    if mode_ficha == "Crear Nuevo":
+        st.markdown("---")
+        st.markdown("##### 💡 ¿Es un huésped recurrente?")
+        gq_col, gc_col = st.columns([3, 1])
+        guest_q = gq_col.text_input(
+            "Buscá en el registro maestro (apellido / doc / email / teléfono)",
+            key="checkin_guest_search_q",
+            placeholder="Mínimo 2 caracteres",
+        )
+        if guest_q and len(guest_q.strip()) >= 2:
+            try:
+                matches = GuestService.search_guests(
+                    property_id="los-monges", query=guest_q.strip(), limit=10,
+                )
+            except Exception as e:
+                logger.warning(f"Master Guest search failed: {e}")
+                matches = []
+            if matches:
+                st.caption(f"{len(matches)} coincidencia/s en huéspedes maestros:")
+                for g in matches[:5]:
+                    bits = [f"**{g.last_name}, {g.first_name}**"]
+                    if g.document_number: bits.append(f"Doc {g.document_number}")
+                    if g.phone: bits.append(f"📞 {g.phone}")
+                    if g.email: bits.append(f"✉️ {g.email}")
+                    if g.total_stays: bits.append(f"{g.total_stays} est.")
+                    cm1, cm2 = st.columns([4, 1])
+                    cm1.markdown("  ·  ".join(bits))
+                    if cm2.button("Pre-llenar", key=f"_prefill_{g.id}", use_container_width=True):
+                        st.session_state["_ficha_prefill_data"] = {
+                            "last_name": g.last_name or "",
+                            "first_name": g.first_name or "",
+                            "document_number": g.document_number or "",
+                            "nationality": g.nationality or "",
+                            "country": g.country or "",
+                            "city": g.city or "",
+                            "phone": g.phone or "",
+                            "email": g.email or "",
+                        }
+                        st.rerun()
+            else:
+                st.caption("Sin coincidencias en huéspedes maestros.")
+        st.markdown("---")
 
     # === VINCULAR A RESERVA (FEAT-LINK-01) ===
     st.markdown("---")
     st.markdown("#### 🔗 Vincular a Reserva (Opcional)")
     st.caption("Conecta esta ficha con una reserva existente sin check-in")
 
-    unlinked_reservations = GuestService.get_unlinked_reservations()
+    unlinked_reservations = CheckInService.get_unlinked_reservations()
     reservation_options = [""]
     reservation_id_map = {}
     for r in unlinked_reservations:
@@ -81,7 +129,7 @@ def render_tab_checkin():
     def_v_chapa = ""
 
     if cid_to_load:
-        c_obj = GuestService.get_checkin(cid_to_load)
+        c_obj = CheckInService.get_checkin(cid_to_load)
         if c_obj:
             def_apellidos = c_obj.last_name or ""
             def_nombres = c_obj.first_name or ""
@@ -96,6 +144,17 @@ def render_tab_checkin():
             def_v_modelo = c_obj.vehicle_model or ""
             def_v_chapa = c_obj.vehicle_plate or ""
             st.toast(f"Datos cargados ID: {cid_to_load}")
+
+    # Phase 2a Bug #2 Fix E: prefill from master Guest if user clicked
+    # "Pre-llenar". Only fill blanks — preserve any IA-extracted values.
+    _prefill_master = prefill_guest_data or {}
+    if _prefill_master:
+        def_apellidos = def_apellidos or _prefill_master.get("last_name", "")
+        def_nombres = def_nombres or _prefill_master.get("first_name", "")
+        def_doc = def_doc or _prefill_master.get("document_number", "")
+        def_nac = def_nac or _prefill_master.get("nationality", "")
+        def_pais = def_pais or _prefill_master.get("country", "")
+        st.toast(f"Datos pre-llenados desde el huésped maestro ✓")
 
     with st.form("ficha_form"):
         c1, c2 = st.columns(2)
@@ -132,12 +191,17 @@ def render_tab_checkin():
         c_tel, c_email = st.columns(2)
         def_phone = (getattr(c_obj, 'contact_phone', '') or '') if c_obj else ''
         def_email_val = (getattr(c_obj, 'contact_email', '') or '') if c_obj else ''
+        # Phase 2a Bug #2 Fix E: pre-fill from master Guest when offered
+        if not def_phone:
+            def_phone = _prefill_master.get("phone", "")
+        if not def_email_val:
+            def_email_val = _prefill_master.get("email", "")
         contact_phone_val = c_tel.text_input("Teléfono", value=def_phone, placeholder="0981...")
         contact_email_val = c_email.text_input("Email", value=def_email_val, placeholder="correo@ejemplo.com")
 
         st.markdown("### 🧾 Datos de Facturación")
 
-        billing_profiles = GuestService.get_all_billing_profiles()
+        billing_profiles = CheckInService.get_all_billing_profiles()
         billing_options = [f"{p['name']} | {p['ruc']}" for p in billing_profiles]
         billing_options.insert(0, "")
 
@@ -194,14 +258,14 @@ def render_tab_checkin():
                 )
 
                 if cid_to_load:
-                    if GuestService.update_checkin(cid_to_load, checkin_data):
+                    if CheckInService.update_checkin(cid_to_load, checkin_data):
                         st.success(f"Ficha actualizada ID: {cid_to_load}")
                         st.session_state.datos_ia = {}
                         st.rerun()
                     else:
                         st.error("Error al actualizar")
                 else:
-                    gid = GuestService.register_checkin(checkin_data)
+                    gid = CheckInService.register_checkin(checkin_data)
                     st.success(f"Check-in registrado ID: {gid}")
                     st.session_state.datos_ia = {}
                     st.rerun()

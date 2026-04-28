@@ -360,12 +360,90 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 - **System plans are un-deletable.** `MealPlanService.soft_delete` raises on `is_system=1`. Set `is_active=0` via update if you need to hide one.
 - **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Slots 006/007/008 ya tomados (email_log/room_status_log/ai_agent_permissions); removal va a migración `009_*` o posterior. Tracked en ROADMAP.md backlog.
 
-## AI Agent Tools (18 functions in ai_tools.py)
+## Master Guest Entity & Buildings (v1.10.0 — Phase 2a)
+
+### Tablas
+- `guests` (NEW) — entidad maestra del huésped (una row por persona, persiste a través de múltiples estadías). Distinta de `checkins` (registro per-estadía / ficha). Schema: `id` (Integer auto), `property_id` FK RESTRICT, identidad (`first_name`, `last_name`, `document_type`, `document_number`), contacto (`email`, `phone`), origen (`nationality`, `country`, `city`), metadata (`notes`, `source`, `is_active`), agregados denormalizados (`total_stays`, `total_spent`, `last_visit_at`), timestamps.
+- `buildings` (NEW) — edificio/anexo dentro de una property. Schema: `id` String slug (e.g. `los-monges-principal`), `property_id` FK RESTRICT, `name`, `description`, `floors`, `sort_order`, `is_active`. UNIQUE `(property_id, name)`.
+- `reservations.guest_id` (NEW Integer FK SET NULL) — link al Guest maestro. Snapshot fields (`guest_name`, `contact_email`) quedan congelados en la reserva.
+- `checkins.guest_id` (NEW Integer FK SET NULL) — mismo patrón.
+- `rooms.building_id` — promovido de `Column(String)` dead-column a FK real con `ondelete=SET NULL`. Migración 012 seedea "Edificio Principal" por property y backfilla todas las habitaciones.
+
+### Servicios
+- **Rename: `GuestService` → `CheckInService`** (en `services/checkin_service.py`). El nombre `GuestService` ahora pertenece a la entidad maestra. Métodos del CheckInService (`register_checkin`, `get_checkin`, `update_checkin`, `search_checkins`, `get_unlinked_reservations`, `get_all_guest_names`, `get_all_billing_profiles`, `get_billing_history`) idénticos.
+- `GuestService` (NEW en `services/guest_service.py`) — `create_guest`, `get_guest`, `update_guest`, `list_guests`, `count_guests`, `search_guests`, **`find_or_create_guest`** (smart-match: documento → email → phone → exact name; crea si no hay match), `get_guest_history`, `refresh_aggregates`. Excepción `GuestServiceError`.
+- `BuildingService` — `create_building`, `get_building`, `list_buildings` (con `room_count` agregado), `update_building`. Excepción `BuildingServiceError`.
+
+### API endpoints
+- `GET /api/v1/huespedes/search?q=&limit=` — autocomplete (mín. 2 chars). Roles: admin/supervisor/gerencia/recepcion/recepcionista.
+- `GET /api/v1/huespedes` — listado paginado (`{items, total, skip, limit}`).
+- `POST /api/v1/huespedes` — crear (mismos roles).
+- `GET /api/v1/huespedes/{id}` — detalle.
+- `PUT /api/v1/huespedes/{id}` — actualizar.
+- `GET /api/v1/huespedes/{id}/history` — historial completo + agregados.
+- `GET /api/v1/buildings` — listar (todos los roles operacionales).
+- `POST /api/v1/buildings` — crear (admin only).
+- `PUT /api/v1/buildings/{id}` — actualizar (admin only).
+- `/api/v1/guests/*` LEGACY URL — sigue gestionando CheckIns, NO se rompe (mobile + PC dependen). Internamente ahora usa `CheckInService`.
+
+### Wire al flujo de reserva
+- `ReservationService.create_reservations` resuelve el Guest **una vez** por booking (vía `find_or_create_guest`) y enlaza `guest_id` en cada reserva creada. Best-effort: si la resolución falla, la reserva sigue sin Guest.
+- `CheckInService.register_checkin` también enlaza al Guest maestro vía `_try_link_guest`.
+
+### Frontend
+- **PC**: nueva página `91_👥_Huespedes.py` (búsqueda + listado paginado + detalle editable + tabs Datos/Historial). En `98_🏠_Admin_Habitaciones.py`: selector "🏢 Filtrar por edificio" arriba de tabs (cuando hay >1 edificio) y expander "Gestionar edificios" admin-only para CRUD. Tabla de inventario suma columna "Edificio".
+- **Mobile**: nuevo `frontend_mobile/src/services/guests.ts` (`getGuest`, `getGuestHistory`, `searchGuests`). En `/dashboard/calendar/[id]`: badge "N estadías previas" / "Primera visita" en sección Huésped. Tap expande historial inline.
+- **PC `tab_reserva.py`**: import switched de `GuestService` → `CheckInService` para el dropdown de nombres existentes (no breaking change para el operador).
+
+### Migraciones
+- **011_guests_table.py**: crea `guests`, agrega `guest_id` a `reservations` y `checkins`, autopobla en cuatro pasos (documento → nombre → backfill reservations.guest_id + checkins.guest_id → refresca agregados). Resultado en dev DB: 107 reservas + 52 checkins → 96 guests, 100% linkeados.
+- **012_buildings_table.py**: crea `buildings`, seedea `<property_id>-principal` "Edificio Principal" por property, backfillea `rooms.building_id` donde NULL.
+
+### Critical gotchas
+- **NUNCA mezclar GuestService y CheckInService**. `from services import GuestService` ahora trae la entidad maestra (Phase 2a). `from services import CheckInService` trae las fichas (renombrada). Cualquier import viejo que esperaba CheckIn methods en GuestService falla en runtime con `AttributeError: 'GuestService' has no attribute 'register_checkin'`. Los 7 sitios afectados ya están actualizados; nuevos sitios deben elegir el correcto según concepto.
+- **Snapshot pattern preservado**: `reservations.guest_name`, `reservations.contact_email`, `checkins.last_name`/`first_name` siguen como valores frozen-at-creation. El Guest es la versión "viva". No replicar `find_or_create_guest`/`update_guest` en cada lugar — solo en el flujo donde el dato cambia.
+- **`find_or_create_guest` es best-effort**: si todos los inputs son blancos (sin nombre/apellido/doc/email/phone), retorna `None` en vez de crear un Guest vacío. El caller debe tratar `None` como "no se pudo enlazar" — la reserva sigue válida con `guest_id=NULL`.
+- **Endpoints en español `/huespedes/`**: el path `/api/v1/guests/*` ya estaba ocupado por endpoints de CheckIn (mobile + PC dependen). Spanish path para entidad maestra.
+- **`Property.slug` ahora es UNIQUE en el modelo** (preparación SaaS). Backfill de NULL → `property.id` queda para Phase 2b junto con la promoción a NOT NULL.
+- **3 FKs lógicas promovidas en `reservations`**: `category_id`, `client_type_id`, `contract_id` ahora son FKs reales con `ondelete=SET NULL`. Tests que crean reservas vía `ReservationService.create_reservations` ahora requieren `seed_client_types` (incluido automáticamente en `seed_rooms` desde Phase 2a).
+- **Próximo slot de migración: `013_*.py`**.
+
+### Guest-flow architecture (Phase 2a Bug #2 fix — single entry point)
+
+Toda creación o referencia a un huésped pasa por **un único punto**: `GuestService.find_or_create_guest`. Esto reemplaza ~5 paths divergentes que coexistían pre-Phase 2a (cada uno con su propia fuzzy logic, generando duplicates).
+
+**Reglas:**
+
+1. **`reservations.guest_id` siempre se setea — explícito o vía `find_or_create_guest`.**
+   - PC + mobile: el dropdown / autocomplete envía `ReservationCreate.guest_id`. Si está presente, el service lo valida (existe + property_id correcto + activo) y lo usa directo. Si la validación falla, fallback transparente a `find_or_create_guest`.
+   - OTA / scripts / manual entry sin dropdown: `guest_id=None` → fallback a `find_or_create_guest` por nombre/doc/email.
+   - Si todo falla, `guest_id` queda NULL (best-effort, no rompe la reserva).
+
+2. **`checkins.guest_id` se setea automáticamente.**
+   - `CheckInService.register_checkin` llama `_try_link_guest` (que delega en `find_or_create_guest`).
+   - `ReservationService.create_reservations` (cuando auto-crea el CheckIn vía FEAT-LINK-01) hereda el mismo `guest_id` de la reserva — no doble resolución.
+
+3. **"Fill empty, never overwrite"**: cuando `find_or_create_guest` matchea un Guest existente, propaga campos NUEVOS desde el form al master (email, phone, nationality, country) PERO solo donde el master tiene blank. Nunca pisa data existente. Mismo patrón en `_augment_guest_from_checkin` (cuando se actualiza una ficha).
+
+4. **Snapshot freeze (intencional)**: `update_reservation` NO re-linkea `guest_id`. El nombre que aparece en la reserva (`guest_name`) es la foto al momento de la booking. Si alguien edita la reserva, el snapshot puede divergir del Guest "vivo" — ese es el diseño. Para cambiar de huésped, se cancela y re-bookea.
+
+5. **Dropdown labels limpios**: `/api/v1/huespedes/dropdown` retorna `"Apellido, Nombre — Doc XXXX"` sin parens embebidos (Bug #1 cleanup). El PC `tab_reserva.py` y mobile `GuestForm.tsx` usan esta misma fuente.
+
+**UX clarity** (single source of truth — la respuesta es siempre obvia):
+- "¿Hacer una reserva?" → huésped se crea/encuentra automáticamente (dropdown / autocomplete + fallback)
+- "¿Hacer un check-in?" → mismo huésped enlazado, master se enriquece con datos nuevos
+- "¿Agregar manualmente?" → página Huéspedes (con detección de duplicados)
+- "¿Editar info de huésped?" → página Huéspedes (snapshots de reservas viejas no se tocan)
+
+**Removed**:
+- `CheckInService.get_all_guest_names` ya no es la fuente del dropdown de reservas. Sigue existiendo para `tab_checkin.py` (billing profiles + ficha edit search), pero el dropdown de "A nombre de" ahora viene del master Guest. `frontend_services/cache_service.get_all_guest_names_cached` sigue funcional pero ahora lee de `GuestService.list_guests_for_dropdown`.
+
+## AI Agent Tools (19 functions in ai_tools.py)
 
 1. `check_availability` — Room availability for date/stay
 2. `get_hotel_rates` — Pricing by category
 3. `get_today_summary` — Today's occupancy snapshot
-4. `search_guest` — Find guest by name/document
+4. `search_guest` — Find guest by name/document (CheckIn records)
 5. `search_reservation` — Find reservation by ID/name
 6. `get_reservations_report` — Date range reservation list
 7. `calculate_price` — Price calculation with modifiers
@@ -380,6 +458,7 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 16. `consumos_habitacion` — Consumos for a reservation/guest/room — **v1.6.0**
 17. `reporte_cocina` — Daily breakfast/meal count (or "no habilitado" if disabled) — **v1.7.0**
 18. `estado_email_reserva` — Consulta si se envió el correo de una reserva, cuándo, a quién, y total de envíos exitosos/fallidos — **v1.8.0**
+19. `buscar_huesped_historial` — Busca por nombre/doc/email/teléfono en la **entidad maestra Guest** y devuelve estadías previas, total gastado, promedio, últimas 5 reservas. Distinto de `search_guest` (que busca en CheckIn). Mapeada a `can_view_guests`. — **v1.10.0**
 
 ## Email Sending (v1.8.0 — Phase 5)
 

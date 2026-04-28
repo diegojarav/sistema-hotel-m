@@ -1,9 +1,17 @@
 """
-Hotel PMS API - Guest Endpoints
-===================================
+Hotel PMS API - CheckIn Endpoints (URL-pathed `/api/v1/guests/*` for back-compat)
+===================================================================================
+
+These endpoints manage **per-stay registration records (fichas)** — historically
+named "guests" because the URL was created before the master Guest entity
+existed (v1.10.0 Phase 2a). The URL is preserved for mobile + PC compat; the
+new master Guest entity has its own router at `/api/v1/huespedes/*` (see
+`huespedes.py`).
+
+Internally we now use `CheckInService` (renamed from `GuestService` in
+Phase 2a). All method names + signatures are unchanged.
 
 HYBRID MONOLITH: Imports from root services.py and schemas.py
-
 SECURITY: All endpoints require authentication (VULN-003 fix)
 """
 
@@ -19,7 +27,7 @@ logger = get_logger(__name__)
 from database import User
 
 # IMPORT FROM ROOT - Single Source of Truth
-from services import GuestService, DocumentService
+from services import CheckInService, DocumentService
 from schemas import CheckInCreate
 
 router = APIRouter()
@@ -72,9 +80,9 @@ def list_checkins(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all check-ins with pagination using original GuestService."""
+    """Get all check-ins with pagination using CheckInService (renamed from GuestService in v1.10.0)."""
     # PERF-004: Add pagination support
-    all_checkins = GuestService.search_checkins(db, "")
+    all_checkins = CheckInService.search_checkins(db, "")
     return all_checkins[skip:skip + limit]
 
 
@@ -91,7 +99,7 @@ def create_checkin(
 ):
     """Register a new guest check-in."""
     try:
-        checkin_id = GuestService.register_checkin(db, data)
+        checkin_id = CheckInService.register_checkin(db, data)
         # Auto-generate client PDF
         try:
             DocumentService.generate_client_pdf(db, checkin_id)
@@ -118,7 +126,7 @@ def search_checkins(
     current_user: User = Depends(get_current_user)
 ):
     """Search check-ins by name, document, or billing name."""
-    return GuestService.search_checkins(db, q)
+    return CheckInService.search_checkins(db, q)
 
 
 @router.get(
@@ -132,7 +140,7 @@ def get_guest_names(
     current_user: User = Depends(get_current_user)
 ):
     """Get all guest names formatted for autocomplete."""
-    return GuestService.get_all_guest_names(db)
+    return CheckInService.get_all_guest_names(db)
 
 
 @router.get(
@@ -146,7 +154,7 @@ def get_billing_profiles(
     current_user: User = Depends(get_current_user)
 ):
     """Get all unique billing profiles."""
-    return GuestService.get_all_billing_profiles(db)
+    return CheckInService.get_all_billing_profiles(db)
 
 
 @router.get(
@@ -160,7 +168,7 @@ def get_unlinked_reservations(
     current_user: User = Depends(get_current_user)
 ):
     """Get reservations that can be linked to a check-in."""
-    return GuestService.get_unlinked_reservations(db)
+    return CheckInService.get_unlinked_reservations(db)
 
 
 @router.get(
@@ -175,7 +183,7 @@ def get_billing_history(
     current_user: User = Depends(get_current_user)
 ):
     """Get billing profiles associated with a document number."""
-    return GuestService.get_billing_history(db, document_number)
+    return CheckInService.get_billing_history(db, document_number)
 
 
 @router.get(
@@ -189,7 +197,7 @@ def get_checkin(
     current_user: User = Depends(get_current_user)
 ):
     """Get check-in details for editing."""
-    checkin = GuestService.get_checkin(db, checkin_id)
+    checkin = CheckInService.get_checkin(db, checkin_id)
     
     if not checkin:
         raise HTTPException(
@@ -212,7 +220,7 @@ def update_checkin(
     current_user: User = Depends(get_current_user)
 ):
     """Update a check-in record."""
-    success = GuestService.update_checkin(db, checkin_id, data)
+    success = CheckInService.update_checkin(db, checkin_id, data)
     
     if not success:
         raise HTTPException(

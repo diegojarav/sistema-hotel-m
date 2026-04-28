@@ -10,13 +10,15 @@
 
 | Item | Estado |
 |---|---|
-| Versión | v1.9.0 |
-| Tests | 576 · 83% cobertura |
+| Versión | v1.10.0-dev |
+| Tests | 590 · 83% cobertura (606 con KPI+perf) |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
-| Phases completadas | 1 (Caja) · 2 (OTA Channel Manager v2) · 3 (Inventario) · 4 (Meal plans) · 5 (Email) · 6 (Cleanup + RoomStatusLog + AIAgentPermission) |
-| Próxima migración | `009_*.py` |
+| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings, v1.10.0-dev) |
+| Próxima migración | `013_*.py` |
+| AI tools | 19 (último: `buscar_huesped_historial`) |
+| Tablas | 25 (incluye `guests` + `buildings` desde Phase 2a) |
 
 ---
 
@@ -79,10 +81,28 @@ Resolución: implementado vía Feature 3 en v1.9.0. Migración 007, modelo `Room
 
 ---
 
+## Phase 2b — Type harmonization + retention (próxima, requerida antes del tag v1.10.0)
+
+Continuación de la auditoría DB. **No agrega features**, prepara el cutover a Postgres y limpia debt acumulado:
+- **Boolean-as-Integer fixes** — 14 columnas declaradas como `Column(Integer, default=0/1)` que conceptualmente son booleanas. Migrar a `Column(Boolean)` con table-rebuild dance bajo SQLite (la conversión es no-op en Postgres).
+- **JSON-as-String fixes** — 4 columnas con comentario `# JSON` que guardan strings: `reservations.price_breakdown`, `room_categories.amenities`, `pricing_seasons.applies_to_categories`, `price_calculations.calculation_details`. Migrar a `Column(JSON)` (en Postgres se vuelve `JSONB`).
+- **Drop `Property.breakfast_included`** — deprecated desde v1.7. Reemplazado por `meals_enabled` + `meal_inclusion_mode`. Slot disponible: `013_*.py`.
+- **Promover los 9 `property_id` String restantes a FK reales** — hoy 12/24 tablas tienen `property_id` pero solo 3 lo declaran como FK. La promoción es model-only (Phase 1 Option A). Audit pendiente de orphan rows antes.
+- **Backfill `Property.slug` NULL → property.id** y promover a `NOT NULL` (UNIQUE ya declarado en Phase 2a).
+- **Retención automática para tablas append-only** — `price_calculations` y `session_logs` crecen sin límite. Job semanal que elimina rows >365 días. Configurable via `system_settings`.
+
+## Phase 3+ — PostgreSQL cutover (después de Phase 2b)
+
+- Capa de conexión: `DATABASE_URL` env var, support para `postgresql://...` además de `sqlite:///`.
+- Adopción de Alembic (reemplaza `scripts/migrations/NNN_*.py` + `migration_history` table → `alembic/versions/` + `alembic_version`).
+- Backup system rewrite — Postgres usa `pg_dump`, no copy de archivo. Reescribir `backup_manager.py`.
+- Cutover playbook: dump SQLite → restore en Postgres staging → smoke tests → cutover prod en ventana de mantenimiento.
+
 ## Backlog (sin prioridad asignada)
 
 Ideas documentadas para no perderlas. **No tienen estimación ni fecha.**
 
+- **De-dup / merge tool de huéspedes** (Phase 2a follow-up): UI admin para detectar candidatos (nombre similar, mismo phone, etc.) y mergear dos rows en uno. Reasigna `reservations.guest_id` y `checkins.guest_id` al canónico, soft-deletea el otro. Útil porque la entrada manual + auto-creación generan duplicados con tiempo.
 - **Sistema de plantillas de email** — continuación de Phase 5. Templates configurables para pre-checkin reminder (X días antes), post-checkout thank-you, recordatorio de pago pendiente. Requiere extender `email_body_template` a múltiples templates por evento.
 - **OTA API nativa** — integración directa con Booking.com / Expedia / Airbnb API en lugar de iCal. Elimina el delay de 15 min de polling pero requiere certificación con cada OTA, costos y mantenimiento de credenciales.
 - **Notificaciones push mobile** — alertas en el frontend mobile para nueva reserva entrante por OTA, stock bajo, sync failure de un feed iCal. Requiere service worker + suscripción FCM o similar.
@@ -91,7 +111,6 @@ Ideas documentadas para no perderlas. **No tienen estimación ni fecha.**
 - **Subir cobertura de tests 75% → 80%** (TEST-01 del backlog histórico). Las áreas con menor cobertura hoy son los servicios de reportes y las rutas administrativas.
 - **PERF-12 — capa de cache Redis** entre el agente IA y los servicios pesados (`get_revenue_summary`, `get_occupancy_for_month`). Hoy los cálculos se hacen on-demand cada vez que el agente los pide.
 - **Limpieza de back-compat de status legacy** — los filtros de reserva todavía aceptan ambos sets (`["RESERVADA", "Confirmada", ...]`). Una vez confirmado que no quedan reservas con valores legacy en la DB, simplificar.
-- **Migración futura para remover `Property.breakfast_included`** — deprecated desde v1.7. Slot disponible: `009_*.py` o posterior.
 
 ---
 

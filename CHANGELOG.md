@@ -12,6 +12,147 @@
 
 ---
 
+## [v1.10.0] — abril 2026 · DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests & Buildings)
+
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) ya en `dev`; Phase 2b (type harmonization, retención de tablas append-only, drop de `breakfast_included`) pendiente antes del tag v1.10.0 final.
+
+### Phase 2a Bug #2 — Guest-flow consolidation (single entry point)
+
+QA detectó 2 problemas estructurales en cómo el sistema linkeaba reservas/checkins al master Guest. Las fixes A–E refactorizan los 8 paths divergentes a un único modelo:
+
+#### Fix A — Reservation dropdown ahora viene del master Guest
+- `ReservationCreate.guest_id` (Optional[int]): cuando el frontend envía un id explícito (PC + mobile dropdown), el service skip-ea `find_or_create_guest` y usa el match directo. Validación: existe + property_id correcto + activo. Falla → fallback transparente a fuzzy match.
+- `GuestService.list_guests_for_dropdown` (NEW): lista compacta optimizada para selectores. Labels limpios (sin parens embebidos — Phase 2a Bug #1 cleanup), ordenados por `total_stays DESC`. Cada item carga `guest_id` para el round-trip.
+- `GET /api/v1/huespedes/dropdown` (NEW endpoint, todos los roles operacionales).
+- **PC** (`frontend_pc/components/tab_reserva.py`): el selector "A Nombre De" ahora vive **fuera del form** (permite rerender + auto-fill de phone/email al elegir). Botón "🗑️ Limpiar selección" para volver al manual entry. Cache local (`session_state["_guest_dropdown_cache"]`) que se limpia post-submit.
+- **Mobile** (`frontend_mobile/.../reservations/new/components/GuestForm.tsx`): autocomplete con debounce 250ms sobre `searchGuests`. Selección popula `formData.guestId` + pre-fill de campos vacíos (apellidos, nombres, documento, teléfono, email). "Limpiar" para volver a manual.
+- `frontend_services/cache_service.get_all_guest_names_cached` repointed a `GuestService.list_guests_for_dropdown` — labels ahora vienen del master.
+- `CheckInService.get_all_guest_names` sigue existiendo (la usa `tab_checkin.py` para billing profiles), pero ya NO es la fuente del dropdown de reservas.
+
+#### Fix B — Auto-CheckIn (FEAT-LINK-01) hereda `guest_id` de la reserva
+- En `ReservationService.create_reservations`, el `CheckIn(...)` inline cuando hay `document_number` ahora setea `guest_id=guest_id_for_booking`. Cierra la asimetría que dejaba checkins con `guest_id=NULL` después de auto-creación.
+- También parchea el branch "link existing checkin" (cuando el doc ya existía sin link al guest).
+
+#### Fix C — `update_checkin` propaga al master Guest ("fill empty, never overwrite")
+- Helper nuevo `_augment_guest_from_checkin` en `checkin_service.py`. Al actualizar una ficha, walks contact + origen fields. Por cada campo donde el master Guest está vacío Y el checkin tiene valor → fill. Nunca pisa data existente.
+- También se agregó persistencia de `contact_phone`/`contact_email` en `update_checkin` (estaban omitidos del SET — bug latente).
+- Branch "duplicate doc" en `register_checkin` también augmenta.
+
+#### Fix D — Detección de duplicados en alta manual de huésped
+- Página `91_👥_Huespedes.py`: el form "Crear huésped nuevo" ahora hace una probe a `/huespedes/search` antes de insertar. Si encuentra candidatos por documento, apellido o email → muestra warning con la lista de sospechosos + botón "Usar este" por cada uno (selecciona ese huésped y limpia el form pendiente) + botones "Sí, crear de todos modos" / "Cancelar". UI fuera de st.form (botones interactivos no permitidos dentro).
+
+#### Fix E — Ficha de cliente pre-fill desde el master
+- `tab_checkin.py` modo "Crear Nuevo" suma una sección "💡 ¿Es un huésped recurrente?" con búsqueda en `GuestService.search_guests`. Cada match muestra meta-info + botón "Pre-llenar" → popula los campos vacíos del form (last_name, first_name, document_number, nationality, country, phone, email). Snapshot pattern preservado: ya re-rellenados se pueden seguir editando.
+
+#### Snapshot freeze (intencional, NO cambiado)
+- `ReservationService.update_reservation` NO re-llama `find_or_create_guest`. Editar el `guest_name` de una reserva NO cambia su `guest_id`. El nombre en la reserva es la foto al momento de la booking. Si hay que cambiar de huésped, se cancela y re-bookea. Documentado en CLAUDE.md.
+
+#### Test data
+- `scripts/seed_test_guests.py` (NEW): 10 guests con varied data quality (full / no email / OTA-no-doc / phone-only / repeat / special chars / corporate / dup-risk / international / minimal). Materializa 5 reservations + 1 checkin. Idempotente vía `--reset` flag, dry-run con `--dry-run`. Tagged con `[test-seed]` en notes para reset limpio.
+
+#### Tests
+- `backend/tests/test_guest_flows.py` (NEW): 20 end-to-end flow tests por path (A/B/C/D/E + 5 edge cases + 2 endpoint tests).
+  - `TestFlowA_ExplicitGuestId` (5): explicit id wins, wrong property fallback, inactive fallback, augment from form data, no-guest_id fallback.
+  - `TestFlowB_AutoCheckinGuestId` (2): auto-CheckIn inherits, existing checkin gets back-filled.
+  - `TestFlowC_UpdateCheckinAugmentsGuest` (3): fills empty phone, doesn't overwrite, duplicate-doc branch augments.
+  - `TestFlowD_DuplicateSuspectSearch` (2): finds by lastname, by doc.
+  - `TestFlowE_FichaPrefillFromMaster` (1): search returns prefill data.
+  - `TestEdgeCases` (5): embedded doc in name, special chars, minimal guest, OTA no-doc, repeat guest 3 reservations same id.
+  - `TestDropdownEndpoint` (2): unauth + clean labels with no parens.
+- Total backend: **652 tests** (632 prev + 20 new), 0 regresiones.
+
+#### Verification
+- 0 duplicate documents among active guests.
+- 112/112 reservations linked (100%).
+- 53/53 checkins linked (100%).
+- 0 active guests with parens in name.
+- Mobile `tsc --noEmit` clean, `next build` succeeds.
+
+### Phase 2a Bug #1 — Duplicate guests from migration auto-population
+
+QA caught dos duplicates en el dev DB (Acosta Rosa + Aquino Gabriel) tras Phase 2a inicial. Migration 011 creaba un Guest "limpio" en pass A (desde checkins por documento) y un segundo Guest "sucio" en pass B (desde reservations por nombre) cuando el `guest_name` traía el doc embebido tipo `"Acosta, Rosa (2362693)"`. El name-key lookup no normalizaba parens, así que la dedup fallaba.
+
+#### Cleanup
+- Script nuevo `scripts/cleanup_duplicate_guests.py`: descubre clusters por (property + doc_or_extracted_doc), pickea keeper por (clean-name, total_stays DESC, has-doc, oldest), re-linkea reservations + checkins, backfilla campos vacíos del keeper, soft-deletea dupes con audit en `notes`. Idempotente. Dry-run mode disponible.
+- Aplicado al dev DB: 2 clusters merged → 5 reservations relinked, 2 dupes deactivated.
+
+#### `find_or_create_guest` mejorado
+- Helper `_extract_embedded_doc(name)`: regex `\s*\(([^)]+)\)\s*` extrae paren content, normaliza a digits-only si tiene >=4 dígitos. Limpia el nombre.
+- Helper `_norm_ws(s)`: collapse whitespace + trim.
+- Helper `_augment_guest_if_empty(db, guest, **fields)`: backfill empty fields on existing guests, never overwrite. Usado tanto por `find_or_create_guest` (en match) como por `_augment_guest_from_checkin` (Bug #2 Fix C).
+- Match priority redefinida:
+  1. `(property, document)` — STRONGEST (extracted doc también usado)
+  2. `(property, email)` — STRONG
+  3. `(property, normalized_name)` — WEAK (solo si no hay doc/email)
+- Phone YA NO es un match tier (falsos positivos por familia/parejas que comparten teléfono).
+- Si se pasa doc explícito y no matchea, NO cae a name match (asumimos: "este es nuevo CON este doc").
+
+#### Bug #3 — Pagination fix (paralelo)
+- `91_👥_Huespedes.py`: `st.number_input("Página", ...)` no tenía `max_value`. Agregado: probe del total → `total_pages = ceil(total/page_size)` → `max_value=total_pages`. Defensive auto-reset si el dataset shrink-ea.
+
+### Phase 2a — Master Guest entity + Buildings
+
+#### Qué se agregó
+- **Tabla `guests`** (entidad maestra de huésped): un row por persona, persiste a través de múltiples reservas y check-ins. Distinta de `checkins` (registro per-estadía). Schema: `id`, `property_id` FK, `first_name`, `last_name`, `document_type`, `document_number`, `email`, `phone`, `nationality`, `country`, `city`, `notes`, `source`, `is_active`, agregados `total_stays`/`total_spent`/`last_visit_at`, timestamps.
+- **Tabla `buildings`** (edificios/anexos): un row por estructura física dentro de una property. Schema: `id`, `property_id` FK, `name`, `description`, `floors`, `sort_order`, `is_active`, timestamps. Único por `(property_id, name)`.
+- **Renombrado `GuestService` → `CheckInService`**: la clase original gestionaba CheckIns (fichas) — el nombre quedó libre para la nueva entidad maestra. Archivo `services/guest_service.py` → `services/checkin_service.py`. Todos los imports actualizados (7 archivos: endpoints/guests.py, endpoints/ai_tools.py, frontend_pc/components/tab_reserva.py, tab_checkin.py, frontend_services/cache_service.py, tests/test_feat_link_01.py, tests/test_guest_service.py → `test_checkin_service.py`).
+- **`GuestService` nuevo** (entidad maestra): `create_guest`, `get_guest`, `update_guest`, `list_guests`, `count_guests`, `search_guests`, `find_or_create_guest` (smart-match: documento → email → phone → exact name), `get_guest_history`, `refresh_aggregates`. Excepción `GuestServiceError` para violaciones de reglas (mensajes en español).
+- **`BuildingService`**: `create_building`, `get_building`, `list_buildings` (con `room_count` agregado), `update_building`. Validaciones de unicidad (`uq_buildings_property_name`).
+- **Endpoints nuevos** `/api/v1/huespedes/*` (Spanish path para evitar colisión con el legado `/api/v1/guests/*`):
+  - `GET /huespedes/search?q=&limit=` — autocomplete (mín. 2 caracteres)
+  - `GET /huespedes` — listado paginado con `total`/`skip`/`limit`
+  - `POST /huespedes` — crear (admin / supervisor / gerencia / recepcion / recepcionista)
+  - `GET /huespedes/{id}` — detalle
+  - `PUT /huespedes/{id}` — actualizar
+  - `GET /huespedes/{id}/history` — historial completo + agregados
+- **Endpoints nuevos** `/api/v1/buildings/*`: `GET` (todos los roles operacionales), `POST`/`PUT` (admin only).
+- **AI tool 19** `buscar_huesped_historial(query)` — busca por nombre/documento/email/teléfono y devuelve historial agregado. Mapeada a `can_view_guests` en `TOOL_PERMISSION_MAP`.
+- **`reservations.guest_id`** (Integer FK nullable, SET NULL): cada reserva ahora apunta opcionalmente al Guest maestro. Los snapshots `guest_name`/`contact_email` quedan congelados en la reserva (no se rescriben al editar el Guest).
+- **`checkins.guest_id`** (mismo patrón).
+- **`rooms.building_id`** promovido de `Column(String)` a FK real con `ondelete=SET NULL`. Migración 012 seedea un "Edificio Principal" por property y backfilla todas las habitaciones.
+- **Wire al flujo de reserva**: `ReservationService.create_reservations` ahora resuelve el Guest una vez por booking (vía `find_or_create_guest`) y enlaza `guest_id` en cada reserva creada. Best-effort: si la resolución falla, la reserva sigue sin Guest (no es load-bearing).
+- **CheckIn flow**: `CheckInService.register_checkin` también enlaza al Guest maestro (`_try_link_guest`) en cada nueva ficha.
+- **UI mobile**: badge "N estadías previas" / "Primera visita" en detalle de reserva (`/dashboard/calendar/[id]`). Tap expande historial inline (estadías, total gastado, promedio, últimas 5 reservas).
+- **UI PC**: nueva página `91_👥_Huespedes.py` (búsqueda + listado paginado + detalle editable + tabs Datos/Historial). Botón "Crear huésped nuevo" para entrada manual (la mayoría se autocrean vía reserva/check-in).
+- **UI PC**: en `98_🏠_Admin_Habitaciones.py` se agrega un selector "🏢 Filtrar por edificio" arriba de las tabs (visible cuando hay >1 edificio) y un expander "Gestionar edificios" admin-only para CRUD. Tabla de inventario suma columna "Edificio".
+- **Mobile services**: nuevo `frontend_mobile/src/services/guests.ts` con `getGuest`, `getGuestHistory`, `searchGuests`. `reservations.ts` extendido con `guest_id` en `ReservationDetail`.
+- **Migración 011** (`011_guests_table.py`): crea la tabla, agrega `guest_id` a `reservations` y `checkins`, y autopobla:
+  1. Distintos `document_number` de `checkins` → un Guest por documento (señal más fuerte).
+  2. Distintos `(property_id, guest_name)` de `reservations` no cubiertos → un Guest por nombre, con split heurístico ("Apellido, Nombre" / "Nombre Apellido" / single token).
+  3. Backfill de `reservations.guest_id` y `checkins.guest_id`.
+  4. Refresca agregados (`total_stays`, `total_spent`, `last_visit_at`) excluyendo cancelaciones.
+  - Resultado en dev DB: 107 reservas + 52 checkins → 96 guests (dedup por nombre + doc), 100% de reservas linkeadas.
+- **Migración 012** (`012_buildings_table.py`): crea la tabla, seedea `<property_id>-principal` "Edificio Principal" por property, backfillea `rooms.building_id` donde NULL. Resultado en dev DB: 1 edificio, 15 habitaciones backfilleadas.
+
+#### Bonus items (también en este release)
+- **3 FKs lógicas promovidas en `reservations`**: `category_id`, `client_type_id`, `contract_id` ahora declaran `ForeignKey(...)` con `ondelete=SET NULL` en el modelo. Sigue patrón Phase 1 Option A (model-only, enforcement queda para Postgres). Audit confirmó cero orphan rows.
+- **`Property.slug` UNIQUE**: marcado en el modelo como prep para SaaS multi-tenant (URL canónica `app.hotel.com/los-monges/`). Backfill de NULLs queda para Phase 2b junto al resto de migraciones de tipo.
+- **`backend/migrate_sessions.py` eliminado**: script legacy ya aplicado en todos los DBs conocidos (audit issue #17).
+- **`backend/tests/test_db_constraints.py`** (NUEVO): 13 tests que verifican UNIQUE + CHECK + CASCADE/SET NULL declarados en `database.py`. Cubre `meal_plans (property_id, code)`, `system_settings (property_id, setting_key)`, `buildings (property_id, name)`, los 8 CHECK constraints de Phase 1 (rooms.status, caja_sesion.status, transaccion.payment_method, producto.category, ajuste_inventario.reason, email_log.status, ical_feeds.last_sync_status, meal_plans.applies_to_mode), y CASCADE en `room_status_log` + `ical_feeds`, SET NULL en `reservations.meal_plan_id`.
+
+#### Tests
+- **78 tests nuevos** (`test_guests.py` 28 + `test_buildings.py` 12 + `test_db_constraints.py` 13 + `test_checkin_service.py` 14 renombrado + 11 ya existentes en `test_feat_link_01.py` actualizados a `CheckInService`).
+- Total backend: **590 tests** (no incluye perf/kpi), 0 regresiones.
+- KPI suite: 28/28 passing — incluye nueva tool `buscar_huesped_historial` en el conjunto de tools verificadas por `test_tools_return_strings`.
+
+#### Decisiones técnicas destacadas
+- **Identity model: auto-ID, sin business-key UNIQUE** (Q1 confirmado). El mismo huésped con dos spelling distintos vive como dos rows hasta que un futuro merge tool los una. Trade-off aceptado: evitamos forzar al recepcionista a pelear con UNIQUE constraints durante un check-in real.
+- **Per-tenant scope** (Q1 confirmado): un huésped que se hospeda en Hotel A y Hotel B = dos rows separados. El SaaS futuro será schema-per-tenant, así que reuso cross-hotel no aplica de todos modos.
+- **Endpoints en español (`/huespedes/`) vs legacy `/guests/`**: el path `/api/v1/guests/*` ya estaba ocupado por endpoints de CheckIn (mobile + PC dependen). En vez de romper compat, se eligió Spanish path para la entidad nueva — alineado con `91_Huespedes.py` y consistente con `/caja/`, `/transacciones/`, `/reportes/cocina`.
+- **`GuestService` no se aliasea a `CheckInService`** en `services/__init__.py`: el nombre `GuestService` ahora pertenece a la entidad maestra. Cualquier import viejo `from services import GuestService` que esperaba CheckIn methods falla en import-time → fácil de detectar y reparar.
+- **Snapshot pattern preservado**: `reservations.guest_name`, `reservations.contact_email`, `checkins.last_name` siguen como valores frozen-at-creation. El Guest es la versión "viva". Mismo patrón que `consumo.producto_name + unit_price`.
+
+### Phase 1 — Postgres-readiness (commit `61dda6e`)
+- 19 ForeignKey `ondelete=` declarations agregadas a `database.py` (RESTRICT para datos financieros/audit, CASCADE para config/log, SET NULL para datos independientes).
+- 7 CHECK constraints declarados en `__table_args__` (rooms.status, caja_sesion.status, transaccion.payment_method, producto.category, ajuste_inventario.reason, email_log.status, ical_feeds.last_sync_status, meal_plans.applies_to_mode).
+- 6 índices compuestos para hot queries (idx_email_log_reserva_status_sent, idx_transaccion_reserva_voided, idx_consumo_reserva_voided, idx_room_status_log_room_changed, idx_ajuste_producto_created, idx_producto_property_active).
+- 3 UNIQUE constraints expresados como `UniqueConstraint` (meal_plans, system_settings, ai_agent_permissions) + 1 nuevo `MigrationHistory` model.
+- `email_log.sent_by` String → Integer FK to `users.id` (migración 009 con table-rebuild dance).
+- `PRAGMA foreign_keys=ON` activado en `set_sqlite_pragma` listener.
+- Migración 010 con UNIQUE + composite indexes (idempotente).
+
+---
+
 ## [v1.9.0] — abril 2026 · Cleanup + Features 1 & 3
 
 ### Cleanup

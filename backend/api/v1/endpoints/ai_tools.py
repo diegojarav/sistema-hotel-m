@@ -175,9 +175,9 @@ def search_guest(query: str) -> str:
         - "Buscar ficha de Pedro López" → search_guest("Pedro López")
         - "Buscar huésped con documento 1234567" → search_guest("1234567")
     """
-    from services import GuestService
-    
-    results = GuestService.search_checkins(query)
+    from services import CheckInService
+
+    results = CheckInService.search_checkins(query)
     
     if not results:
         return f"No encontré huéspedes con '{query}' en los registros de check-in."
@@ -1273,6 +1273,95 @@ def estado_email_reserva(query: Optional[str] = None) -> str:
 
 
 # ==========================================
+# TOOL 19: Buscar Historial de Huésped (v1.10.0 — Phase 2a)
+# ==========================================
+
+def buscar_huesped_historial(query: Optional[str] = None) -> str:
+    """
+    Busca un huésped por nombre, documento, email o teléfono y devuelve su
+    historial de reservas con totales agregados.
+
+    Úsala para preguntas como:
+      - "¿Cuántas veces se hospedó Juan Pérez?"
+      - "¿Cuál es el historial del huésped con CI 4567890?"
+      - "¿Cuánto gastó la huésped María García?"
+      - "Mostrame las visitas previas de pedro@gmail.com"
+
+    Args:
+        query: Texto a buscar (nombre, apellido, documento, email o teléfono).
+               Si está vacío o es None, devuelve instrucciones.
+
+    Returns:
+        String con el huésped encontrado, sus visitas previas (hasta 5
+        recientes), total de estadías, total gastado y última visita.
+        Si hay múltiples coincidencias, muestra la lista de candidatos.
+    """
+    from services import GuestService
+
+    if not query or not query.strip():
+        return (
+            "Para buscar el historial de un huésped indicá: nombre, apellido, "
+            "documento, email o teléfono. Ejemplo: 'historial de Juan Pérez'."
+        )
+
+    try:
+        # Search current property (single-tenant today)
+        results = GuestService.search_guests(
+            property_id="los-monges", query=query.strip(), limit=10,
+        )
+        if not results:
+            return f"No encontré ningún huésped que coincida con '{query}'."
+
+        if len(results) > 1:
+            # Multiple candidates — list them, ask user to refine
+            lines = [f"Encontré {len(results)} huéspedes que coinciden con '{query}':"]
+            for g in results[:5]:
+                doc = f" — Doc: {g.document_number}" if g.document_number else ""
+                stays = f" ({g.total_stays} estadía/s)" if g.total_stays else ""
+                lines.append(f"  - {g.last_name}, {g.first_name}{doc}{stays}")
+            if len(results) > 5:
+                lines.append(f"  ... y {len(results) - 5} más. Refiná la búsqueda con más detalle.")
+            return "\n".join(lines)
+
+        # Single match — return history
+        guest = results[0]
+        history = GuestService.get_guest_history(guest_id=guest.id)
+        if not history:
+            return f"No encontré historial para {guest.last_name}, {guest.first_name}."
+
+        total_stays = history["total_stays"]
+        total_spent = history["total_spent"]
+        last_visit = history["last_visit_at"]
+        avg_stay = history["avg_stay_length"]
+        reservas = history["reservations"]
+
+        lines = [
+            f"Huésped: {guest.last_name}, {guest.first_name}"
+            + (f" (Doc {guest.document_number})" if guest.document_number else ""),
+            f"Estadías: {total_stays} | Total gastado: {total_spent:,.0f} Gs | "
+            f"Promedio: {avg_stay} noches",
+        ]
+        if last_visit:
+            lines.append(f"Última visita: {last_visit.strftime('%d/%m/%Y')}")
+        if reservas:
+            lines.append("Reservas recientes:")
+            for r in reservas[:5]:
+                fecha = r["check_in_date"].strftime("%d/%m/%Y") if r["check_in_date"] else "?"
+                room = r.get("room_internal_code") or r.get("room_id") or "?"
+                lines.append(
+                    f"  - {fecha} | Hab. {room} | {r['stay_days']} noche(s) | "
+                    f"{r['price']:,.0f} Gs | {r['status']}"
+                )
+            if len(reservas) > 5:
+                lines.append(f"  ... y {len(reservas) - 5} reserva(s) anterior(es).")
+        else:
+            lines.append("Sin reservas registradas todavía.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error al buscar historial del huésped: {e}"
+
+
+# ==========================================
 # TOOLS LIST (for Gemini automatic function calling)
 # ==========================================
 
@@ -1295,4 +1384,5 @@ TOOLS_LIST = [
     consumos_habitacion,
     reporte_cocina,
     estado_email_reserva,
+    buscar_huesped_historial,  # v1.10.0 — Phase 2a
 ]

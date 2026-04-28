@@ -22,6 +22,7 @@ import { listConsumosByReserva, Consumo, formatPriceGs } from '@/services/consum
 import RegistrarConsumoModal from '@/components/consumos/RegistrarConsumoModal';
 import { getEmailHistory, EmailLogItem } from '@/services/email';
 import EnviarEmailModal from '@/components/email/EnviarEmailModal';
+import { getGuestHistory, GuestHistory } from '@/services/guests';
 
 function parseLocalDate(dateStr: string): Date {
     const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
@@ -49,6 +50,9 @@ export default function ReservationDetailPage() {
     const [showEmailModal, setShowEmailModal] = useState(false);
     const [emailHistory, setEmailHistory] = useState<EmailLogItem[]>([]);
     const [emailToast, setEmailToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    // v1.10.0 — Phase 2a: lazy guest history (loaded after the reservation lands)
+    const [guestHistory, setGuestHistory] = useState<GuestHistory | null>(null);
+    const [showGuestHistory, setShowGuestHistory] = useState(false);
 
     const loadSaldo = async () => {
         try {
@@ -103,6 +107,15 @@ export default function ReservationDetailPage() {
                     setEmailHistory(h);
                 } catch {
                     // Saldo/consumos are optional
+                }
+                // v1.10.0 Phase 2a: load guest history if linked
+                if (data.guest_id) {
+                    try {
+                        const gh = await getGuestHistory(data.guest_id);
+                        setGuestHistory(gh);
+                    } catch {
+                        // History badge is optional — silent on failure
+                    }
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Error al cargar la reserva');
@@ -304,7 +317,24 @@ export default function ReservationDetailPage() {
                 {/* Guest Info */}
                 <div className="bg-white border border-gray-200 rounded-2xl p-4">
                     <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Huesped</h2>
-                    <p className="text-xl font-bold text-gray-900 mb-2">{reservation.guest_name}</p>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                        <p className="text-xl font-bold text-gray-900">{reservation.guest_name}</p>
+                        {/* v1.10.0 — Phase 2a: previous-stays badge */}
+                        {guestHistory && guestHistory.total_stays > 1 && (
+                            <button
+                                onClick={() => setShowGuestHistory(v => !v)}
+                                className="shrink-0 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-200 hover:bg-amber-100 active:scale-95 transition"
+                                aria-label="Ver historial del huesped"
+                            >
+                                {guestHistory.total_stays - 1} estadía{(guestHistory.total_stays - 1) !== 1 ? 's' : ''} previa{(guestHistory.total_stays - 1) !== 1 ? 's' : ''}
+                            </button>
+                        )}
+                        {guestHistory && guestHistory.total_stays === 1 && (
+                            <span className="shrink-0 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200">
+                                Primera visita
+                            </span>
+                        )}
+                    </div>
                     {reservation.contact_phone && (
                         <div className="flex items-center gap-2 text-gray-600 text-sm">
                             <span>Tel:</span>
@@ -319,6 +349,56 @@ export default function ReservationDetailPage() {
                     )}
                     {reservation.reserved_by && (
                         <p className="text-gray-500 text-sm mt-1">Reservado por: {reservation.reserved_by}</p>
+                    )}
+                    {/* v1.10.0 — Phase 2a: expanded guest history */}
+                    {guestHistory && showGuestHistory && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Historial del huésped</h3>
+                                <button
+                                    onClick={() => setShowGuestHistory(false)}
+                                    className="text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                                <div className="bg-gray-50 rounded-lg p-2">
+                                    <p className="text-xs text-gray-500">Estadías</p>
+                                    <p className="text-base font-bold text-gray-900">{guestHistory.total_stays}</p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-2">
+                                    <p className="text-xs text-gray-500">Total</p>
+                                    <p className="text-base font-bold text-amber-600">{formatPrice(guestHistory.total_spent)}</p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-2">
+                                    <p className="text-xs text-gray-500">Promedio</p>
+                                    <p className="text-base font-bold text-gray-900">{guestHistory.avg_stay_length}n</p>
+                                </div>
+                            </div>
+                            {guestHistory.last_visit_at && (
+                                <p className="text-xs text-gray-500 mb-2">
+                                    Última visita: {format(parseLocalDate(guestHistory.last_visit_at), 'd MMM yyyy', { locale: es })}
+                                </p>
+                            )}
+                            <ul className="space-y-1">
+                                {guestHistory.reservations.slice(0, 5).map(r => (
+                                    <li key={r.id} className="text-xs text-gray-700 flex justify-between gap-2">
+                                        <span className="truncate">
+                                            {format(parseLocalDate(r.check_in_date), 'd MMM yy', { locale: es })}
+                                            {' · '}Hab. {r.room_internal_code || r.room_id}
+                                            {' · '}{r.stay_days}n
+                                        </span>
+                                        <span className="shrink-0 text-gray-500">{formatPrice(r.price)}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                            {guestHistory.reservations.length > 5 && (
+                                <p className="text-xs text-gray-400 mt-2">
+                                    +{guestHistory.reservations.length - 5} más en el historial completo
+                                </p>
+                            )}
+                        </div>
                     )}
                 </div>
 

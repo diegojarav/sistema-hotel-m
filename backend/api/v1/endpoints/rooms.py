@@ -16,7 +16,7 @@ from datetime import date, datetime
 from api.deps import get_db, get_current_user, require_role
 
 # IMPORT FROM ROOT - Single Source of Truth
-from database import Room, RoomCategory, RoomStatusLog, User
+from database import Room, RoomCategory, RoomStatusLog, User, Building
 from services import ReservationService
 
 # Property ID (Los Monges for now - will be dynamic in multi-tenant)
@@ -42,6 +42,9 @@ class RoomDTO(BaseModel):
     floor: Optional[int] = None
     status: str
     base_price: Optional[float] = None
+    # v1.10.0 — Phase 2a: building grouping
+    building_id: Optional[str] = None
+    building_name: Optional[str] = None
 
 
 class RoomStatusDTO(BaseModel):
@@ -132,9 +135,14 @@ def list_rooms(
     categories = db.query(RoomCategory).all()
     cat_map = {c.id: c for c in categories}
 
+    # v1.10.0 — Phase 2a: building lookup
+    buildings = db.query(Building).all()
+    bld_map = {b.id: b for b in buildings}
+
     result = []
     for r in sorted(rooms, key=lambda x: x.id):
         cat = cat_map.get(r.category_id)
+        bld = bld_map.get(r.building_id) if r.building_id else None
         result.append(RoomDTO(
             id=r.id,
             category_id=r.category_id,
@@ -142,7 +150,9 @@ def list_rooms(
             internal_code=r.internal_code,
             floor=r.floor,
             status=r.status or "available",
-            base_price=r.custom_price or (cat.base_price if cat else None)
+            base_price=r.custom_price or (cat.base_price if cat else None),
+            building_id=r.building_id,
+            building_name=bld.name if bld else None,
         ))
 
     # PERF-004: Apply pagination
@@ -240,6 +250,11 @@ def get_room(room_id: str, db: Session = Depends(get_db)):
     if room.category_id:
         cat = db.query(RoomCategory).filter(RoomCategory.id == room.category_id).first()
 
+    # v1.10.0 — Phase 2a: building info
+    bld = None
+    if room.building_id:
+        bld = db.query(Building).filter(Building.id == room.building_id).first()
+
     return RoomDTO(
         id=room.id,
         category_id=room.category_id,
@@ -247,7 +262,9 @@ def get_room(room_id: str, db: Session = Depends(get_db)):
         internal_code=room.internal_code,
         floor=room.floor,
         status=room.status or "available",
-        base_price=room.custom_price or (cat.base_price if cat else None)
+        base_price=room.custom_price or (cat.base_price if cat else None),
+        building_id=room.building_id,
+        building_name=bld.name if bld else None,
     )
 
 

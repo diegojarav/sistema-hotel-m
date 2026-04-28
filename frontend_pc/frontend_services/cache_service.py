@@ -45,12 +45,20 @@ def get_all_reservations_cached() -> List:
 @st.cache_data(ttl=120, show_spinner=False)
 def get_all_guest_names_cached() -> List[str]:
     """
-    Cached wrapper for GuestService.get_all_guest_names.
-    
-    TTL: 120 seconds - guest list changes less frequently.
+    Cached label list for guest dropdowns. Sourced from the master `guests`
+    table since v1.10.0 Phase 2a Bug #2 Fix A — previously read from per-stay
+    CheckIns, which produced messy "Apellido, Nombre (DocNumber)" strings and
+    ghost duplicates after the migration.
+
+    Returns the clean labels (no parens). For richer dropdowns that need the
+    guest_id, call `GuestService.list_guests_for_dropdown` directly instead
+    of this cached helper.
+
+    TTL: 120 seconds. Force a refresh via `frontend_services.cache_service.force_refresh`.
     """
     from services import GuestService
-    return GuestService.get_all_guest_names()
+    items = GuestService.list_guests_for_dropdown(property_id="los-monges", limit=1000)
+    return [item["label"] for item in items]
 
 
 # ==========================================

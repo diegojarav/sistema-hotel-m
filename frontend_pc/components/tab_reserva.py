@@ -372,37 +372,121 @@ def render_tab_reserva():
     st.markdown("---")
 
     # ==============================================================
+    # OUTSIDE FORM: Guest picker (Phase 2a Bug #2 Fix A)
+    # Lives outside the form so picking a guest can rerun and pre-fill
+    # the contact fields with the master Guest's data. The picked
+    # `guest_id` is passed to ReservationCreate so the backend skips the
+    # fuzzy find_or_create resolution.
+    # ==============================================================
+    st.markdown("#### 👤 Huésped")
+    st.caption(
+        "Buscá entre los huéspedes registrados. Si es nuevo, dejá vacío el "
+        "selector y escribí el nombre dentro del formulario."
+    )
+
+    # Cache the dropdown list per-render (Streamlit reruns frequently; the
+    # query is fast but no need to repeat within the same script execution).
+    if "_guest_dropdown_cache" not in st.session_state:
+        try:
+            st.session_state["_guest_dropdown_cache"] = (
+                GuestService.list_guests_for_dropdown(property_id="los-monges")
+            )
+        except Exception as _e:
+            logger.warning(f"Guest dropdown fetch failed: {_e}")
+            st.session_state["_guest_dropdown_cache"] = []
+    guest_options = st.session_state["_guest_dropdown_cache"]
+
+    # Try to pre-select the current reservation's linked guest when editing.
+    if res_id_load and "_picked_guest_id" not in st.session_state:
+        try:
+            res_full = ReservationService.get_reservation_detail(res_id_load)
+            picked_guest_id = getattr(res_full, "guest_id", None) if res_full else None
+            if picked_guest_id:
+                st.session_state["_picked_guest_id"] = picked_guest_id
+        except Exception:
+            pass
+
+    label_to_id = {"(crear huésped nuevo)": None}
+    id_to_item = {}
+    for item in guest_options:
+        label_to_id[item["label"]] = item["id"]
+        id_to_item[item["id"]] = item
+
+    # Pre-select current pick if present
+    current_label = "(crear huésped nuevo)"
+    _picked = st.session_state.get("_picked_guest_id")
+    if _picked and _picked in id_to_item:
+        current_label = id_to_item[_picked]["label"]
+
+    label_options = list(label_to_id.keys())
+    try:
+        cur_idx = label_options.index(current_label)
+    except ValueError:
+        cur_idx = 0
+
+    picked_label = st.selectbox(
+        "Seleccionar huésped existente",
+        options=label_options,
+        index=cur_idx,
+        key="_guest_picker_select",
+        help="Los huéspedes están ordenados por cantidad de estadías previas.",
+    )
+    picked_guest_id = label_to_id.get(picked_label)
+    st.session_state["_picked_guest_id"] = picked_guest_id
+
+    # Show context for the picked guest + clear button
+    if picked_guest_id:
+        item = id_to_item[picked_guest_id]
+        meta = []
+        if item.get("document_number"):
+            meta.append(f"Doc {item['document_number']}")
+        if item.get("phone"):
+            meta.append(f"📞 {item['phone']}")
+        if item.get("email"):
+            meta.append(f"✉️ {item['email']}")
+        meta.append(f"{item.get('total_stays', 0)} estadía/s")
+        st.success(f"✓ {item['label']}  ·  " + "  ·  ".join(meta))
+        if st.button("🗑️ Limpiar selección", key="_clear_guest_picker"):
+            st.session_state["_picked_guest_id"] = None
+            st.session_state["_guest_picker_select"] = "(crear huésped nuevo)"
+            st.rerun()
+
+    # Compute defaults that the in-form widgets will use.
+    if picked_guest_id:
+        item = id_to_item[picked_guest_id]
+        ln = (item.get("last_name") or "").strip()
+        fn = (item.get("first_name") or "").strip()
+        d_nomb = f"{ln}, {fn}".strip(", ")
+        # Only override blank defaults — preserve any user-entered or
+        # OCR-loaded values from above (e.g. document scan flow).
+        if not d_tel:
+            d_tel = item.get("phone") or ""
+        if not d_email:
+            d_email = item.get("email") or ""
+
+    st.markdown("---")
+
+    # ==============================================================
     # INSIDE FORM: Guest info, parking, manual price override, submit
     # ==============================================================
 
     with st.form("form_reserva", clear_on_submit=(mode_res == "Nueva Reserva")):
-        st.markdown("#### 👤 Datos del Huésped")
+        st.markdown("#### 📝 Datos de la reserva")
 
         c1, c2 = st.columns(2)
         with c1:
-            opciones_nombres = GuestService.get_all_guest_names()
-            opciones_nombres.insert(0, "")
-
-            idx_nomb = 0
-            try:
-                if d_nomb in opciones_nombres:
-                    idx_nomb = opciones_nombres.index(d_nomb)
-            except: pass
-
-            seleccion_nombre = st.selectbox(
-                "A Nombre De (Buscar)",
-                options=opciones_nombres,
-                index=idx_nomb,
-                placeholder="Escribe para buscar..."
+            # Name field — editable. If picker is active, defaults to picked
+            # guest's "Apellido, Nombre"; otherwise the existing default.
+            nombre = st.text_input(
+                "A Nombre De",
+                value=d_nomb,
+                placeholder="Apellido, Nombre",
+                help=(
+                    "Si seleccionaste un huésped arriba, este campo se completa solo. "
+                    "Podés editarlo libremente — el snapshot del nombre queda guardado "
+                    "en la reserva."
+                ),
             )
-
-            if seleccion_nombre:
-                nombre_final = seleccion_nombre
-            else:
-                nombre_manual = st.text_input("...o escribe un nombre nuevo", value=d_nomb if not seleccion_nombre else "")
-                nombre_final = nombre_manual
-
-            nombre = nombre_final
 
             c_tel_email = st.columns(2)
             tel = c_tel_email[0].text_input("📞 Teléfono", value=d_tel)
@@ -518,7 +602,9 @@ def render_tab_reserva():
                             guest_first_name=ia_data.get("Nombres", ""),
                             nationality=ia_data.get("Nacionalidad", ""),
                             birth_date=birth_date_parsed,
-                            country=ia_data.get("Pais", "")
+                            country=ia_data.get("Pais", ""),
+                            # v1.10.0 Phase 2a Bug #2 Fix A: explicit Guest link
+                            guest_id=picked_guest_id,
                         )
                         if ReservationService.update_reservation(res_id_load, data):
                             force_refresh()
@@ -578,7 +664,9 @@ def render_tab_reserva():
                                     guest_first_name=ia_data.get("Nombres", ""),
                                     nationality=ia_data.get("Nacionalidad", ""),
                                     birth_date=birth_date_parsed,
-                                    country=ia_data.get("Pais", "")
+                                    country=ia_data.get("Pais", ""),
+                                    # v1.10.0 Phase 2a Bug #2 Fix A: explicit Guest link
+                                    guest_id=picked_guest_id,
                                 )
 
                                 ids = ReservationService.create_reservations(data)
@@ -612,6 +700,12 @@ def render_tab_reserva():
                                     logger.warning(f"PDF generation failed for {rid}: {pdf_err}")
 
                             force_refresh()
+                            # Phase 2a Bug #2 Fix A: clear the picker cache so
+                            # the next reservation form load fetches a fresh
+                            # list (which now includes any guest just created
+                            # via find_or_create from this booking).
+                            for k in ("_guest_dropdown_cache", "_picked_guest_id", "_guest_picker_select"):
+                                st.session_state.pop(k, None)
                             status_text = "Confirmada" if is_paid else "Pendiente"
                             st.success(f"🎉 **{len(created_ids)} reserva(s) creada(s) — Estado: {status_text}**")
                             st.info(f"IDs: {', '.join(created_ids)}")

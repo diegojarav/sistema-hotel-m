@@ -171,12 +171,17 @@ def seed_property(db_session):
 
 
 @pytest.fixture
-def seed_rooms(db_session, seed_property):
+def seed_rooms(db_session, seed_property, seed_client_types):
     """
     Create 2 room categories and 6 rooms.
 
     - Estandar (150,000 Gs): rooms DE-01, DE-02, DE-03, DE-04
     - Suite (250,000 Gs): rooms DS-01, DS-02
+
+    v1.10.0 — Phase 2a: now also pulls in `seed_client_types` so any test
+    that creates reservations through ReservationService.create_reservations
+    has the client_type_id FK target available (Bonus #3.1 promoted that
+    column from String to ForeignKey).
     """
     cat_std = RoomCategory(
         id="los-monges-estandar",

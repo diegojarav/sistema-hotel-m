@@ -104,7 +104,11 @@ class Room(Base):
     id = Column(String, primary_key=True)
     # PERF-006: Added indexes for frequently filtered columns
     property_id = Column(String, nullable=False, index=True)
-    building_id = Column(String, nullable=True)
+    # Phase 2a #2: promoted to FK; SET NULL because the building can be retired
+    # without the room disappearing (the room just becomes "unassigned").
+    # Migration 012 creates the buildings table and backfills a default building
+    # per property so no existing room is left orphaned.
+    building_id = Column(String, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True, index=True)
     # Phase 1 #1: SET NULL — a room can sit "uncategorized" if its category is removed.
     category_id = Column(String, ForeignKey("room_categories.id", ondelete="SET NULL"), nullable=True)
     floor = Column(Integer, nullable=True)
@@ -157,10 +161,20 @@ class Reservation(Base):
     cancelled_by = Column(String, nullable=True)
 
     # New fields for Los Monges / Pricing System
+    # Phase 2a #6: property_id remains String (no FK yet) — promoted in Phase 2b
+    # along with the other 8 String-only property_id columns. Touching it here
+    # would force a table rebuild (no ALTER FK in SQLite), and we'd rather batch
+    # all property_id promotions in one cutover migration once Postgres lands.
     property_id = Column(String, nullable=True)
-    category_id = Column(String, nullable=True)
-    client_type_id = Column(String, nullable=True)
-    contract_id = Column(String, nullable=True)
+    # Phase 2a Bonus #3.1: promote logical FKs that were String-only. SET NULL
+    # because the catalog row can be retired without losing the reservation
+    # (the price_breakdown snapshot already captures the historical context).
+    # Model-only — see Phase 1 cascade note: SQLite won't enforce until a fresh
+    # init_db() or the Postgres cutover. Audit confirmed zero orphan rows
+    # before promoting (see Phase 2a sign-off in CHANGELOG).
+    category_id = Column(String, ForeignKey("room_categories.id", ondelete="SET NULL"), nullable=True)
+    client_type_id = Column(String, ForeignKey("client_types.id", ondelete="SET NULL"), nullable=True)
+    contract_id = Column(String, ForeignKey("client_contracts.id", ondelete="SET NULL"), nullable=True)
     price_breakdown = Column(String, nullable=True) # JSON
     season_applied = Column(String, nullable=True)
     original_price = Column(Float, nullable=True)
@@ -183,6 +197,13 @@ class Reservation(Base):
     # Phase 1 #3: SET NULL — meal plan can be retired; reservation keeps its price snapshot.
     meal_plan_id = Column(String, ForeignKey("meal_plans.id", ondelete="SET NULL"), nullable=True, index=True)
     breakfast_guests = Column(Integer, nullable=True)  # # of guests eating breakfast (0..guests_count)
+
+    # v1.10.0 — Phase 2a — Guest master entity
+    # SET NULL because guest_name + contact_phone + contact_email are kept as
+    # frozen-at-booking-time snapshots on this row — the link to the master
+    # Guest is a "nice to have" for history queries, not load-bearing data.
+    # Backfilled by migration 011 from existing (property_id, guest_name) tuples.
+    guest_id = Column(Integer, ForeignKey("guests.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class CheckIn(Base):
@@ -218,6 +239,12 @@ class CheckIn(Base):
     vehicle_plate = Column(String)
 
     digital_signature = Column(String) # Base64 o "Pendiente"
+
+    # v1.10.0 — Phase 2a — Guest master entity
+    # SET NULL because the per-stay record (this row) keeps the snapshot of
+    # last_name/first_name/document_number/billing — even if the guest record
+    # is later merged or deleted, the historical ficha stays intact for audit.
+    guest_id = Column(Integer, ForeignKey("guests.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class CajaSesion(Base):
@@ -381,7 +408,11 @@ class Property(Base):
     __tablename__ = "properties"
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    slug = Column(String, nullable=True)
+    # Phase 2a Bonus #3.2: slug should become the canonical URL key when the
+    # multi-tenant SaaS layer lands (e.g. `app.hotel.com/los-monges/`). Marked
+    # UNIQUE in the model now; migration 013 backfills NULL slugs from the id
+    # before promoting the column to NOT NULL.
+    slug = Column(String, unique=True, nullable=True)
     display_mode = Column(String, default="category")
     theme_background = Column(String, default="#FFFFFF")
     theme_text = Column(String, default="#000000")
@@ -690,6 +721,111 @@ class MigrationHistory(Base):
     success = Column(Integer, default=1)
     __table_args__ = (
         UniqueConstraint("version", "name", name="uq_migration_history_version_name"),
+    )
+
+
+class Guest(Base):
+    """Guest master entity (v1.10.0 — Phase 2a).
+
+    Represents the *person* who stays at the hotel — across multiple visits,
+    multiple reservations, and multiple check-ins. Distinct from `CheckIn`,
+    which is the per-stay registration (ficha) record.
+
+    Identity model
+    --------------
+    Per Phase 2a Q1 decision: **auto-ID, no business-key UNIQUE**. A future
+    de-dup/merge tool will reconcile guests that turn out to be the same person.
+    Today, the same physical person who stays twice with slightly different
+    name spellings ("Juan Perez" vs "Juan Pérez") will live as two separate
+    rows until merged. This is the right tradeoff for v1: avoids forcing
+    receptionists to fight UNIQUE-constraint failures during a real check-in.
+
+    Per-tenant isolation
+    --------------------
+    Per Phase 2a Q1 decision: **scope is per-hotel**. A person who stays at
+    Hotel A and Hotel B = two separate Guest rows. The eventual SaaS schema
+    is schema-per-tenant, so cross-hotel guest reuse would not work anyway.
+
+    Snapshot pattern preserved
+    --------------------------
+    `reservations.guest_name` and `reservations.contact_email` (and the
+    equivalent fields on `checkins`) stay as **frozen-at-booking-time
+    snapshots**. The Guest entity is the *living* version. This mirrors the
+    consumo.producto_name + unit_price pattern (skill §2 "Snapshot pattern").
+    """
+    __tablename__ = "guests"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Phase 2a — RESTRICT mirrors the rest of the property_id FKs (skill §2).
+    # Properties are never hard-deleted; Guest rows would be lost.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False, index=True)
+
+    # Identity
+    first_name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
+    document_type = Column(String, nullable=True)      # CI | Passport | DNI | RUC | etc.
+    document_number = Column(String, nullable=True)    # nullable: OTA guests often arrive without one
+
+    # Contact
+    email = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+
+    # Origin
+    nationality = Column(String, nullable=True)
+    country = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+
+    # Metadata
+    notes = Column(String, nullable=True)
+    source = Column(String, default="Direct")           # Direct | Booking.com | Airbnb | Walk-in | etc.
+    is_active = Column(Boolean, default=True)           # soft delete (per skill §2 — real Boolean, not Integer)
+
+    # Aggregates (denormalized for cheap dashboard rendering — refreshed by
+    # GuestService.refresh_aggregates whenever a reservation/checkin lands).
+    # Initialised to 0 / NULL on creation. NOT load-bearing — exact values
+    # live on the related rows; these are convenience.
+    total_stays = Column(Integer, default=0)
+    total_spent = Column(Float, default=0.0)
+    last_visit_at = Column(Date, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # Indexes for the search workflow (reception types and finds within 1-2 chars).
+    # Per skill §2 "composite indexes": match the actual filter shape — receptionists
+    # always include property_id (single-tenant for now, but the future SaaS layer
+    # will rely on these indexes scoping the scan to one tenant's row set).
+    __table_args__ = (
+        Index("idx_guests_property_lastname",  "property_id", "last_name"),
+        Index("idx_guests_property_document",  "property_id", "document_number"),
+        Index("idx_guests_property_email",     "property_id", "email"),
+        Index("idx_guests_property_phone",     "property_id", "phone"),
+        Index("idx_guests_property_active",    "property_id", "is_active"),
+    )
+
+
+class Building(Base):
+    """Building / wing within a property (v1.10.0 — Phase 2a).
+
+    Hotels with annexes, separate buildings, or distinct wings need to group
+    rooms beyond the floor + category dimensions. This is the table for that.
+
+    `rooms.building_id` was a dead column referencing nothing pre-v1.10. Phase 2a
+    creates this table, seeds one default building per property ("Edificio
+    Principal"), backfills every room to that default, and promotes the FK.
+    """
+    __tablename__ = "buildings"
+    id = Column(String, primary_key=True)  # e.g. "los-monges-principal"
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    floors = Column(Integer, nullable=True)             # number of floors (informational)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    __table_args__ = (
+        UniqueConstraint("property_id", "name", name="uq_buildings_property_name"),
+        Index("idx_buildings_property_active", "property_id", "is_active"),
     )
 
 

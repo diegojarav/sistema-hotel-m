@@ -76,6 +76,7 @@ TOOL_PERMISSION_MAP = {
     "get_occupancy_for_month":       "can_view_reservations",
     # Guests
     "search_guest":                  "can_view_guests",
+    "buscar_huesped_historial":      "can_view_guests",  # v1.10.0 — Phase 2a
     # Rooms
     "check_availability":            "can_view_rooms",
     # Pricing

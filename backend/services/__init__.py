@@ -3,11 +3,27 @@ Services Package - Single Source of Truth for business logic.
 
 Re-exports all service classes and commonly-used schemas for backward compatibility.
 All consumers can continue using: from services import AuthService, ReservationCreate, etc.
+
+v1.10.0 Phase 2a rename
+-----------------------
+The class formerly known as `GuestService` (managing per-stay CheckIn rows)
+is now `CheckInService` in `checkin_service.py`. The new master Guest entity
+service lives in `guest_service.py`. To keep existing imports working during
+the transition, `GuestService` is NOT aliased to `CheckInService` here —
+imports must be updated. Search for `from services import GuestService` and
+swap the import name based on intent:
+  - reading/writing CheckIn (ficha) records → `CheckInService`
+  - reading/writing master Guest entity     → `GuestService`
 """
 from services._base import get_db, with_db
 from services.auth_service import AuthService
 from services.reservation_service import ReservationService
-from services.guest_service import GuestService
+# Phase 2a: NEW master Guest entity (one row per person across stays)
+from services.guest_service import GuestService, GuestServiceError
+# Phase 2a: pre-rename "GuestService" → CheckInService (manages per-stay fichas)
+from services.checkin_service import CheckInService
+# Phase 2a: NEW Building entity
+from services.building_service import BuildingService, BuildingServiceError
 from services.settings_service import SettingsService
 from services.pricing_service import PricingService
 from services.room_service import RoomService
@@ -34,7 +50,10 @@ from schemas import ReservationCreate, CheckInCreate, UserDTO
 
 __all__ = [
     "get_db", "with_db",
-    "AuthService", "ReservationService", "GuestService",
+    "AuthService", "ReservationService",
+    "GuestService", "GuestServiceError",      # NEW Phase 2a master entity
+    "CheckInService",                         # renamed from GuestService
+    "BuildingService", "BuildingServiceError",
     "SettingsService", "PricingService", "RoomService",
     "ICalService", "ICalSyncLogService", "DocumentService",
     "CajaService", "CajaSessionError",

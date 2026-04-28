@@ -268,6 +268,124 @@ st.caption(f"Gestion del inventario de habitaciones - {st.session_state.get('hot
 st.divider()
 
 # ==========================================
+# BUILDINGS MANAGEMENT (v1.10.0 — Phase 2a)
+# Buildings group rooms beyond floor + category. Hotels with annexes use
+# this to register the additional structures. Admin-only writes.
+# ==========================================
+
+def _get_buildings():
+    try:
+        r = requests.get(f"{API_BASE_URL}/buildings", headers=get_auth_headers(), timeout=10)
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        logger.warning(f"_get_buildings failed: {e}")
+    return []
+
+_buildings_cache = _get_buildings()
+_building_options = {b["id"]: b["name"] for b in _buildings_cache}
+
+# Compact management expander (admin only)
+_user = st.session_state.get("user")
+_is_admin = bool(_user and (getattr(_user, "role", "") or "").lower() == "admin")
+if _is_admin:
+    with st.expander("🏢 Gestionar edificios"):
+        st.caption(
+            "Los edificios agrupan habitaciones (Edificio Principal, Anexo, etc.). "
+            "El sistema crea automáticamente un 'Edificio Principal' por hotel."
+        )
+        if _buildings_cache:
+            for b in _buildings_cache:
+                with st.container(border=True):
+                    c1, c2, c3 = st.columns([3, 1, 1])
+                    c1.markdown(f"**{b['name']}**  ·  `{b['id']}`")
+                    c2.metric("Habitaciones", b.get("room_count", 0))
+                    c3.markdown(f"Activo: {'✅' if b.get('is_active') else '❌'}")
+                    with st.popover("✏️ Editar"):
+                        with st.form(f"edit_b_{b['id']}", clear_on_submit=False):
+                            new_name = st.text_input("Nombre", value=b["name"], key=f"b_n_{b['id']}")
+                            new_desc = st.text_area("Descripción", value=b.get("description") or "", key=f"b_d_{b['id']}")
+                            new_floors = st.number_input("Pisos", min_value=0, value=int(b.get("floors") or 0), key=f"b_f_{b['id']}")
+                            new_active = st.checkbox("Activo", value=b.get("is_active", True), key=f"b_a_{b['id']}")
+                            if st.form_submit_button("Guardar", type="primary"):
+                                payload = {
+                                    "name": new_name.strip(),
+                                    "description": new_desc.strip() or None,
+                                    "floors": int(new_floors) or None,
+                                    "is_active": new_active,
+                                }
+                                resp = requests.put(
+                                    f"{API_BASE_URL}/buildings/{b['id']}",
+                                    headers=get_auth_headers(),
+                                    json=payload,
+                                    timeout=10,
+                                )
+                                if resp.status_code == 200:
+                                    st.success("Actualizado")
+                                    st.rerun()
+                                else:
+                                    try:
+                                        msg = resp.json().get("detail", resp.text)
+                                    except Exception:
+                                        msg = resp.text
+                                    st.error(f"Error: {msg}")
+
+        st.markdown("##### ➕ Crear edificio nuevo")
+        with st.form("create_building", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                new_b_id = st.text_input("Identificador (slug)", placeholder="ej: los-monges-anexo")
+                new_b_name = st.text_input("Nombre")
+            with c2:
+                new_b_floors = st.number_input("Pisos", min_value=0, value=1, step=1)
+                new_b_sort = st.number_input("Orden", min_value=0, value=0, step=1)
+            new_b_desc = st.text_area("Descripción (opcional)")
+            if st.form_submit_button("Crear edificio", type="primary"):
+                payload = {
+                    "id": new_b_id.strip(),
+                    "name": new_b_name.strip(),
+                    "description": new_b_desc.strip() or None,
+                    "floors": int(new_b_floors) or None,
+                    "sort_order": int(new_b_sort),
+                }
+                if not payload["id"] or not payload["name"]:
+                    st.error("Identificador y nombre son obligatorios.")
+                else:
+                    resp = requests.post(
+                        f"{API_BASE_URL}/buildings",
+                        headers=get_auth_headers(),
+                        json=payload,
+                        timeout=10,
+                    )
+                    if resp.status_code in (200, 201):
+                        st.success(f"Edificio '{new_b_name}' creado.")
+                        st.rerun()
+                    else:
+                        try:
+                            msg = resp.json().get("detail", resp.text)
+                        except Exception:
+                            msg = resp.text
+                        st.error(f"Error: {msg}")
+
+# Building filter (visible to all roles) — written into session_state for the
+# inventory tab to read.
+if len(_building_options) > 1:
+    _bld_filter_options = ["Todos los edificios"] + list(_building_options.values())
+    _bld_pick = st.selectbox("🏢 Filtrar por edificio", _bld_filter_options, key="rooms_building_filter_label")
+    if _bld_pick == "Todos los edificios":
+        st.session_state["rooms_building_filter_id"] = None
+    else:
+        # Reverse-lookup id from name
+        st.session_state["rooms_building_filter_id"] = next(
+            (bid for bid, name in _building_options.items() if name == _bld_pick),
+            None,
+        )
+else:
+    st.session_state["rooms_building_filter_id"] = None
+
+st.divider()
+
+# ==========================================
 # TAB LAYOUT
 # ==========================================
 
@@ -311,6 +429,11 @@ with tab_inventory:
         if selected_category != "Todas":
             rooms = [r for r in rooms if r.get('category_name') == selected_category]
 
+        # v1.10.0 Phase 2a — filter by building (set by the top-level selector)
+        _b_filter = st.session_state.get("rooms_building_filter_id")
+        if _b_filter:
+            rooms = [r for r in rooms if r.get('building_id') == _b_filter]
+
         # Sort by floor then code
         rooms = sorted(rooms, key=lambda r: (r.get('floor') or 0, r.get('internal_code') or ''))
 
@@ -329,6 +452,7 @@ with tab_inventory:
                 room_data.append({
                     "Codigo": r['internal_code'] or "—",
                     "Categoria": r['category_name'] or "Sin categoria",
+                    "Edificio": r.get('building_name') or "—",
                     "Piso": r['floor'] or "—",
                     "Estado": f"{status_emoji} {ROOM_STATUSES.get(r['status'], r['status'])}",
                     "Activa": "Si" if r['active'] else "No",
@@ -343,6 +467,7 @@ with tab_inventory:
                 column_config={
                     "Codigo": st.column_config.TextColumn("Codigo", width="small"),
                     "Categoria": st.column_config.TextColumn("Categoria", width="medium"),
+                    "Edificio": st.column_config.TextColumn("Edificio", width="medium"),
                     "Piso": st.column_config.NumberColumn("Piso", width="small"),
                     "Estado": st.column_config.TextColumn("Estado", width="medium"),
                     "Activa": st.column_config.TextColumn("Activa", width="small"),
