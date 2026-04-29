@@ -94,11 +94,37 @@ class ReservationService:
              new_spots_needed = len(data.room_ids)
 
              if overlap_count + new_spots_needed > parking_capacity:
-                 raise Exception(f"Estacionamiento lleno. Capacidad: {parking_capacity}, Ocupados: {overlap_count}, Solicitados: {new_spots_needed}")
+                 # ValueError so the API endpoint can surface the Spanish message
+                 # as a 400 instead of swallowing it as a generic 500.
+                 raise ValueError(f"Estacionamiento lleno. Capacidad: {parking_capacity}, Ocupados: {overlap_count}, Solicitados: {new_spots_needed}")
 
         # PERF-001 FIX: Batch fetch all rooms at once to avoid N+1 queries
         rooms_data = db.query(Room).filter(Room.id.in_(data.room_ids)).all()
         room_lookup = {r.id: r for r in rooms_data}
+
+        # v1.7.0 — Phase 4 (defense-in-depth): cap breakfast_guests at total
+        # room capacity. The mobile/PC forms already enforce this client-side,
+        # but a misbehaving caller (script, API client, OTA bridge) could send
+        # an inflated count and inflate the surcharge. Reject explicitly with
+        # a Spanish-language error so the operator gets actionable feedback.
+        bf_guests = getattr(data, 'breakfast_guests', None)
+        if bf_guests is not None and bf_guests > 0:
+            cat_ids = {r.category_id for r in rooms_data if r.category_id}
+            cats = (
+                db.query(RoomCategory).filter(RoomCategory.id.in_(cat_ids)).all()
+                if cat_ids else []
+            )
+            cat_cap_lookup = {c.id: c.max_capacity or 0 for c in cats}
+            total_capacity = sum(
+                (r.custom_capacity if r.custom_capacity else cat_cap_lookup.get(r.category_id, 0))
+                for r in rooms_data
+            )
+            if total_capacity > 0 and bf_guests > total_capacity:
+                raise ValueError(
+                    f"Cantidad de huéspedes para comidas ({bf_guests}) excede "
+                    f"la capacidad total de las habitaciones seleccionadas "
+                    f"({total_capacity})."
+                )
 
         # v1.10.0 — Phase 2a: resolve master Guest entity ONCE for the booking.
         # All N reservations created by this call (one per room) link to the
@@ -660,7 +686,12 @@ class ReservationService:
             arrival_time=r.arrival_time if r.arrival_time else None,
             reserved_by=r.reserved_by or "",
             contact_phone=r.contact_phone or "",
-            received_by=r.received_by or ""
+            received_by=r.received_by or "",
+            # v1.7.0 — Meal Plan (Phase 4): pre-fill the meal section in the
+            # edit form so the chosen plan + pax don't disappear when an
+            # operator opens an existing reservation.
+            meal_plan_id=getattr(r, "meal_plan_id", None),
+            breakfast_guests=getattr(r, "breakfast_guests", None),
         )
 
     @staticmethod
@@ -849,8 +880,13 @@ class ReservationService:
         r.contact_phone = data.contact_phone
 
         # v1.7.0 — Meal Plan updates (Phase 4)
+        # Keep both fields in sync: clearing the plan also clears the pax count
+        # so a stale "2 guests with breakfast" isn't left dangling on a
+        # reservation that no longer has a plan attached.
         if hasattr(data, 'meal_plan_id'):
             r.meal_plan_id = data.meal_plan_id
+            if data.meal_plan_id is None:
+                r.breakfast_guests = None
         if hasattr(data, 'breakfast_guests') and data.breakfast_guests is not None:
             r.breakfast_guests = data.breakfast_guests
 

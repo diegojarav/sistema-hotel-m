@@ -18,7 +18,7 @@ backend/          # FastAPI API + services + models
   hotel/          # Generated PDF documents (gitignored)
     Reservas/     # Reservation confirmation PDFs
     Clientes/     # Client registration PDFs
-  tests/          # pytest test suite (576 tests, 83% coverage)
+  tests/          # pytest test suite (733 tests, 83% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
   pages/          # Admin pages (Rooms, Users, Config, Documents, AI Assistant)
@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 576 tests (v1.9.0: 313 legacy + 56 caja/transaccion + 43 channel manager v2 + 54 room charges/inventory + 44 meal plans & kitchen + 29 email + 10 room status log + 27 ai agent permissions) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 733 tests (v1.10.0-dev: v1.9.0 baseline 576 + Phase 2a guests/buildings + Phase 2a-ext billing/vehicles + meal plan reservation + capacity guard + miscellaneous) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -157,6 +157,7 @@ Runs on push to `main`/`dev`:
 - **Calendar service methods must include `Completada`/`COMPLETADA` status**. `get_occupancy_map`, `get_weekly_view`, `get_monthly_events`, `get_daily_status` are used for historical views — past reservations must render. `get_range_status` and `create_reservations` should EXCLUDE completed/cancelled (they check availability for new bookings). See commit `9dd4f3e`.
 - **Deploy `scripts/deploy_staging.sh` pushes `dev:main` to both origin + private**. If the public `origin/main` has PR-merge commits that don't exist locally, the push is rejected — force-push with `git push --force origin dev:main` (safe because the PR commits are just GitHub UI wrappers over content already in `dev`).
 - **Schema drift between dev DB and VM DB**: always add a numbered migration in `scripts/migrations/NNN_*.py` when adding a column to any SQLAlchemy model. The VM's `hotel.db` predates reseeding. Missing migrations surface as `OperationalError: no such column` on deploy. See migration 004 for the contact_email backfill pattern.
+- **`launch.json` backend bind: `--host 0.0.0.0`** (NOT `127.0.0.1`). Mobile dev is configured with `NEXT_PUBLIC_API_URL=http://192.168.3.140:8000` (LAN IP) so testing from a real phone on Wi-Fi works. Binding only to `127.0.0.1` makes the Claude_Preview in-browser preview AND the phone fail with `TypeError: Failed to fetch` (no HTTP response — the api client's hardcoded Spanish messages don't intercept network failures). Bind on `0.0.0.0` and both interfaces (localhost + LAN IP) respond. See v1.10.0-dev fix.
 
 ## Reservation Status Lifecycle (v1.4.0 — payment-aware)
 
@@ -351,12 +352,16 @@ Hotels that don't serve meals keep `meals_enabled=false` (the default). In that 
 New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Other endpoints' `require_role()` whitelists unchanged, so cocina users hit 403 everywhere else. No DB migration needed — `require_role` accepts any role string.
 
 ### Frontend
-- **PC**: `09_🔧_Configuracion.py` gains a 3-step "Configuración de Comidas" section (toggle → mode → plans editor). New `94_👨‍🍳_Cocina.py` page with date picker (default: tomorrow), metric cards, detail table, CSV + PDF export. Shows "Servicio no habilitado" one-liner when disabled.
-- **Mobile**: new `/dashboard/meals/page.tsx` (read-only; Hoy/Mañana toggle). Dashboard tile "Cocina — Desayunos hoy: N" conditionally renders only when `meals_enabled=true`. Reservation form conditionally shows plan selector + breakfast_guests input when mode ≠ INCLUIDO.
+- **PC config**: `09_🔧_Configuracion.py` gains a 3-step "Configuración de Comidas" section (toggle → mode → plans editor). New `94_👨‍🍳_Cocina.py` page with date picker (default: tomorrow), metric cards, detail table, CSV + PDF export. Shows "Servicio no habilitado" one-liner when disabled.
+- **PC reservation form** (`tab_reserva.py`, v1.10.0-dev meal-plan UI fix): "🍽️ Plan de comidas" section between Selección de Habitaciones and Precio Dinámico. Lives **outside `st.form`** so the price recalculates on every change. Renders only when `meals_enabled=true && mode != INCLUIDO`. Plan dropdown + `breakfast_guests` `number_input` capped by `sum(selected room max_capacity)` (defaults to 10 when no room is selected). Cached helpers `get_meals_config()` + `get_meal_plans(mode_filter)` in `frontend_pc/helpers/data_fetchers.py` (TTL 30s). `ReservationService.get_reservation` now returns `meal_plan_id` + `breakfast_guests` so edit-mode pre-fills the section.
+- **Mobile**: new `/dashboard/meals/page.tsx` (read-only; Hoy/Mañana toggle). Dashboard tile "Cocina — Desayunos hoy: N" conditionally renders only when `meals_enabled=true`. Reservation form conditionally shows plan selector + breakfast_guests input when mode ≠ INCLUIDO. Input has `inputMode="numeric"` + `pattern="[0-9]*"` + `onFocus={(e)=>e.currentTarget.select()}` so typing replaces the value cleanly on touch keyboards. `max` is dynamic per-room-cap with inline Spanish error + auto-shrink via `useEffect` when the cap drops below the current value.
 
 ### Critical gotchas
-- **Never show meal UI when `meals_enabled=false`.** Every mobile surface must check `getMealsConfig().meals_enabled` before rendering. Every backend path that doesn't check this flag risks leaking "0 desayunos" widgets to hotels that don't serve meals.
+- **Never show meal UI when `meals_enabled=false`.** Every mobile surface must check `getMealsConfig().meals_enabled` before rendering. Every PC page must check `get_meals_config()['meals_enabled']`. Every backend path that doesn't check this flag risks leaking "0 desayunos" widgets to hotels that don't serve meals.
 - **Kitchen date logic: night-of-(D-1)**, not "is staying on D". A guest checking in on D is NOT eating breakfast on D. A guest checking out on D IS. `KitchenReportService.get_daily_report` encodes this — don't re-invent it.
+- **`breakfast_guests` capacity guard** (v1.10.0-dev): `ReservationService.create_reservations` rejects `breakfast_guests > sum(rooms.custom_capacity ?? category.max_capacity)` with a Spanish `ValueError("Cantidad de huéspedes para comidas (X) excede la capacidad total de las habitaciones seleccionadas (N).")`. Defense-in-depth: PC + mobile already cap client-side, but scripts/OTA bridges can bypass UI. Test: `test_meal_plan_reservation.py::TestBreakfastGuestsCapacityValidation`.
+- **Business-rule errors must surface as 400 + Spanish detail** (v1.10.0-dev fix): `api/v1/endpoints/reservations.py::create_reservation` catches `ValueError` and re-raises as `HTTPException(400, detail=str(e))` BEFORE the generic `except Exception` swallows it as 500 + "Error al crear la reserva. Intente de nuevo." Same pattern needed for any new endpoint that calls a service raising business `ValueError`. Parking overflow also uses `ValueError` (uplifted from bare `Exception` in the same fix). Regression test: `test_reservation_api.py::test_meal_capacity_exceeded_returns_400_with_spanish`.
+- **`update_reservation` clears `breakfast_guests` when `meal_plan_id` is set to None** (v1.10.0-dev fix). Otherwise a reservation can end up with "2 guests with breakfast" but no plan attached — kitchen report would over-count.
 - **System plans are un-deletable.** `MealPlanService.soft_delete` raises on `is_system=1`. Set `is_active=0` via update if you need to hide one.
 - **Legacy `Property.breakfast_included`** is deprecated v1.7 — migration 005 backfills to `meals_enabled=1, mode=INCLUIDO`. Slots 006/007/008 ya tomados (email_log/room_status_log/ai_agent_permissions); removal va a migración `009_*` o posterior. Tracked en ROADMAP.md backlog.
 
@@ -417,6 +422,20 @@ New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Ot
 - `_propagate_billing_to_profile`: si la ficha tiene billing_name/billing_ruc + guest_id + sin billing_profile_id explícito → crea/encuentra BillingProfile y linkea.
 - `_propagate_vehicle_to_master`: si la ficha tiene vehicle_plate + guest_id → crea/encuentra GuestVehicle y crea CheckinVehicle link.
 Best-effort: errores se loguean y se ignoran (la ficha es load-bearing, los side effects no).
+
+#### Auto-propagación desde Reserva (load-bearing) — v1.10.0-dev fix
+Pre-fix la chapa solo se propagaba al catálogo maestro al hacer check-in. Eso dejaba el lookup `search_by_plate` (y el futuro OCR en la entrada) ciego para reservas hechas con anticipación. Ahora `ReservationService.create_reservations` corre **el mismo hook** después de refrescar agregados del Guest:
+
+- Si la reserva trae `vehicle_plate` + Guest resuelto → llama `GuestVehicleService.create_vehicle` con `plate_number` + `model` + `color`. La service-layer dedupea por (guest, plate); si el vehículo ya existe re-usa.
+- Color sigue patrón "fill empty, never overwrite": si el master tiene `color=None` y la reserva trae color → backfill. Si ya tiene color, no se pisa.
+- Si FEAT-LINK-01 dispara y crea un CheckIn auto-vinculado → además crea el `CheckinVehicle` link explícitamente (el flujo de `register_checkin` no aplica acá porque el CheckIn lo arma `ReservationService` inline).
+- Best-effort: 5-vehicle limit overflow / DB errors se loguean (`logger.warning`) y se ignoran. La reserva ya commitió y es load-bearing.
+
+**Schema**: `ReservationCreate.vehicle_color: Optional[str]` y `CheckInCreate.vehicle_color: Optional[str]` son passthrough — NO se almacenan en `reservations` ni `checkins` (evita 2 ALTER TABLE migrations). Color vive canónicamente en `guest_vehicles.color`.
+
+**UI**: campo "Color del Vehículo" agregado en PC (`tab_reserva.py`, `tab_checkin.py`) y mobile (`GuestForm.tsx`) — solo se muestra cuando hay parking marcado.
+
+Tests: `test_guest_vehicles.py::TestReservationPropagatesVehicle` (6 tests cubren propagación + color + dedup + 5-limit overflow + color backfill).
 
 #### API endpoints
 - `GET/POST/PUT/DELETE /api/v1/huespedes/{id}/billing[/{profile_id}]` (admin/supervisor/gerencia/recepcion/recepcionista para todo).

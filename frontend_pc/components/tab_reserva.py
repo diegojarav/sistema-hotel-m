@@ -7,7 +7,15 @@ from pydantic import ValidationError
 from logging_config import get_logger
 from services import ReservationService, GuestService, PricingService, ReservationCreate
 from helpers.constants import LISTA_TIPOS_LEGACY, LISTA_HABITACIONES_LEGACY
-from helpers.data_fetchers import get_room_categories, get_available_rooms_for_dates, get_all_rooms_list, get_client_types, get_seasons
+from helpers.data_fetchers import (
+    get_room_categories,
+    get_available_rooms_for_dates,
+    get_all_rooms_list,
+    get_client_types,
+    get_seasons,
+    get_meals_config,
+    get_meal_plans,
+)
 from helpers.ui_helpers import _format_validation_error, analizar_documento_con_ia
 from frontend_services.cache_service import force_refresh
 
@@ -218,7 +226,7 @@ def render_tab_reserva():
     available_rooms = get_available_rooms_for_dates(check_in_str, check_out_str)
 
     # Build room lookup and group by category
-    room_info_map = {}  # display_name -> {id, category_id, category_name}
+    room_info_map = {}  # display_name -> {id, category_id, category_name, max_capacity}
     rooms_by_category = {}
     for r in available_rooms:
         display = r.get("internal_code") or r["id"]
@@ -226,12 +234,22 @@ def render_tab_reserva():
         cat_id = r.get("category_id", "")
         cat = cat_lookup.get(cat_id, {})
         base_price = cat.get("base_price", r.get("base_price", 0))
+        # Effective room capacity — used by the meal-plan selector to cap the
+        # "huéspedes con desayuno" input. Falls back to category capacity when
+        # the room has no per-room override.
+        room_capacity = (
+            r.get("custom_capacity")
+            or r.get("max_capacity")
+            or cat.get("max_capacity", 0)
+            or 0
+        )
 
         room_info_map[display] = {
             "id": r["id"],
             "category_id": cat_id,
             "category_name": cat_name,
-            "base_price": base_price
+            "base_price": base_price,
+            "max_capacity": room_capacity,
         }
 
         if cat_name not in rooms_by_category:
@@ -307,7 +325,108 @@ def render_tab_reserva():
     else:
         st.warning("⚠️ Debe seleccionar al menos una habitación")
 
+    # Total capacity across selected rooms — bounds the "breakfast guests"
+    # input (a hotel can never serve breakfast to more people than the rooms
+    # can hold). Defaults to a generous 10 when no room is yet selected so
+    # the input remains usable while the form is half-complete.
+    total_room_capacity = sum(
+        info.get("max_capacity", 0) or 0
+        for display in all_selected_displays
+        for info in [room_info_map.get(display)]
+        if info
+    ) or 10
+
     st.markdown("---")
+
+    # ==============================================================
+    # OUTSIDE FORM: Meal Plan selector (v1.7.0 — Phase 4)
+    # Renders ONLY when the hotel has meals enabled AND the mode is not
+    # INCLUIDO (in INCLUIDO mode the backend auto-assigns CON_DESAYUNO and
+    # the user picks nothing). Mirrors the mobile reservation form.
+    # ==============================================================
+    meals_cfg = get_meals_config()
+    meals_enabled = bool(meals_cfg.get("meals_enabled"))
+    meal_mode = meals_cfg.get("meal_inclusion_mode")
+
+    selected_meal_plan_id: str | None = None
+    breakfast_guests_value: int | None = None
+
+    if meals_enabled and meal_mode and meal_mode != "INCLUIDO":
+        st.markdown("#### 🍽️ Plan de comidas")
+        st.caption(
+            "Solo se muestra para hoteles que cobran las comidas aparte. "
+            "Elegí 'Solo habitación' para no cobrar plan."
+        )
+
+        plans_for_mode = get_meal_plans(mode_filter=meal_mode)
+        active_plans = [p for p in plans_for_mode if p.get("is_active")]
+        # SOLO_HABITACION is conceptually "no plan" in the UI — treat the
+        # blank option as the explicit no-plan choice and hide it from the
+        # dropdown body.
+        non_solo = [p for p in active_plans if p.get("code") != "SOLO_HABITACION"]
+
+        plan_labels = ["Solo habitación (sin comidas)"]
+        plan_label_to_id: dict[str, str | None] = {plan_labels[0]: None}
+        for p in non_solo:
+            if meal_mode == "OPCIONAL_PERSONA" and (p.get("surcharge_per_person") or 0) > 0:
+                price_str = f" — {int(p['surcharge_per_person']):,} Gs/pax/noche"
+            elif meal_mode == "OPCIONAL_HABITACION" and (p.get("surcharge_per_room") or 0) > 0:
+                price_str = f" — {int(p['surcharge_per_room']):,} Gs/hab/noche"
+            else:
+                price_str = ""
+            label = f"{p['name']}{price_str}"
+            plan_labels.append(label)
+            plan_label_to_id[label] = p["id"]
+
+        # Pre-select the existing plan when editing a reservation. Falls back
+        # to "no plan" when the saved id no longer exists (plan deactivated).
+        existing_plan_id = getattr(res_data, "meal_plan_id", None) if res_data else None
+        existing_breakfast_guests = (
+            getattr(res_data, "breakfast_guests", None) if res_data else None
+        )
+        default_idx = 0
+        if existing_plan_id:
+            for idx, lbl in enumerate(plan_labels):
+                if plan_label_to_id.get(lbl) == existing_plan_id:
+                    default_idx = idx
+                    break
+
+        meal_col_a, meal_col_b = st.columns([3, 2])
+        with meal_col_a:
+            picked_plan_label = st.selectbox(
+                "Plan",
+                options=plan_labels,
+                index=default_idx,
+                key="meal_plan_select",
+                help="El recargo aparece en el desglose de precios al confirmar la reserva.",
+            )
+        selected_meal_plan_id = plan_label_to_id.get(picked_plan_label)
+
+        # breakfast_guests input — only relevant in OPCIONAL_PERSONA mode AND
+        # when a non-SOLO plan is picked. Capped by total selected-room
+        # capacity (defense-in-depth: backend rejects with a Spanish error
+        # if a caller bypasses this UI).
+        if selected_meal_plan_id and meal_mode == "OPCIONAL_PERSONA":
+            cap = max(int(total_room_capacity), 1)
+            default_pax = (
+                min(int(existing_breakfast_guests or 1), cap)
+                if existing_breakfast_guests
+                else 1
+            )
+            with meal_col_b:
+                breakfast_guests_value = st.number_input(
+                    "Huéspedes con desayuno",
+                    min_value=1,
+                    max_value=cap,
+                    value=default_pax,
+                    step=1,
+                    key="meal_breakfast_guests",
+                    help=(
+                        f"Máximo {cap} (capacidad total de las habitaciones "
+                        f"seleccionadas)."
+                    ),
+                )
+        st.markdown("---")
 
     # === DYNAMIC PRICING (outside form, per-category) ===
     st.markdown("#### 💰 Precio Dinámico")
@@ -332,7 +451,13 @@ def render_tab_reserva():
                     check_in=check_in,
                     stay_days=noches,
                     client_type_id=client_type_id,
-                    season_id=season_id
+                    season_id=season_id,
+                    # v1.7.0 — Meal plan surcharge (Phase 4)
+                    # Pass-through; the engine reads the hotel's mode and only
+                    # adds a modifier line when the plan + mode combination
+                    # actually charges (OPCIONAL_PERSONA / OPCIONAL_HABITACION).
+                    meal_plan_id=selected_meal_plan_id,
+                    breakfast_guests=breakfast_guests_value,
                 )
 
                 all_breakdowns[cat_id] = price_data
@@ -606,6 +731,9 @@ def render_tab_reserva():
                             vehicle_plate=v_plate,
                             vehicle_color=v_color or None,
                             source=source,
+                            # v1.7.0 — Meal Plan (Phase 4)
+                            meal_plan_id=selected_meal_plan_id,
+                            breakfast_guests=breakfast_guests_value,
                             # Identity fields from document scan (FEAT-LINK-01)
                             document_number=ia_data.get("Nro_Documento", ""),
                             guest_last_name=ia_data.get("Apellidos", ""),
@@ -669,6 +797,9 @@ def render_tab_reserva():
                                     vehicle_color=v_color or None,
                                     source=source,
                                     paid=is_paid,
+                                    # v1.7.0 — Meal Plan (Phase 4)
+                                    meal_plan_id=selected_meal_plan_id,
+                                    breakfast_guests=breakfast_guests_value,
                                     # Identity fields from document scan (FEAT-LINK-01)
                                     document_number=ia_data.get("Nro_Documento", ""),
                                     guest_last_name=ia_data.get("Apellidos", ""),

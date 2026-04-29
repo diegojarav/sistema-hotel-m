@@ -109,6 +109,15 @@ def create_reservation(
             except Exception as pdf_err:
                 logger.warning(f"PDF generation failed for reservation {res_id}: {pdf_err}")
         return created_ids
+    except ValueError as e:
+        # Business-rule failures (meal capacity, parking full, etc.) — surface
+        # the Spanish message so the operator can act on it instead of being
+        # told "intente de nuevo" with no actionable hint.
+        logger.info(f"Reservation rejected (business rule): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         logger.error(f"Failed to create reservation: {e}", exc_info=True)
         raise HTTPException(

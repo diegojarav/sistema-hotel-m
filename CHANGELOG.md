@@ -12,9 +12,59 @@
 
 ---
 
-## [v1.10.0] — abril 2026 · DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests & Buildings)
+## [v1.10.0] — abril 2026 · DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests & Buildings) + Meal Plan UI sweep
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) ya en `dev`; Phase 2b (type harmonization, retención de tablas append-only, drop de `breakfast_included`) pendiente antes del tag v1.10.0 final.
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva ya en `dev`; Phase 2b (type harmonization, retención de tablas append-only, drop de `breakfast_included`) pendiente antes del tag v1.10.0 final.
+
+### Meal Plan UI sweep (v1.10.0-dev)
+
+QA del PMS detectó que el flujo de meal plans estaba parcialmente roto: el PC no tenía la sección y el mobile no validaba bien. Sweep completo más tres bugs colaterales que aparecieron en la verificación visual:
+
+#### Bug 1 — PC sin selector de meal plan
+- **Síntoma**: el formulario de Reservas en el PC nunca le había wired el meal plan. Hoteles que usan el PC para crear reservas (la mayoría del tráfico operativo) bypassaban la feature: precio sin recargo, reserva sin `meal_plan_id`, kitchen report sin contar al huésped.
+- **Fix**: `frontend_pc/components/tab_reserva.py` agrega "🍽️ Plan de comidas" entre Selección de Habitaciones y Precio Dinámico. Vive **fuera de `st.form`** para que el rerun recalcule el precio. Renderiza solo cuando `meals_enabled=true && mode != INCLUIDO`. Selector de plan + `breakfast_guests` `number_input` con cap dinámico = `sum(rooms.custom_capacity ?? cat.max_capacity)`. Fallback a 10 cuando no hay habitaciones picked.
+- Helpers nuevos cacheados (TTL 30s) en `frontend_pc/helpers/data_fetchers.py`: `get_meals_config()` + `get_meal_plans(mode_filter)`.
+- `ReservationService.get_reservation` ahora retorna `meal_plan_id` + `breakfast_guests` para que el modo edit pre-llene la sección.
+- `ReservationService.update_reservation` clears `breakfast_guests` cuando `meal_plan_id` se setea a None — sino la reserva queda con "2 desayunos" sin plan attached y el kitchen report sobre-cuenta.
+
+#### Bug 2 — Mobile UX del input numérico
+- **Bug 2A** (input editing): el campo "Cantidad de huéspedes con desayuno" no permitía edit limpio en touch. Para cambiar "1" → "2" había que tipear "12" y borrar el "1". Fix: agrega `onFocus={(e) => e.currentTarget.select()}` + `inputMode="numeric"` + `pattern="[0-9]*"`.
+- **Bug 2B** (validación de máximo): el `max={10}` estaba hardcoded ignorando la capacidad real de las habitaciones. Operador podía tipear 13 y el error solo aparecía indirecto en el cálculo de precio. Fix: `max` ahora es `totalRoomCapacity` calculado en runtime desde `selectedRooms.reduce(...)`. Sobre-cap → border rojo + mensaje inline en español ("Máximo N huéspedes (capacidad de las habitaciones).") + value clamp al cap. Auto-shrink via `useEffect` cuando el cap cae por debajo del valor actual (deselect de habitaciones grandes).
+
+#### Bug 3 (descubierto en visual verification) — capacity ValueError swallowed como 500
+- **Síntoma**: el guard de capacidad en backend tiraba `ValueError("Cantidad de huéspedes para comidas (5) excede la capacidad total de las habitaciones seleccionadas (2).")` correctamente, pero el endpoint `POST /api/v1/reservations` lo capturaba en su `except Exception` genérico y lo translateaba a 500 + `"Error al crear la reserva. Intente de nuevo."`. Mensaje inútil para el operador.
+- **Fix**: `api/v1/endpoints/reservations.py::create_reservation` agrega `except ValueError as e: raise HTTPException(400, detail=str(e))` ANTES del catch-all. Además se uplifteó el `raise Exception(...)` de parking-overflow a `raise ValueError(...)` para consistencia.
+- Test de regresión: `test_reservation_api.py::test_meal_capacity_exceeded_returns_400_with_spanish`.
+
+#### Defense-in-depth backend
+- `ReservationService.create_reservations` valida `breakfast_guests > sum(rooms.custom_capacity ?? category.max_capacity)` y rechaza con Spanish `ValueError`. Cubierto por 5 tests en `TestBreakfastGuestsCapacityValidation` (single room reject, at-cap pass, multi-room sum reject, multi-room sum pass at boundary, zero pax = no-op).
+
+#### Vehicle propagation desde reserva
+- Pre-fix la chapa solo llegaba al catálogo `guest_vehicles` cuando se hacía check-in. Para reservas con anticipación, el lookup `search_by_plate` quedaba ciego — y el futuro OCR en la entrada (cámara IP en parking) no podía hacer match.
+- **Fix**: `ReservationService.create_reservations` ejecuta el mismo hook de propagación que `register_checkin` después del refresh de agregados del Guest. Llama `GuestVehicleService.create_vehicle` con `plate_number` + `model` + `color`; service-layer dedupea por `(guest, plate)`.
+- Color sigue patrón "fill empty, never overwrite": backfill solo cuando el master tiene color en blanco.
+- Si FEAT-LINK-01 dispara y crea CheckIn auto-linkeado → además crea el `CheckinVehicle` link explícitamente (el flujo de `register_checkin` no aplica acá).
+- Schema: `ReservationCreate.vehicle_color: Optional[str]` y `CheckInCreate.vehicle_color: Optional[str]` son passthrough — NO almacenados en `reservations` ni `checkins` (evita 2 ALTER TABLE migrations). Color vive canónicamente en `guest_vehicles.color`.
+- **UI**: campo "Color del Vehículo" agregado en PC (`tab_reserva.py`, `tab_checkin.py`) y mobile (`GuestForm.tsx`) — solo visible cuando hay parking marcado.
+- Tests: 6 nuevos en `test_guest_vehicles.py::TestReservationPropagatesVehicle`.
+
+#### Hotfixes
+- **`st.download_button` fuera de `st.form`** (`tab_reserva.py`): post-confirm los botones de descarga PDF + botón de email + sección "Listado de Reservas" estaban dentro de `with st.form(...)` con indent 8-space. Streamlit raisea `StreamlitAPIException`. Fix: dedent 100 líneas de 8 → 4 spaces, validado con `ast.parse`. Ya documentado como gotcha en CLAUDE.md.
+- **`launch.json` backend bind `--host 0.0.0.0`** (era `127.0.0.1`): el bind a localhost solo rompía tanto el preview en-browser como el testing desde un teléfono real en Wi-Fi (mobile `.env.local` apunta al LAN IP `192.168.3.140:8000`). Síntoma: `TypeError: Failed to fetch` — la api client no intercepta network failures, solo HTTP responses. Bind a `0.0.0.0` resuelve los dos casos sin downside (sigue escuchando en localhost también).
+
+#### Tests
+- `backend/tests/test_meal_plan_reservation.py` (NEW): 11 tests cubriendo round-trip de meal_plan_id + breakfast_guests, surcharge en final_price, INCLUIDO mode auto-assign, capacity validation single+multi-room, update_reservation sync, get_reservation prefill.
+- `backend/tests/test_reservation_api.py`: 1 test nuevo (`test_meal_capacity_exceeded_returns_400_with_spanish`) para regression del 500→400.
+- 6 tests nuevos en `test_guest_vehicles.py::TestReservationPropagatesVehicle` para la propagación desde reserva.
+- Total backend: **733 tests** (696 baseline + 11 + 1 + 6 + retoques de Phase 2a-ext que ya estaban contados en 720), 0 regresiones. Verificado con `pytest -q` post-cambios.
+
+#### Verificación visual
+- Backend, PC (Streamlit), mobile (Next.js) levantados; capturas de pantalla del flujo PC + mobile end-to-end. Round-trip API verificado: reserva 0001116 creada con `meal_plan_id=CON_DESAYUNO`, `breakfast_guests=2`, `price=420000` (300k base + 120k surcharge). Edge case `meals_enabled=false` confirmado: ambas plataformas ocultan completamente la sección.
+
+#### Follow-up flageado
+- Mobile reservation detail (`/dashboard/calendar/[id]/page.tsx`) no muestra `meal_plan_name` ni `breakfast_guests` para reservas existentes. Pre-existing gap (no es regresión). Tracked en ROADMAP backlog.
+
+---
 
 ### Phase 2a-ext — Guest Domain Completion (commit pendiente)
 

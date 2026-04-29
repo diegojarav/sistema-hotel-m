@@ -149,6 +149,7 @@ export default function NewReservationPage() {
     const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
     const [selectedMealPlanId, setSelectedMealPlanId] = useState<string>(''); // '' = SOLO_HABITACION default
     const [breakfastGuests, setBreakfastGuests] = useState<number>(1);
+    const [breakfastGuestsError, setBreakfastGuestsError] = useState<string | null>(null);
 
     const calculateNights = (): number => {
         if (!formData.checkIn || !formData.checkOut) return 1;
@@ -227,6 +228,25 @@ export default function NewReservationPage() {
 
     // ALL free rooms (no category filter)
     const availableRooms = rooms.filter(room => room.status.toLowerCase() === 'libre');
+
+    // v1.7.0 — Total capacity across selected rooms. Caps the
+    // "huéspedes con desayuno" input so the operator can't book breakfast for
+    // more people than the rooms physically hold. Falls back to 10 while
+    // nothing is selected (the meal plan section is still hidden then anyway).
+    const totalRoomCapacity = selectedRooms.reduce((sum, roomId) => {
+        const room = rooms.find(r => r.room_id === roomId);
+        return sum + (room?.max_capacity ?? 0);
+    }, 0) || 10;
+
+    // Auto-shrink breakfastGuests when room selection drops the cap below
+    // the current value (e.g. user deselects a 4-pax suite). Otherwise the
+    // backend would later reject the over-capacity payload.
+    useEffect(() => {
+        if (breakfastGuests > totalRoomCapacity) {
+            setBreakfastGuests(totalRoomCapacity);
+            setBreakfastGuestsError(null);
+        }
+    }, [totalRoomCapacity, breakfastGuests]);
 
     // Update price per category when rooms, dates, or client type change
     useEffect(() => {
@@ -563,12 +583,46 @@ export default function NewReservationPage() {
                                     </label>
                                     <input
                                         type="number"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         min={1}
-                                        max={10}
+                                        max={totalRoomCapacity}
                                         value={breakfastGuests}
-                                        onChange={(e) => setBreakfastGuests(Math.max(1, Number(e.target.value) || 1))}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                                        // Select-all on focus so typing replaces the value cleanly
+                                        // (otherwise typing "2" over "1" yields "12" on mobile).
+                                        onFocus={(e) => e.currentTarget.select()}
+                                        onChange={(e) => {
+                                            const raw = parseInt(e.target.value, 10);
+                                            // Allow transient empty/invalid input — don't lock
+                                            // the UI into the previous value while editing.
+                                            if (Number.isNaN(raw)) {
+                                                setBreakfastGuestsError(null);
+                                                setBreakfastGuests(1);
+                                                return;
+                                            }
+                                            if (raw > totalRoomCapacity) {
+                                                setBreakfastGuestsError(
+                                                    `Máximo ${totalRoomCapacity} huéspedes (capacidad de las habitaciones).`
+                                                );
+                                                setBreakfastGuests(totalRoomCapacity);
+                                                return;
+                                            }
+                                            setBreakfastGuestsError(null);
+                                            setBreakfastGuests(Math.max(1, raw));
+                                        }}
+                                        className={`w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:border-transparent ${
+                                            breakfastGuestsError
+                                                ? 'border-red-400 focus:ring-red-500'
+                                                : 'border-gray-300 focus:ring-orange-500'
+                                        }`}
                                     />
+                                    {breakfastGuestsError ? (
+                                        <p className="text-xs text-red-600 mt-1">{breakfastGuestsError}</p>
+                                    ) : (
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            Máximo {totalRoomCapacity} (capacidad total de las habitaciones seleccionadas).
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>

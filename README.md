@@ -2,7 +2,7 @@
 
 Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y medianos en Paraguay. Incluye gestión de reservas, caja, inventario, planes de comida, sincronización con OTAs y envío de documentos por email.
 
-**Versión**: v1.9.0 · **Estado**: en producción (cliente activo — Hospedaje Los Monges)
+**Versión**: v1.10.0-dev · **Estado**: en producción (cliente activo — Hospedaje Los Monges)
 
 ---
 
@@ -35,13 +35,13 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
 
 **Inventario y consumos**. Catálogo de productos vendibles a habitación (bebidas, snacks, servicios, minibar) con stock y stock mínimo. Cada consumo cargado a una reserva captura snapshot de precio y nombre del producto al momento del cargo (preserva auditoría histórica si los datos cambian después). Al pasar la reserva a `COMPLETADA` se genera automáticamente el folio del huésped (PDF) con todos los cargos itemizados, pagos y saldo.
 
-**Planes de comida**. Configuración opcional por hotel — los hoteles que no sirven comida no ven nada de meal plans. Tres modos cuando está habilitado: incluido en la tarifa, opcional con recargo por persona, opcional con recargo por habitación. Incluye página dedicada para el rol `cocina` (read-only) con date picker (default mañana), métricas, tabla detallada y export CSV/PDF.
+**Planes de comida**. Configuración opcional por hotel — los hoteles que no sirven comida no ven nada de meal plans. Tres modos cuando está habilitado: incluido en la tarifa, opcional con recargo por persona, opcional con recargo por habitación. Selector de plan en el formulario de reservas tanto en PC como mobile (con cap automático del número de huéspedes con desayuno según la capacidad de las habitaciones seleccionadas). Incluye página dedicada para el rol `cocina` (read-only) con date picker (default mañana), métricas, tabla detallada y export CSV/PDF.
 
 **Channel Manager (OTA sync)**. Sincronización vía iCal con cinco fuentes: Booking.com, Airbnb, Vrbo, Expedia y Custom (cualquier `.ics`). Pull automático cada 15 minutos. Detección de cancelaciones cuando un UID desaparece del feed (la reserva se marca para revisión y el operador decide). Detección y log de overbooking entre OTAs. Health monitoring por feed con badges visuales y alertas Discord si hay 3 o más fallos consecutivos. Endpoint público `.ics` para que las OTAs hagan pull de los datos del hotel.
 
 **Documentos y email**. Generación automática de PDFs en español al crear cada reserva, cada check-in y cada folio (al checkout). Configuración SMTP por hotel (admin la edita desde la UI; password se almacena encriptado con Fernet derivado de `SECRET_KEY`). Envío del PDF de confirmación al huésped con un click, asíncrono (response inmediato + send en background). Rate limit de 3 envíos por hora por reserva (cuenta solo envíos exitosos). Historial completo de envíos con filtros y export CSV.
 
-**Agente IA**. Asistente conversacional con 18 herramientas en español usando Google Gemini 2.5 Flash con automatic function calling. Responde preguntas operativas como "¿hay habitaciones disponibles para mañana?", "¿cuánto se facturó hoy?", "¿se le mandó el correo a la reserva 1234?", "¿qué planes de desayuno tiene Juan Pérez para el lunes?". También extrae datos de documentos (cédula, pasaporte) vía OCR.
+**Agente IA**. Asistente conversacional con 20 herramientas en español usando Google Gemini 2.5 Flash con automatic function calling. Responde preguntas operativas como "¿hay habitaciones disponibles para mañana?", "¿cuánto se facturó hoy?", "¿se le mandó el correo a la reserva 1234?", "¿qué planes de desayuno tiene Juan Pérez para el lunes?", "¿de quién es el auto blanco con chapa ABC123?". También extrae datos de documentos (cédula, pasaporte) vía OCR.
 
 **Reportes**. Ingresos del día por método de pago, lista de transferencias para conciliación bancaria (con CSV export), resumen por período, ocupación mensual, distribución por canal, ficha mensual estilo Gantt por habitación, mapa de calor de ingresos por habitación × mes, productos más vendidos, stock bajo, reporte diario de cocina.
 
@@ -53,8 +53,8 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
 ┌──────────────────────────────────────────────────────────────────┐
 │                        FastAPI Backend                            │
 │                                                                   │
-│   22 endpoint modules · ~120 routes · 22 SQLite tables           │
-│   18 AI tools · auto-backups · WAL mode · iCal sync background   │
+│   26 endpoint modules · ~154 routes · 28 SQLite tables           │
+│   20 AI tools · auto-backups · WAL mode · iCal sync background   │
 │                                                                   │
 └──────────┬─────────────────────────────────┬─────────────────────┘
            │                                 │
@@ -65,12 +65,12 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
    │   Streamlit    │                │   Next.js 16   │
    │   PC Admin     │                │   Mobile App   │
    │                │                │                │
-   │   8 páginas    │                │   11 rutas     │
+   │   9 páginas    │                │   11 rutas     │
    │   (caja,       │                │   (calendar,   │
    │    inventario, │                │    reservas,   │
    │    cocina,     │                │    caja,       │
-   │    docs, ...)  │                │    chat IA,    │
-   │                │                │    meals, ...) │
+   │    huéspedes,  │                │    chat IA,    │
+   │    docs, ...)  │                │    meals, ...) │
    └────────────────┘                └────────────────┘
 ```
 
@@ -173,7 +173,7 @@ URLs por defecto: API en `http://localhost:8000` (Swagger en `/docs`), PC en `ht
 
 ## Tests
 
-**576 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
+**733 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
 
 ```bash
 cd backend
@@ -183,7 +183,7 @@ pytest -m kpi                                   # solo KPIs (9 métricas scoread
 pytest -m perf                                  # solo benchmarks de performance
 ```
 
-El CI de GitHub Actions corre los 576 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
+El CI de GitHub Actions corre los 733 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
 
 ---
 
@@ -193,10 +193,10 @@ El CI de GitHub Actions corre los 576 tests + 9 KPIs + 19 benchmarks de performa
 sistema-hotel-m/
 ├── backend/                    # FastAPI + SQLAlchemy + servicios
 │   ├── api/                    # routers + auth + config
-│   │   └── v1/endpoints/       # 22 módulos de endpoints
-│   ├── services/               # 15 servicios de negocio
-│   ├── tests/                  # 539 tests + KPIs + perf
-│   ├── database.py             # 22 modelos SQLAlchemy
+│   │   └── v1/endpoints/       # 26 módulos de endpoints
+│   ├── services/               # 23 servicios de negocio
+│   ├── tests/                  # 733 tests + KPIs + perf
+│   ├── database.py             # 28 modelos SQLAlchemy
 │   ├── schemas.py              # validación Pydantic v2
 │   ├── hotel/                  # PDFs generados (gitignored)
 │   └── requirements.txt
@@ -204,7 +204,7 @@ sistema-hotel-m/
 ├── frontend_pc/                # Streamlit admin desktop
 │   ├── app.py                  # entry + login
 │   ├── components/             # tabs reusables
-│   ├── pages/                  # 8 páginas multipage
+│   ├── pages/                  # 9 páginas multipage
 │   └── requirements.txt
 │
 ├── frontend_mobile/            # Next.js 16 + React 19
@@ -216,7 +216,7 @@ sistema-hotel-m/
 │   └── package.json
 │
 ├── scripts/
-│   ├── migrations/             # migraciones numeradas (008 actuales)
+│   ├── migrations/             # migraciones numeradas (013 actuales — siguiente 014)
 │   ├── deploy_staging.sh       # deploy one-command a GCP
 │   ├── seed_monges.py          # datos iniciales
 │   └── run_migrations.py       # runner idempotente
@@ -224,6 +224,7 @@ sistema-hotel-m/
 ├── .github/workflows/ci.yml    # tests + build + Discord alerts
 ├── CLAUDE.md                   # instrucciones operativas internas
 ├── CHANGELOG.md                # historial de versiones
+├── ROADMAP.md                  # planificación activa
 └── README.md                   # este archivo
 ```
 
@@ -243,6 +244,7 @@ Ver [CHANGELOG.md](CHANGELOG.md) para el historial completo.
 
 **Últimas versiones:**
 
+- **v1.10.0-dev** — DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, AI tools 19 y 20) + Meal Plan UI sweep (selector de plan en PC, fix UX del input mobile, capacity guard backend) + propagación de vehículo desde reserva con campo color
 - **v1.9.0** — Cleanup + Features 1 & 3 (eliminación de `migrate_monges.py`, RoomStatusLog audit trail, activación de AIAgentPermission con control granular de tools IA por rol)
 - **v1.8.0** — Email sending (envío del PDF de reserva al huésped, configuración SMTP encriptada, AI tool 18, historial de envíos con filtros)
 - **v1.7.0** — Meal plans y reportes de cocina (3 modos de servicio + rol `cocina` + página dedicada)

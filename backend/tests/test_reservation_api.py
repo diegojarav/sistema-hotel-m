@@ -66,6 +66,28 @@ class TestCreateReservation:
         assert r.status_code == 201
         assert len(r.json()) == 2
 
+    def test_meal_capacity_exceeded_returns_400_with_spanish(
+        self, client, auth_headers_admin, seed_rooms, enable_meals
+    ):
+        """Business-rule failure surfaces as 400 + Spanish detail (not 500).
+
+        Regression guard for the bug where meal-capacity ValueError was
+        swallowed by the generic except-clause and returned as a useless
+        "Error al crear la reserva. Intente de nuevo." 500.
+        """
+        plans = enable_meals(mode="OPCIONAL_PERSONA", per_person_surcharge=30000)
+        body = _res_body(
+            seed_rooms["rooms"][0].id,  # Estandar, max_capacity=2
+            meal_plan_id=plans["con_desayuno"].id,
+            breakfast_guests=5,  # exceeds capacity of 2
+        )
+        r = client.post("/api/v1/reservations", json=body,
+                         headers=auth_headers_admin)
+        assert r.status_code == 400
+        detail = r.json()["detail"]
+        assert "excede la capacidad" in detail
+        assert "(5)" in detail and "(2)" in detail
+
 
 class TestGetReservation:
     def test_success(self, client, auth_headers_admin, seed_rooms, make_reservation):

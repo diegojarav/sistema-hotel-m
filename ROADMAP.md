@@ -11,11 +11,11 @@
 | Item | Estado |
 |---|---|
 | Versión | v1.10.0-dev |
-| Tests | 696 · 83% cobertura |
+| Tests | 733 · 83% cobertura |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
-| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) |
+| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) |
 | Próxima migración | `014_*.py` |
 | AI tools | 20 (último: `buscar_vehiculo`) |
 | Tablas | 28 (suma `billing_profiles` + `guest_vehicles` + `checkin_vehicles` desde Phase 2a-ext) |
@@ -115,6 +115,7 @@ Ideas documentadas para no perderlas. **No tienen estimación ni fecha.**
   3. Opcional: auto-aplicar un descuento o consumo complementario (caja de bombones, copa de vino) vía `ConsumoService`.
   - Tabla ya tiene `birth_date` en `guests` (Phase 2a-ext). Falta el job + plantilla de mensaje + integración con WhatsApp Business API.
 - **De-dup / merge tool de huéspedes** (Phase 2a follow-up): UI admin para detectar candidatos (nombre similar, mismo phone, etc.) y mergear dos rows en uno. Reasigna `reservations.guest_id` y `checkins.guest_id` al canónico, soft-deletea el otro. Útil porque la entrada manual + auto-creación generan duplicados con tiempo.
+- **Mostrar meal plan en mobile reservation detail** (Meal Plan UI sweep follow-up — flageado durante visual verification de v1.10.0-dev): el endpoint `/api/v1/reservations/{id}` ya devuelve `meal_plan_id`, `meal_plan_code`, `meal_plan_name` y `breakfast_guests`, pero `frontend_mobile/app/dashboard/calendar/[id]/page.tsx` no los renderiza. Operadores en mobile no pueden ver si una reserva incluye desayuno. Cross-platform parity gap: el PC `tab_reserva.py` sí pre-fillea esta info en modo edit. Agregar mini-sección "🍽️ Plan de comidas" entre Huésped y Folio. Conditional al `getMealsConfig().meals_enabled`. Reusa el patrón de gating del nuevo-reserva form (líneas 531-575).
 - **Sistema de plantillas de email** — continuación de Phase 5. Templates configurables para pre-checkin reminder (X días antes), post-checkout thank-you, recordatorio de pago pendiente. Requiere extender `email_body_template` a múltiples templates por evento.
 - **OTA API nativa** — integración directa con Booking.com / Expedia / Airbnb API en lugar de iCal. Elimina el delay de 15 min de polling pero requiere certificación con cada OTA, costos y mantenimiento de credenciales.
 - **Notificaciones push mobile** — alertas en el frontend mobile para nueva reserva entrante por OTA, stock bajo, sync failure de un feed iCal. Requiere service worker + suscripción FCM o similar.
