@@ -13,7 +13,7 @@ from logging_config import get_logger
 logger = get_logger(__name__)
 
 # Import paths directly from backend (PYTHONPATH includes ../backend)
-from services.document_service import RESERVAS_DIR, CLIENTES_DIR
+from services.document_service import RESERVAS_DIR, CLIENTES_DIR, CUENTAS_DIR
 
 st.set_page_config(
     page_title="Documentos del Hotel",
@@ -46,12 +46,18 @@ check_access()
 
 st.title("Documentos del Hotel")
 
-tab_reservas, tab_clientes, tab_emails = st.tabs(["Reservas", "Clientes", "📧 Historial de Emails"])
+tab_reservas, tab_clientes, tab_cuentas, tab_emails = st.tabs(
+    ["Reservas", "Clientes", "📋 Cuentas (folios)", "📧 Historial de Emails"]
+)
 
 
 def _render_document_list(folder: str):
     """Render a list of PDF documents with download buttons."""
-    target_dir = RESERVAS_DIR if folder == "Reservas" else CLIENTES_DIR
+    target_dir = {
+        "Reservas": RESERVAS_DIR,
+        "Clientes": CLIENTES_DIR,
+        "Cuentas": CUENTAS_DIR,
+    }.get(folder, RESERVAS_DIR)
 
     col_refresh, _ = st.columns([1, 4])
     with col_refresh:
@@ -106,6 +112,13 @@ with tab_reservas:
 
 with tab_clientes:
     _render_document_list("Clientes")
+
+with tab_cuentas:
+    st.caption(
+        "Cuentas (folios) generadas automáticamente al completar una reserva. "
+        "Incluyen el desglose de cargos a habitación, consumos y pagos."
+    )
+    _render_document_list("Cuentas")
 
 
 # ==========================================

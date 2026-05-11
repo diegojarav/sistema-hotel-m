@@ -179,8 +179,14 @@ export default function RegistrarConsumoModal({
                                         </button>
                                         <input
                                             type="number"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
                                             min={1}
                                             value={quantity}
+                                            // Select-all on focus so typing replaces the value
+                                            // cleanly on touch keyboards (Phase 2b consistency
+                                            // with the meal-plan input fix).
+                                            onFocus={(e) => e.currentTarget.select()}
                                             onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
                                             className="flex-1 px-3 py-2 rounded-lg border border-gray-300 text-center text-lg font-semibold focus:border-blue-500 focus:outline-none"
                                         />

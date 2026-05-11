@@ -886,6 +886,174 @@ def render_tab_reserva():
                     )
 
     # ==========================================
+    # CONSUMOS (v1.6.0 — Phase 3) · PC entry point added v1.10.0-dev
+    # Only shown in Editar Reserva mode. Pre-v1.10 the consumo flow was
+    # mobile-only — a PC-bound receptionist had no way to charge a Coca to
+    # room 101. Now they can:
+    #   - see all (active) consumos for this reservation
+    #   - add a new one with a product picker + qty stepper + optional note
+    #   - download the latest folio PDF
+    # Lives outside any st.form so the buttons + reruns interact normally.
+    # ==========================================
+    if res_data and res_id_load:
+        st.divider()
+        st.markdown("### 🧾 Consumos cargados a la reserva")
+
+        from services import ConsumoService, ConsumoError, ProductService
+
+        # ---- list existing consumos (active + voided badge) ----
+        try:
+            _consumos = ConsumoService.list_by_reserva(reserva_id=res_id_load, include_voided=True)
+        except Exception as _e:
+            logger.warning(f"No se pudieron cargar consumos: {_e}")
+            _consumos = []
+
+        if _consumos:
+            _active_total = sum(
+                float(c.total or 0) for c in _consumos if not c.voided
+            )
+            st.caption(
+                f"Total activo: **{_active_total:,.0f} Gs** "
+                f"· {len(_consumos)} registro(s)"
+            )
+            _rows = []
+            for c in _consumos:
+                _rows.append({
+                    "ID": c.id,
+                    "Producto": c.producto_name,
+                    "Cant.": c.quantity,
+                    "Precio U.": f"{float(c.unit_price or 0):,.0f}",
+                    "Total": f"{float(c.total or 0):,.0f}",
+                    "Nota": (c.description or "")[:40],
+                    "Por": c.created_by or "-",
+                    "Fecha": c.created_at.strftime("%d/%m %H:%M") if c.created_at else "-",
+                    "Estado": "🚫 ANULADO" if c.voided else "✓ Activo",
+                })
+            st.dataframe(pd.DataFrame(_rows), hide_index=True, width="stretch")
+        else:
+            st.info("Sin consumos cargados a esta reserva todavía.")
+
+        # ---- add new consumo (form OUTSIDE the main reservation form) ----
+        with st.expander("➕ Cargar un producto a esta reserva", expanded=not _consumos):
+            try:
+                _all_products = ProductService.list_products(active_only=True)
+            except Exception as _e:
+                logger.warning(f"No se pudieron cargar productos: {_e}")
+                _all_products = []
+
+            if not _all_products:
+                st.warning(
+                    "No hay productos activos en el catálogo. Agregalos desde "
+                    "**📦 Inventario** antes de cargar consumos."
+                )
+            else:
+                # Label combines name + price + (stock for stocked items).
+                _opt_to_p = {}
+                for _p in _all_products:
+                    if _p.is_stocked and (_p.stock_current or 0) <= 0:
+                        # Skip out-of-stock products in the selector entirely;
+                        # they're unselectable on mobile too.
+                        continue
+                    _stock_str = (
+                        f" · stock {_p.stock_current}" if _p.is_stocked else ""
+                    )
+                    _label = f"{_p.name} — {float(_p.price or 0):,.0f} Gs{_stock_str}"
+                    _opt_to_p[_label] = _p
+
+                _opt_labels = list(_opt_to_p.keys())
+
+                _col_prod, _col_qty = st.columns([3, 1])
+                with _col_prod:
+                    _pick_label = st.selectbox(
+                        "Producto / servicio",
+                        options=_opt_labels,
+                        key=f"_consumo_prod_{res_id_load}",
+                    )
+                _picked = _opt_to_p.get(_pick_label)
+                with _col_qty:
+                    _max_q = (
+                        int(_picked.stock_current or 1)
+                        if (_picked and _picked.is_stocked)
+                        else 99
+                    )
+                    _qty = st.number_input(
+                        "Cantidad",
+                        min_value=1,
+                        max_value=max(_max_q, 1),
+                        value=1,
+                        step=1,
+                        key=f"_consumo_qty_{res_id_load}",
+                    )
+
+                _note = st.text_input(
+                    "Nota (opcional)",
+                    placeholder="Ej: consumido durante la cena",
+                    key=f"_consumo_note_{res_id_load}",
+                )
+
+                if _picked:
+                    _running_total = float(_picked.price or 0) * int(_qty)
+                    st.info(
+                        f"💵 **Total a cargar: {_running_total:,.0f} Gs** "
+                        f"({_picked.name} × {_qty})"
+                    )
+
+                if st.button(
+                    "💳 Registrar consumo",
+                    type="primary",
+                    disabled=not _picked,
+                    key=f"_consumo_submit_{res_id_load}",
+                    use_container_width=True,
+                ):
+                    try:
+                        _username = (
+                            st.session_state.user.username
+                            if hasattr(st.session_state, "user")
+                            else "pc-user"
+                        )
+                        ConsumoService.registrar_consumo(
+                            reserva_id=res_id_load,
+                            producto_id=_picked.id,
+                            quantity=int(_qty),
+                            description=(_note or "").strip() or None,
+                            created_by=_username,
+                        )
+                        st.success(
+                            f"✓ Cargado: {_picked.name} × {_qty} "
+                            f"(${float(_picked.price or 0) * int(_qty):,.0f} Gs)"
+                        )
+                        force_refresh()
+                        st.rerun()
+                    except ConsumoError as _e:
+                        st.error(f"❌ {_e}")
+                    except Exception as _e:
+                        logger.error(f"Error al registrar consumo: {_e}", exc_info=True)
+                        st.error("Ocurrió un error inesperado. Contactá al soporte.")
+
+        # ---- folio PDF download (always visible in edit mode) ----
+        from services import DocumentService
+        if st.button(
+            "📄 Descargar Cuenta (folio PDF)",
+            key=f"_folio_dl_{res_id_load}",
+            use_container_width=True,
+        ):
+            try:
+                _folio_path = DocumentService.generate_folio_pdf(reservation_id=res_id_load)
+                if _folio_path:
+                    import os as _os
+                    with open(_folio_path, "rb") as _f:
+                        st.download_button(
+                            label="⬇️ Descargar PDF",
+                            data=_f.read(),
+                            file_name=_os.path.basename(_folio_path),
+                            mime="application/pdf",
+                            key=f"_folio_dl_btn_{res_id_load}",
+                        )
+            except Exception as _e:
+                logger.error(f"Error al generar folio: {_e}", exc_info=True)
+                st.error("No se pudo generar el folio. Revisá los logs.")
+
+    # ==========================================
     # ENVIAR POR CORREO (v1.8.0 — Phase 5)
     # Only shown in Editar Reserva mode after a reservation is loaded
     # ==========================================
