@@ -65,7 +65,7 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
    │   Streamlit    │                │   Next.js 16   │
    │   PC Admin     │                │   Mobile App   │
    │                │                │                │
-   │   9 páginas    │                │   11 rutas     │
+   │   10 páginas    │                │   11 rutas     │
    │   (caja,       │                │   (calendar,   │
    │    inventario, │                │    reservas,   │
    │    cocina,     │                │    caja,       │
@@ -173,7 +173,7 @@ URLs por defecto: API en `http://localhost:8000` (Swagger en `/docs`), PC en `ht
 
 ## Tests
 
-**733 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
+**752 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
 
 ```bash
 cd backend
@@ -183,7 +183,7 @@ pytest -m kpi                                   # solo KPIs (9 métricas scoread
 pytest -m perf                                  # solo benchmarks de performance
 ```
 
-El CI de GitHub Actions corre los 733 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
+El CI de GitHub Actions corre los 752 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
 
 ---
 
@@ -195,7 +195,7 @@ sistema-hotel-m/
 │   ├── api/                    # routers + auth + config
 │   │   └── v1/endpoints/       # 26 módulos de endpoints
 │   ├── services/               # 23 servicios de negocio
-│   ├── tests/                  # 733 tests + KPIs + perf
+│   ├── tests/                  # 752 tests + KPIs + perf
 │   ├── database.py             # 28 modelos SQLAlchemy
 │   ├── schemas.py              # validación Pydantic v2
 │   ├── hotel/                  # PDFs generados (gitignored)
@@ -204,7 +204,7 @@ sistema-hotel-m/
 ├── frontend_pc/                # Streamlit admin desktop
 │   ├── app.py                  # entry + login
 │   ├── components/             # tabs reusables
-│   ├── pages/                  # 9 páginas multipage
+│   ├── pages/                  # 10 páginas multipage
 │   └── requirements.txt
 │
 ├── frontend_mobile/            # Next.js 16 + React 19
@@ -216,7 +216,7 @@ sistema-hotel-m/
 │   └── package.json
 │
 ├── scripts/
-│   ├── migrations/             # migraciones numeradas (013 actuales — siguiente 014)
+│   ├── migrations/             # migraciones numeradas (015 actuales — siguiente 016)
 │   ├── deploy_staging.sh       # deploy one-command a GCP
 │   ├── seed_monges.py          # datos iniciales
 │   └── run_migrations.py       # runner idempotente
@@ -244,7 +244,7 @@ Ver [CHANGELOG.md](CHANGELOG.md) para el historial completo.
 
 **Últimas versiones:**
 
-- **v1.10.0-dev** — DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, AI tools 19 y 20) + Meal Plan UI sweep (selector de plan en PC, fix UX del input mobile, capacity guard backend) + propagación de vehículo desde reserva con campo color
+- **v1.10.0-dev** — DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, AI tools 19 y 20) + Meal Plan UI sweep (selector de plan en PC, fix UX del input mobile, capacity guard backend) + propagación de vehículo desde reserva con campo color + Phase 2b (type harmonization — 27 Booleans, 5 JSON columns, drop breakfast_included, slug NOT NULL, 8 property_id FK promotions, retention script)
 - **v1.9.0** — Cleanup + Features 1 & 3 (eliminación de `migrate_monges.py`, RoomStatusLog audit trail, activación de AIAgentPermission con control granular de tools IA por rol)
 - **v1.8.0** — Email sending (envío del PDF de reserva al huésped, configuración SMTP encriptada, AI tool 18, historial de envíos con filtros)
 - **v1.7.0** — Meal plans y reportes de cocina (3 modos de servicio + rol `cocina` + página dedicada)

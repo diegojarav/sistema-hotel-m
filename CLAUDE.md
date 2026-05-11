@@ -18,7 +18,7 @@ backend/          # FastAPI API + services + models
   hotel/          # Generated PDF documents (gitignored)
     Reservas/     # Reservation confirmation PDFs
     Clientes/     # Client registration PDFs
-  tests/          # pytest test suite (733 tests, 83% coverage)
+  tests/          # pytest test suite (752 tests, 83% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
   pages/          # Admin pages (Rooms, Users, Config, Documents, AI Assistant)
@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 733 tests (v1.10.0-dev: v1.9.0 baseline 576 + Phase 2a guests/buildings + Phase 2a-ext billing/vehicles + meal plan reservation + capacity guard + miscellaneous) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 752 tests (v1.10.0-dev: v1.9.0 baseline 576 + Phase 2a guests/buildings + Phase 2a-ext billing/vehicles + meal plan reservation + capacity guard + Phase 2b type harmonization + miscellaneous) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -647,6 +647,71 @@ Tools nuevos que no estén en `TOOL_PERMISSION_MAP` quedan **siempre permitidos*
 - **Safety anti-lockout**: `update_permissions` lanza `AIAgentPermissionError` si admin/supervisor/gerencia quedan con TODO en false (bloquearía el agente para roles de gestión). Otros roles sí pueden ser totalmente bloqueados.
 - **Convención `@with_db`**: `db: Session` debe ser el PRIMER parámetro posicional, NO kwarg con default. El decorador inserta db como primer arg en modo Streamlit. Los callers pueden mezclar `db=db, role=...` (todo kwargs) sin problema.
 - **`requires_confirmation` es columna sin uso activo en v1.9**. Reservada para feature futura donde el agente "sugiera y confirme" antes de acciones destructivas (cuando se agreguen tools de modificación).
+
+## Type Harmonization (v1.10.0 — Phase 2b)
+
+Última fase de cleanup del schema SQLite antes del cutover a Postgres (Phase 3+). Toca 4 dimensiones:
+
+### Boolean-as-Integer → Boolean (27 columnas)
+
+Reemplazadas todas las columnas que conceptualmente eran booleanas pero estaban declaradas `Column(Integer, default=0/1)`:
+- `room_categories.active`, `rooms.active`, `client_types.active`/`requires_contract`, `client_contracts.active`, `pricing_seasons.active`, `properties.active`/`parking_available`/`meals_enabled`, `ical_feeds.sync_enabled`, `meal_plans.is_system`/`is_active`, `migration_history.success`
+- Las 14 `AIAgentPermission.can_*` + `requires_confirmation`
+
+SQLite almacena Boolean como INTEGER bajo el capó, así que data existente (`0`/`1`) round-trippea transparente via SQLAlchemy. Lectura desde Python ahora devuelve `bool` real (no `int`). En Postgres se vuelve `BOOLEAN` nativo.
+
+### JSON-in-String → JSON (5 columnas)
+
+`Column(String) # JSON` → `Column(JSON)`. Auto-encode/decode al guardar/leer:
+- `room_categories.bed_configuration`, `room_categories.amenities`
+- `reservations.price_breakdown`
+- `pricing_seasons.applies_to_categories`
+- `price_calculations.calculation_details`
+
+**Importante para callers**: ahora pasás un `dict`/`list` directamente — NO `json.dumps()` previo. La service-layer `ReservationService.create_reservations` ya está actualizada (antes hacía `breakdown = json.dumps(...)`, ahora pasa el dict crudo). Los DTOs de respuesta usan `Optional[Any]` para no forzar el shape a string.
+
+En Postgres estos columns se vuelven `JSONB` indexable.
+
+### `properties.breakfast_included` REMOVIDA
+
+Deprecated desde v1.7. SQLite 3.35+ soporta `ALTER TABLE ... DROP COLUMN` nativo — migration 014 ejecuta el DROP. Reemplazo: combinación `meals_enabled` + `meal_inclusion_mode == "INCLUIDO"`.
+
+**Backward compat de API**: `GET /api/v1/settings/property-settings` sigue devolviendo el campo `breakfast_included` en su body. Ahora se deriva de `meals_enabled && mode == 'INCLUIDO'`. El mobile success banner (`"🍳 Desayuno incluido / no incluido"`) sigue funcionando sin cambios.
+
+### `checkins.created_at` Date → DateTime
+
+Captura hora de ingreso, no solo fecha. Data existente (`'YYYY-MM-DD'` strings) sigue leyéndose correctamente (SQLAlchemy parsea como datetime a 00:00:00). Filas nuevas obtienen full timestamp.
+
+### `Property.slug` NOT NULL
+
+Backfill `WHERE slug IS NULL → slug = id` en migration 014. Model promovido a `nullable=False`. Sirve como URL canónica de tenant cuando llegue el SaaS layer (`app.hotel.com/los-monges/`). En SQLite la enforcement del NOT NULL llega en fresh `init_db()` / Postgres cutover.
+
+### 8 `property_id` columnas promovidas a FK real
+
+`room_categories`, `rooms`, `reservations`, `system_settings`, `client_types`, `client_contracts`, `pricing_seasons`, `price_calculations` — todas pasan de `Column(String, nullable=False)` a `Column(String, ForeignKey("properties.id", ondelete="RESTRICT"))`. Option A model-only (Phase 1 convention): la enforcement llega en fresh `init_db()` o Postgres cutover. Migration 015 audita orphans antes de la promoción (0 encontrados en dev).
+
+### Retention script
+
+`scripts/cleanup_retention.py` — idempotente, dry-run capable. Reglas:
+- `price_calculations`: borra rows con `reservation_id IS NULL` más viejas que 90 días (default). Rationale: rows con `reservation_id` son audit del precio aplicado; rows sin reservation son previews/calculator hits.
+- `session_logs`: borra rows con `login_time` más viejo que 365 días (default).
+
+Ejecutar manual o vía cron:
+```bash
+python scripts/cleanup_retention.py              # default
+python scripts/cleanup_retention.py --dry-run    # reporta sin borrar
+python scripts/cleanup_retention.py --price-days 60 --session-days 180
+```
+
+No toca el schema. No requiere downtime. Safe en cualquier momento.
+
+### Critical gotchas Phase 2b
+- **JSON callers**: si ves código viejo haciendo `json.dumps(some_dict)` antes de asignar a una columna JSON — quítalo. SQLAlchemy hace doble encode si pasás un string a una columna JSON.
+- **DTOs con JSON fields**: usar `Optional[Any]` en pydantic, no `Optional[str]`. Pydantic rechazaría una lista/dict si el DTO la declara como str.
+- **PRAGMA foreign_keys=ON contamination en tests**: `test_db_constraints.py::_enable_fk` activa FK en la connection del StaticPool, y como StaticPool reusa la misma connection, **el PRAGMA persiste para tests subsiguientes**. Test funcions que insertan en tablas con FK a `properties.id` ahora deben depender de `seed_property` (se hizo para `test_settings_service.py` + `test_settings_api.py` en Phase 2b).
+- **`amenities=[]` en fixtures**, NO `amenities="[]"`. Después de Phase 2b las columnas JSON aceptan list/dict directo; pasar string a JSON column causa double-encode.
+- **Migración 014 + 015 ya aplicadas en dev DB** (resultado: drop column breakfast_included + 0 orphans en property_id audits). Próximo slot: `016_*.py`.
+- **breakfast_included en código frontend**: el mobile sigue leyendo `propertySettings.breakfast_included` — el backend devuelve el valor derivado. Cero cambios necesarios en mobile.
 
 ## Two-Repo Architecture
 

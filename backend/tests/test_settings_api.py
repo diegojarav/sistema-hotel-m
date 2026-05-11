@@ -11,7 +11,8 @@ class TestGetHotelName:
 
 
 class TestSetHotelName:
-    def test_admin(self, client, auth_headers_admin):
+    def test_admin(self, client, auth_headers_admin, seed_property):
+        # v1.10.0 Phase 2b: SystemSetting.property_id FK requires properties row.
         r = client.post("/api/v1/settings/hotel-name",
                          json={"name": "Test Hotel"},
                          headers=auth_headers_admin)
@@ -30,7 +31,8 @@ class TestParkingCapacity:
                         headers=auth_headers_admin)
         assert r.status_code == 200
 
-    def test_set_admin(self, client, auth_headers_admin):
+    def test_set_admin(self, client, auth_headers_admin, seed_property):
+        # v1.10.0 Phase 2b: SystemSetting.property_id FK requires properties row.
         r = client.post("/api/v1/settings/parking-capacity",
                          json={"capacity": 10},
                          headers=auth_headers_admin)

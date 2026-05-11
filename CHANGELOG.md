@@ -12,9 +12,72 @@
 
 ---
 
-## [v1.10.0] — abril 2026 · DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests & Buildings) + Meal Plan UI sweep
+## [v1.10.0] — abril 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization)
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva ya en `dev`; Phase 2b (type harmonization, retención de tablas append-only, drop de `breakfast_included`) pendiente antes del tag v1.10.0 final.
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + **Phase 2b (type harmonization)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+
+### Phase 2b — Type harmonization (v1.10.0-dev)
+
+Última fase de cleanup del schema SQLite antes del cutover a Postgres (Phase 3+). Cierra deuda técnica acumulada durante v1.0-v1.9 sin agregar features.
+
+#### Migración 014 — `014_type_harmonization.py`
+- **DROP `properties.breakfast_included`** (deprecated desde v1.7). Usa `ALTER TABLE ... DROP COLUMN` nativo (SQLite 3.35+, runtime corre 3.50.4). Reemplazo: combinación `meals_enabled` + `meal_inclusion_mode == "INCLUIDO"`.
+- **Backfill `properties.slug WHERE NULL → properties.id`**, luego model promovido a `nullable=False`.
+- **Verificación defensiva** (read-only): audita que todas las columnas Boolean-as-Integer tengan valores en `{NULL,0,1}`, todas las JSON-in-String parseen como JSON válido, y cero orphans en `property_id` antes de la promoción en migración 015.
+- Resultado en dev DB: column `breakfast_included` dropped, 0 NULL slugs, 0 anomalies en booleans/JSON/FKs.
+
+#### Migración 015 — `015_property_id_fk_promotion.py`
+- **Promueve 8 columnas `property_id` restantes a FK real** (Option A — model-only, igual que Phase 1):
+  - `room_categories`, `rooms`, `reservations`, `system_settings`, `client_types`, `client_contracts`, `pricing_seasons`, `price_calculations`
+- Re-verifica orphans en runtime antes de declarar el cambio aplicado. Resultado en dev DB: 0 orphans en las 8 tablas.
+- La enforcement de FK en SQLite llega en fresh `init_db()` o en el Postgres cutover (skill §2 "Cascade rules"). Hoy queda como model-only.
+
+#### Cambios en `database.py` (model-only, sin migración SQL)
+- **27 columnas Boolean-as-Integer → Boolean**: `room_categories.active`, `rooms.active`, `client_types.active`/`requires_contract`, `client_contracts.active`, `pricing_seasons.active`, `properties.active`/`parking_available`/`meals_enabled`, `ical_feeds.sync_enabled`, `meal_plans.is_system`/`is_active`, `migration_history.success`, y las 14 `AIAgentPermission.can_*` + `requires_confirmation`. SQLite almacena bool como INTEGER bajo el capó; reads ahora devuelven `bool` nativo via SQLAlchemy.
+- **5 columnas JSON-in-String → JSON**: `room_categories.bed_configuration`/`amenities`, `reservations.price_breakdown`, `pricing_seasons.applies_to_categories`, `price_calculations.calculation_details`. Auto-encode/decode; en Postgres se vuelven `JSONB`.
+- **`checkins.created_at` Date → DateTime**: captura hora de ingreso, no solo fecha. Data existente (`'YYYY-MM-DD'` strings) lee como datetime a 00:00:00 sin migración.
+
+#### Service-layer ajustes
+- `ReservationService.create_reservations`: antes hacía `breakdown = json.dumps(...)`; ahora pasa el dict crudo (`Column(JSON)` lo serializa).
+- `SettingsService.get_property_settings`: deriva `breakfast_included` de `meals_enabled && mode == 'INCLUIDO'` para preservar el contrato del API (PC + mobile siguen leyendo el campo sin cambios).
+- `RoomCategoryDTO.amenities` / `bed_configuration` cambiados de `Optional[str]` a `Optional[Any]` (Pydantic ahora acepta lista/dict del JSON column).
+- `ReservationCreate.price_breakdown` cambiado de `Optional[str]` a `Optional[Any]`.
+
+#### Script nuevo: `scripts/cleanup_retention.py`
+Maintenance job idempotente para tablas append-only:
+- `price_calculations`: prune WHERE `reservation_id IS NULL AND calculated_at < now - 90 days` (default). Audit trail real (con `reservation_id`) NUNCA se borra.
+- `session_logs`: prune WHERE `login_time < now - 365 days` (default).
+- CLI: `--dry-run`, `--price-days N`, `--session-days N`, `--db <path>`.
+- Loguea a stdout en formato project-style. Exit 0 success, non-zero on error.
+
+Ready para cron / Task Scheduler. Documentado en CLAUDE.md como periodic maintenance.
+
+#### Tests
+- **`backend/tests/test_type_harmonization.py` (NEW)** — 19 tests:
+  - `TestBooleanRoundTrip` (7): Property/Room/RoomCategory/AIAgentPermission/MealPlan columns devuelven `bool` real.
+  - `TestJSONRoundTrip` (2): list/dict en JSON columns round-trippean correcto, no como string.
+  - `TestCheckinCreatedAtDatetime` (1): nuevas filas tienen `datetime` con hora.
+  - `TestBreakfastIncludedRemoved` (3): no atributo en clase, no en `__table__.columns`, API deriva el valor.
+  - `TestPropertySlugNotNull` (2): slug requerido (`IntegrityError` si NULL) + UNIQUE.
+  - `TestRetentionScript` (4): prune correcto, dry-run no-op, idempotente.
+- Conftest actualizado:
+  - `seed_pricing_data` ahora depende de `seed_property` (RoomCategory/ClientType/PricingSeason tienen FK real ahora).
+  - `seed_property` no pasa `breakfast_included` (drop).
+  - `amenities` en fixtures pasa de string `"[]"` a list real `[]`.
+- Tests de settings (5) ahora dependen de `seed_property` porque `SystemSetting.property_id` tiene FK y `test_db_constraints._enable_fk` activa `PRAGMA foreign_keys=ON` en el StaticPool del test engine (persiste cross-tests).
+- Total: **752 tests passed, 0 regresiones** (167s).
+
+#### Critical gotchas
+- **JSON column + `json.dumps()` previo = double-encode**. Si pasás una `str` JSON-encoded a una columna `Column(JSON)`, SQLAlchemy la encoda otra vez. Pasar el dict crudo.
+- **DTOs Pydantic con JSON fields**: usar `Optional[Any]`, NO `Optional[str]`. Pydantic v2 rechaza la lista/dict si declarás `str`.
+- **`PRAGMA foreign_keys=ON` persiste en el StaticPool del test engine**: `test_db_constraints.py::_enable_fk` lo activa en el connection compartido. Una vez ON, persiste para tests subsiguientes. Tests que insertan en tablas con FK a `properties.id` deben declarar `seed_property` como dependencia. Documentado en skill.
+- **`amenities="[]"` ya no funciona como antes**. Después de Phase 2b la columna es JSON — pasar lista real `[]` o `None`, no string.
+- **`breakfast_included` desapareció del modelo**: si encontrás código viejo accediendo `prop.breakfast_included`, migrarlo a `prop.meals_enabled and prop.meal_inclusion_mode == "INCLUIDO"`. API response sigue exponiendo el campo derivado.
+- **Próximo slot de migración: `016_*.py`**. Migraciones 014 + 015 aplicadas en dev DB. Idempotentes.
+
+---
+
+
 
 ### Meal Plan UI sweep (v1.10.0-dev)
 

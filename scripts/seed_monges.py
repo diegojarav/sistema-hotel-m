@@ -88,8 +88,9 @@ PROPERTY_DATA = {
     "check_in_start": "07:00",
     "check_in_end": "22:00",
     "check_out_time": "10:00",
-    "breakfast_included": 0,
-    "parking_available": 1,
+    # Phase 2b: breakfast_included dropped (deprecated v1.7).
+    # Use `meals_enabled` + `meal_inclusion_mode` instead.
+    "parking_available": True,
     "timezone": "America/Asuncion",
     "currency": "PYG",
     "address": "Calle Principal 123, Ciudad del Este, Paraguay",

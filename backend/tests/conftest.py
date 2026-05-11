@@ -161,8 +161,9 @@ def seed_property(db_session):
         check_in_start="07:00",
         check_in_end="22:00",
         check_out_time="10:00",
-        breakfast_included=0,
-        parking_available=1,
+        # Phase 2b: breakfast_included dropped — equivalent state is
+        # meals_enabled=False (the test fixture default).
+        parking_available=True,
         currency="PYG",
     )
     db_session.add(prop)
@@ -183,13 +184,14 @@ def seed_rooms(db_session, seed_property, seed_client_types):
     has the client_type_id FK target available (Bonus #3.1 promoted that
     column from String to ForeignKey).
     """
+    # v1.10.0 Phase 2b: amenities is now a JSON column — pass list, not JSON-string.
     cat_std = RoomCategory(
         id="los-monges-estandar",
         property_id="los-monges",
         name="Estandar",
         base_price=150000.0,
         max_capacity=2,
-        amenities="[]",
+        amenities=[],
         sort_order=1,
     )
     cat_suite = RoomCategory(
@@ -198,7 +200,7 @@ def seed_rooms(db_session, seed_property, seed_client_types):
         name="Suite",
         base_price=250000.0,
         max_capacity=4,
-        amenities='["jacuzzi"]',
+        amenities=["jacuzzi"],
         sort_order=2,
     )
     db_session.add_all([cat_std, cat_suite])
@@ -262,18 +264,25 @@ def seed_users(db_session):
 
 
 @pytest.fixture
-def seed_pricing_data(db_session):
-    """Seeds the test DB with pricing data (categories, client types, seasons)."""
+def seed_pricing_data(db_session, seed_property):
+    """Seeds the test DB with pricing data (categories, client types, seasons).
+
+    v1.10.0 Phase 2b: now depends on `seed_property` because RoomCategory,
+    ClientType, and PricingSeason all have a real `property_id` FK to
+    `properties.id` (promoted in migration 015 + model). Without the parent
+    Property row, SQLite rejects the inserts under PRAGMA foreign_keys=ON.
+    """
     prop_id = "los-monges"
 
     # Room Category
+    # amenities is now a JSON column (Phase 2b) — pass list/None, not str "[]"
     cat = RoomCategory(
         id=f"{prop_id}-estandar",
         property_id=prop_id,
         name="Estandar",
         base_price=150000.0,
         max_capacity=2,
-        amenities="[]",
+        amenities=[],
     )
     db_session.add(cat)
 

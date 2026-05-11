@@ -242,7 +242,10 @@ class ReservationService:
             )
 
             final_price = price_data.get("final_price", data.price)
-            breakdown = json.dumps(price_data.get("breakdown", {}))
+            # v1.10.0 Phase 2b: price_breakdown is now a JSON column — pass the
+            # dict directly, SQLAlchemy handles the serialization. Pre-Phase-2b
+            # we did `json.dumps(...)` because the column was String.
+            breakdown = price_data.get("breakdown", {})
 
             new_res = Reservation(
                 id=res_id,

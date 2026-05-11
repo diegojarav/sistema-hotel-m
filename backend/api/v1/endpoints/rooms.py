@@ -30,7 +30,7 @@ router = APIRouter()
 # ==========================================
 
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 
 
 class RoomDTO(BaseModel):
@@ -62,15 +62,20 @@ class RoomStatusDTO(BaseModel):
 
 
 class RoomCategoryDTO(BaseModel):
-    """Room category with pricing information."""
+    """Room category with pricing information.
+
+    v1.10.0 Phase 2b: bed_configuration + amenities are now JSON columns
+    (list/dict). They were stringified JSON pre-Phase-2b; the DTO now
+    accepts the parsed shape directly.
+    """
     id: str
     name: str
     description: Optional[str] = None
     base_price: float
     max_capacity: int
-    bed_configuration: Optional[str] = None
-    amenities: Optional[str] = None
-    active: int = 1
+    bed_configuration: Optional[Any] = None
+    amenities: Optional[Any] = None
+    active: bool = True
 
 
 class CreateRoomsRequest(BaseModel):

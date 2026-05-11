@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import (
     create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime,
-    Time, event, Boolean, UniqueConstraint, CheckConstraint, Index,
+    Time, event, Boolean, UniqueConstraint, CheckConstraint, Index, JSON,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from datetime import datetime
@@ -84,16 +84,22 @@ class RoomCategory(Base):
     """Room categories with base pricing (Los Monges MVP)."""
     __tablename__ = "room_categories"
     id = Column(String, primary_key=True)
-    property_id = Column(String, nullable=False)
+    # Phase 2b #FK: promoted to real ForeignKey. SQLite enforcement lands on
+    # fresh init_db() / Postgres cutover (Option A — see Phase 1 cascade notes).
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     base_price = Column(Float, nullable=False)
     max_capacity = Column(Integer, nullable=False)
-    bed_configuration = Column(String, nullable=True)  # JSON
-    amenities = Column(String, nullable=True)  # JSON
+    # Phase 2b #JSON: was String holding JSON. SQLAlchemy JSON type handles
+    # encode/decode automatically; on Postgres it becomes JSONB.
+    bed_configuration = Column(JSON, nullable=True)
+    amenities = Column(JSON, nullable=True)
     image_url = Column(String, nullable=True)
     sort_order = Column(Integer, default=0)
-    active = Column(Integer, default=1)
+    # Phase 2b #Bool: was Integer(0/1) — promoted to real Boolean. Existing
+    # 0/1 ints round-trip transparently via SQLAlchemy.
+    active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -103,7 +109,8 @@ class Room(Base):
     __tablename__ = "rooms"
     id = Column(String, primary_key=True)
     # PERF-006: Added indexes for frequently filtered columns
-    property_id = Column(String, nullable=False, index=True)
+    # Phase 2b #FK: promoted to real ForeignKey (Option A — model-only).
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False, index=True)
     # Phase 2a #2: promoted to FK; SET NULL because the building can be retired
     # without the room disappearing (the room just becomes "unassigned").
     # Migration 012 creates the buildings table and backfills a default building
@@ -124,7 +131,8 @@ class Room(Base):
     notes = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    active = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    active = Column(Boolean, default=True)
     # Phase 1 #15: enum CHECK — enforced on fresh init_db() and on Postgres migration.
     # Existing SQLite data is unaffected (no rebuild). All current values are within the set.
     __table_args__ = (
@@ -161,11 +169,10 @@ class Reservation(Base):
     cancelled_by = Column(String, nullable=True)
 
     # New fields for Los Monges / Pricing System
-    # Phase 2a #6: property_id remains String (no FK yet) — promoted in Phase 2b
-    # along with the other 8 String-only property_id columns. Touching it here
-    # would force a table rebuild (no ALTER FK in SQLite), and we'd rather batch
-    # all property_id promotions in one cutover migration once Postgres lands.
-    property_id = Column(String, nullable=True)
+    # Phase 2b #FK: promoted to real ForeignKey (Option A — model-only). Audit
+    # confirmed 0 orphans before promotion. SQLite enforcement lands on table
+    # rebuild or Postgres cutover.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=True)
     # Phase 2a Bonus #3.1: promote logical FKs that were String-only. SET NULL
     # because the catalog row can be retired without losing the reservation
     # (the price_breakdown snapshot already captures the historical context).
@@ -175,7 +182,8 @@ class Reservation(Base):
     category_id = Column(String, ForeignKey("room_categories.id", ondelete="SET NULL"), nullable=True)
     client_type_id = Column(String, ForeignKey("client_types.id", ondelete="SET NULL"), nullable=True)
     contract_id = Column(String, ForeignKey("client_contracts.id", ondelete="SET NULL"), nullable=True)
-    price_breakdown = Column(String, nullable=True) # JSON
+    # Phase 2b #JSON: was String holding JSON. Auto-encodes/decodes via ORM.
+    price_breakdown = Column(JSON, nullable=True)
     season_applied = Column(String, nullable=True)
     original_price = Column(Float, nullable=True)
     discount_amount = Column(Float, nullable=True)
@@ -209,7 +217,10 @@ class Reservation(Base):
 class CheckIn(Base):
     __tablename__ = "checkins"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(Date) # Fecha_Ingreso
+    # Phase 2b #Type: Date → DateTime so we capture hora_ingreso, not only the date.
+    # Existing rows store ISO date strings ('YYYY-MM-DD') which SQLAlchemy reads
+    # back as datetime at 00:00:00 — no data migration needed.
+    created_at = Column(DateTime, default=datetime.now)  # Fecha+Hora_Ingreso
 
     # Phase 1 #4: RESTRICT — checkins are guest registry data, never lose them on room deletion.
     room_id = Column(String, ForeignKey("rooms.id", ondelete="RESTRICT"))
@@ -309,7 +320,8 @@ class SystemSetting(Base):
     """System settings per property (Los Monges MVP)."""
     __tablename__ = "system_settings"
     id = Column(String, primary_key=True)
-    property_id = Column(String, nullable=False)
+    # Phase 2b #FK: promoted to real ForeignKey (Option A — model-only).
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     setting_key = Column(String, nullable=False)
     setting_value = Column(String, nullable=True)
     setting_type = Column(String, default="string")
@@ -327,16 +339,19 @@ class ClientType(Base):
     """Client types for dynamic pricing (Los Monges)."""
     __tablename__ = "client_types"
     id = Column(String, primary_key=True)
-    property_id = Column(String, nullable=False)
+    # Phase 2b #FK: promoted to real ForeignKey.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     default_discount_percent = Column(Float, default=0.0)
-    requires_contract = Column(Integer, default=0)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    requires_contract = Column(Boolean, default=False)
     min_rooms_per_booking = Column(Integer, default=1)
     color = Column(String, default="#6B7280")
     icon = Column(String, nullable=True)
     sort_order = Column(Integer, default=0)
-    active = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
 
 
@@ -344,7 +359,8 @@ class ClientContract(Base):
     """Corporate contracts."""
     __tablename__ = "client_contracts"
     id = Column(String, primary_key=True)
-    property_id = Column(String, nullable=False)
+    # Phase 2b #FK: promoted to real ForeignKey.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     # Phase 1 #11-bis: RESTRICT — never delete a client_type that has contracts attached.
     client_type_id = Column(String, ForeignKey("client_types.id", ondelete="RESTRICT"), nullable=False)
     company_name = Column(String, nullable=False)
@@ -361,23 +377,27 @@ class ClientContract(Base):
     notes = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    active = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    active = Column(Boolean, default=True)
 
 
 class PricingSeason(Base):
     """Seasonal pricing rules."""
     __tablename__ = "pricing_seasons"
     id = Column(String, primary_key=True)
-    property_id = Column(String, nullable=False)
+    # Phase 2b #FK: promoted to real ForeignKey.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     price_modifier = Column(Float, nullable=False)
-    applies_to_categories = Column(String, nullable=True) # JSON
+    # Phase 2b #JSON: was String holding JSON. Auto-encodes/decodes via ORM.
+    applies_to_categories = Column(JSON, nullable=True)
     priority = Column(Integer, default=0)
     color = Column(String, default="#F59E0B")
-    active = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
 
 
@@ -386,7 +406,8 @@ class PriceCalculation(Base):
     __tablename__ = "price_calculations"
     id = Column(Integer, primary_key=True, autoincrement=True)
     reservation_id = Column(String, nullable=True)
-    property_id = Column(String, nullable=False)
+    # Phase 2b #FK: promoted to real ForeignKey.
+    property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=False)
     category_id = Column(String, nullable=True)
     category_name = Column(String, nullable=True)
     base_price_per_night = Column(Float, nullable=False)
@@ -406,7 +427,8 @@ class PriceCalculation(Base):
     special_discount_reason = Column(String, nullable=True)
     special_discount_amount = Column(Float, default=0.0)
     final_price = Column(Float, nullable=False)
-    calculation_details = Column(String, nullable=True) # JSON
+    # Phase 2b #JSON: was String holding JSON. Auto-encodes/decodes via ORM.
+    calculation_details = Column(JSON, nullable=True)
     calculated_at = Column(DateTime, default=datetime.now)
     calculated_by = Column(String, nullable=True)
 
@@ -417,11 +439,10 @@ class Property(Base):
     __tablename__ = "properties"
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    # Phase 2a Bonus #3.2: slug should become the canonical URL key when the
-    # multi-tenant SaaS layer lands (e.g. `app.hotel.com/los-monges/`). Marked
-    # UNIQUE in the model now; migration 013 backfills NULL slugs from the id
-    # before promoting the column to NOT NULL.
-    slug = Column(String, unique=True, nullable=True)
+    # Phase 2b #slug: backfilled WHERE NULL via migration 014, then promoted to
+    # NOT NULL. UNIQUE was already declared in Phase 2a. Canonical URL key for
+    # the future SaaS layer (e.g. `app.hotel.com/los-monges/`).
+    slug = Column(String, unique=True, nullable=False)
     display_mode = Column(String, default="category")
     theme_background = Column(String, default="#FFFFFF")
     theme_text = Column(String, default="#000000")
@@ -429,10 +450,15 @@ class Property(Base):
     check_in_start = Column(String, default="07:00")
     check_in_end = Column(String, default="22:00")
     check_out_time = Column(String, default="10:00")
-    breakfast_included = Column(Integer, default=0)  # DEPRECATED v1.7: use meals_enabled + meal_inclusion_mode instead. Removal tracked in ROADMAP.md (backlog).
-    parking_available = Column(Integer, default=1)
+    # Phase 2b: `breakfast_included` REMOVED (was deprecated v1.7). Migration 014
+    # drops the SQLite column via DROP COLUMN (SQLite 3.35+). The whole "should
+    # the hotel include breakfast?" question is now answered by `meals_enabled`
+    # + `meal_inclusion_mode` below.
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    parking_available = Column(Boolean, default=True)
     # v1.7.0 — Meal Plan Configuration (Phase 4)
-    meals_enabled = Column(Integer, default=0)  # master on/off for meal features
+    # Phase 2b #Bool: Integer(0/1) → Boolean. Master on/off for meal features.
+    meals_enabled = Column(Boolean, default=False)
     meal_inclusion_mode = Column(String, nullable=True)  # INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
     timezone = Column(String, default="America/Asuncion")
     currency = Column(String, default="PYG")
@@ -443,7 +469,8 @@ class Property(Base):
     instagram_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now)
-    active = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    active = Column(Boolean, default=True)
 
 
 class ICalFeed(Base):
@@ -456,7 +483,8 @@ class ICalFeed(Base):
     source = Column(String, nullable=False)  # "Booking.com" | "Airbnb" | "Vrbo" | "Expedia" | "Custom" | <free text>
     ical_url = Column(String, nullable=False)
     last_synced_at = Column(DateTime, nullable=True)  # last successful sync
-    sync_enabled = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean.
+    sync_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     # v1.5.0 — health tracking (Phase 2)
     last_sync_status = Column(String, default="NEVER", index=True)  # OK | ERROR | NEVER
@@ -602,8 +630,9 @@ class MealPlan(Base):
     surcharge_per_person = Column(Float, nullable=False, default=0.0)  # PYG per person per night
     surcharge_per_room = Column(Float, nullable=False, default=0.0)  # PYG per room per night
     applies_to_mode = Column(String, nullable=False, default="ANY")  # ANY | INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
-    is_system = Column(Integer, nullable=False, default=0)  # 1 = seeded/protected from deletion
-    is_active = Column(Integer, nullable=False, default=1, index=True)
+    # Phase 2b #Bool: Integer(0/1) → Boolean. is_system=True for seeded/protected plans.
+    is_system = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -687,21 +716,23 @@ class AIAgentPermission(Base):
     # Phase 1 #19 (cascade): CASCADE — permissions are pure config; meaningless without the property.
     property_id = Column(String, ForeignKey("properties.id", ondelete="CASCADE"), nullable=True)
     role = Column(String, nullable=False)
-    can_view_reservations = Column(Integer, default=1)
-    can_create_reservations = Column(Integer, default=1)
-    can_modify_reservations = Column(Integer, default=0)
-    can_cancel_reservations = Column(Integer, default=0)
-    can_view_guests = Column(Integer, default=1)
-    can_modify_guests = Column(Integer, default=0)
-    can_view_rooms = Column(Integer, default=1)
-    can_modify_rooms = Column(Integer, default=0)
-    can_modify_room_status = Column(Integer, default=0)
-    can_view_prices = Column(Integer, default=1)
-    can_modify_prices = Column(Integer, default=0)
-    can_view_reports = Column(Integer, default=1)
-    can_export_data = Column(Integer, default=0)
-    can_modify_settings = Column(Integer, default=0)
-    requires_confirmation = Column(Integer, default=1)
+    # Phase 2b #Bool: all 14 can_* + requires_confirmation flags Integer(0/1) → Boolean.
+    # Reads from existing 0/1 data round-trip transparently via the ORM.
+    can_view_reservations = Column(Boolean, default=True)
+    can_create_reservations = Column(Boolean, default=True)
+    can_modify_reservations = Column(Boolean, default=False)
+    can_cancel_reservations = Column(Boolean, default=False)
+    can_view_guests = Column(Boolean, default=True)
+    can_modify_guests = Column(Boolean, default=False)
+    can_view_rooms = Column(Boolean, default=True)
+    can_modify_rooms = Column(Boolean, default=False)
+    can_modify_room_status = Column(Boolean, default=False)
+    can_view_prices = Column(Boolean, default=True)
+    can_modify_prices = Column(Boolean, default=False)
+    can_view_reports = Column(Boolean, default=True)
+    can_export_data = Column(Boolean, default=False)
+    can_modify_settings = Column(Boolean, default=False)
+    requires_confirmation = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     # Phase 1 #10 (audit ID): UNIQUE(property_id, role) was assumed by the service but
@@ -727,7 +758,8 @@ class MigrationHistory(Base):
     description = Column(String, nullable=True)
     applied_at = Column(DateTime, default=datetime.now)
     applied_by = Column(String, default="run_migrations.py")
-    success = Column(Integer, default=1)
+    # Phase 2b #Bool: Integer(0/1) → Boolean for consistency with the rest of the schema.
+    success = Column(Boolean, default=True)
     __table_args__ = (
         UniqueConstraint("version", "name", name="uq_migration_history_version_name"),
     )

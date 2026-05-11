@@ -10,12 +10,16 @@ class TestHotelName:
         name = SettingsService.get_hotel_name(db_session)
         assert name == "Mi Hotel"
 
-    def test_set_and_get(self, db_session):
+    def test_set_and_get(self, db_session, seed_property):
+        # v1.10.0 Phase 2b: SystemSetting.property_id is now a FK to properties.id,
+        # so the parent Property row must exist before a SystemSetting can be
+        # inserted (under PRAGMA foreign_keys=ON which test_db_constraints turns
+        # on for the shared StaticPool connection).
         SettingsService.set_hotel_name(db_session, "Los Monges")
         name = SettingsService.get_hotel_name(db_session)
         assert name == "Los Monges"
 
-    def test_update_existing(self, db_session):
+    def test_update_existing(self, db_session, seed_property):
         SettingsService.set_hotel_name(db_session, "First")
         SettingsService.set_hotel_name(db_session, "Second")
         assert SettingsService.get_hotel_name(db_session) == "Second"
@@ -26,17 +30,17 @@ class TestParkingCapacity:
         cap = SettingsService.get_parking_capacity(db_session)
         assert cap == 5
 
-    def test_set_and_get(self, db_session):
+    def test_set_and_get(self, db_session, seed_property):
         SettingsService.set_parking_capacity(db_session, 10)
         cap = SettingsService.get_parking_capacity(db_session)
         assert cap == 10
 
-    def test_update_existing(self, db_session):
+    def test_update_existing(self, db_session, seed_property):
         SettingsService.set_parking_capacity(db_session, 8)
         SettingsService.set_parking_capacity(db_session, 12)
         assert SettingsService.get_parking_capacity(db_session) == 12
 
-    def test_invalid_value_returns_default(self, db_session):
+    def test_invalid_value_returns_default(self, db_session, seed_property):
         """Non-numeric parking_capacity in DB falls back to default 5."""
         from database import SystemSetting
         import uuid

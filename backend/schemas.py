@@ -83,7 +83,10 @@ class ReservationCreate(BaseModel):
     category_id: Optional[str] = Field(default=None, description="ID de categoría de habitación")
     client_type_id: Optional[str] = Field(default=None, description="ID de tipo de cliente")
     contract_id: Optional[str] = Field(default=None, description="ID de contrato corporativo")
-    price_breakdown: Optional[str] = Field(default=None, description="Detalle de cálculo de precio (JSON)") # JSON string
+    # v1.10.0 Phase 2b: was Optional[str] of JSON-encoded text. Now accepts
+    # a dict (or JSON-encoded string for back-compat with older callers —
+    # the JSON column stores whatever it gets via its `value_processor`).
+    price_breakdown: Optional[Any] = Field(default=None, description="Detalle de cálculo de precio (dict)")
     
     # Parking & Source
     parking_needed: bool = Field(default=False, description="Indica si se necesita parking")

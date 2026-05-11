@@ -10,13 +10,13 @@
 
 | Item | Estado |
 |---|---|
-| Versión | v1.10.0-dev |
-| Tests | 733 · 83% cobertura |
+| Versión | v1.10.0-dev (listo para tag v1.10.0 final tras commit/push) |
+| Tests | 752 · 83% cobertura |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
-| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) |
-| Próxima migración | `014_*.py` |
+| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) + **Phase 2b (Type harmonization, v1.10.0-dev)** |
+| Próxima migración | `016_*.py` |
 | AI tools | 20 (último: `buscar_vehiculo`) |
 | Tablas | 28 (suma `billing_profiles` + `guest_vehicles` + `checkin_vehicles` desde Phase 2a-ext) |
 
@@ -81,15 +81,19 @@ Resolución: implementado vía Feature 3 en v1.9.0. Migración 007, modelo `Room
 
 ---
 
-## Phase 2b — Type harmonization + retention (próxima, requerida antes del tag v1.10.0)
+## Phase 2b — Type harmonization + retention · ✅ COMPLETADA en v1.10.0-dev
 
-Continuación de la auditoría DB. **No agrega features**, prepara el cutover a Postgres y limpia debt acumulado:
-- **Boolean-as-Integer fixes** — 14 columnas declaradas como `Column(Integer, default=0/1)` que conceptualmente son booleanas. Migrar a `Column(Boolean)` con table-rebuild dance bajo SQLite (la conversión es no-op en Postgres).
-- **JSON-as-String fixes** — 4 columnas con comentario `# JSON` que guardan strings: `reservations.price_breakdown`, `room_categories.amenities`, `pricing_seasons.applies_to_categories`, `price_calculations.calculation_details`. Migrar a `Column(JSON)` (en Postgres se vuelve `JSONB`).
-- **Drop `Property.breakfast_included`** — deprecated desde v1.7. Reemplazado por `meals_enabled` + `meal_inclusion_mode`. Slot disponible: `013_*.py`.
-- **Promover los 9 `property_id` String restantes a FK reales** — hoy 12/24 tablas tienen `property_id` pero solo 3 lo declaran como FK. La promoción es model-only (Phase 1 Option A). Audit pendiente de orphan rows antes.
-- **Backfill `Property.slug` NULL → property.id** y promover a `NOT NULL` (UNIQUE ya declarado en Phase 2a).
-- **Retención automática para tablas append-only** — `price_calculations` y `session_logs` crecen sin límite. Job semanal que elimina rows >365 días. Configurable via `system_settings`.
+Implementada via migraciones 014 + 015 + script `scripts/cleanup_retention.py` (commit pendiente). Ver entrada Phase 2b en CHANGELOG.md para detalle. Resumen ejecutado:
+- ✅ **27 columnas Boolean-as-Integer → Boolean** (cobertura mayor que el "14" estimado originalmente — incluye los 14 `AIAgentPermission.can_*` que se activaron en v1.9.0 + las 13 catalog/config).
+- ✅ **5 columnas JSON-in-String → `Column(JSON)`** (`reservations.price_breakdown`, `room_categories.bed_configuration`/`amenities`, `pricing_seasons.applies_to_categories`, `price_calculations.calculation_details`).
+- ✅ **`properties.breakfast_included` REMOVED** via SQLite 3.35+ native `DROP COLUMN`. API contract preservado: el field `breakfast_included` en `/settings/property-settings` se deriva de `meals_enabled && mode=='INCLUIDO'`.
+- ✅ **8 `property_id` columnas restantes promovidas a FK** real (`room_categories`, `rooms`, `reservations`, `system_settings`, `client_types`, `client_contracts`, `pricing_seasons`, `price_calculations`). Option A — model-only, audit confirmó 0 orphans.
+- ✅ **`Property.slug` backfilled + promovido a NOT NULL**.
+- ✅ **`checkins.created_at` Date → DateTime** (captura hora de ingreso).
+- ✅ **`scripts/cleanup_retention.py`** — idempotente, dry-run capable, configurable. Documentado en CLAUDE.md como periodic maintenance task.
+- Tests: 19 nuevos en `test_type_harmonization.py`, total **752 tests**, 0 regresiones.
+
+Próximo slot: `016_*.py`. Ready para tag v1.10.0 final.
 
 ## Phase 3+ — PostgreSQL cutover (después de Phase 2b)
 

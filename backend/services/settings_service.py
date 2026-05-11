@@ -86,7 +86,13 @@ class SettingsService:
     @staticmethod
     @with_db
     def get_property_settings(db: Session, property_id: str = "los-monges") -> dict:
-        """Get property settings: check-in/out times and breakfast policy."""
+        """Get property settings: check-in/out times and breakfast policy.
+
+        v1.10.0 Phase 2b: `breakfast_included` is no longer a column on Property
+        (dropped — was deprecated since v1.7). The returned value is now derived
+        from `meals_enabled` + `meal_inclusion_mode == "INCLUIDO"` to keep the
+        API contract stable for existing mobile/PC clients that read this field.
+        """
         from database import Property
         prop = db.query(Property).filter(Property.id == property_id).first()
         if not prop:
@@ -96,11 +102,12 @@ class SettingsService:
                 "check_out_time": "10:00",
                 "breakfast_included": False
             }
+        breakfast_in_rate = bool(prop.meals_enabled) and (prop.meal_inclusion_mode == "INCLUIDO")
         return {
             "check_in_start": prop.check_in_start or "07:00",
             "check_in_end": prop.check_in_end or "22:00",
             "check_out_time": prop.check_out_time or "10:00",
-            "breakfast_included": bool(prop.breakfast_included)
+            "breakfast_included": breakfast_in_rate,
         }
 
     # ==================================================================
