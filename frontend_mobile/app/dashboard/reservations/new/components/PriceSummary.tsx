@@ -78,8 +78,17 @@ export default function PriceSummary({
                     <input
                         type="number"
                         min={0}
-                        step={10000}
+                        // step=1 so any integer Gs is valid (Guaraníes have no decimals
+                        // but ANY whole-number value should be acceptable). Pre-hotfix
+                        // step={10000} forced multiples of 10k → calculated prices
+                        // like 332.500 Gs were rejected by HTML5 validation:
+                        //   "Please enter a valid value. The two nearest valid values
+                        //    are 330000 and 340000."
+                        step={1}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={formData.precio}
+                        onFocus={(e) => e.currentTarget.select()}
                         onChange={(e) => onFormChange({ precio: parseFloat(e.target.value) || 0 })}
                         className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                     />

@@ -644,18 +644,29 @@ def render_tab_reserva():
         st.markdown("---")
 
         # Manual price override
+        # step=1.0 (was 10000.0): Guaraníes have no decimals but any integer
+        # is a valid amount. step=10000 forced multiples of 10k — a calculated
+        # price like 332.500 Gs would have been silently rounded to 330.000 on
+        # +/- arrow nudges. format="%.0f" hides decimal places either way.
         if precio_calculado > 0:
             price_key = f"price_input_{int(precio_calculado)}"
             precio = st.number_input(
                 "💰 Precio Final (Confirmar o Ajustar)",
-                step=10000.0,
+                step=1.0,
                 value=float(precio_calculado),
                 min_value=0.0,
+                format="%.0f",
                 help="El precio calculado incluye temporada y descuentos. Puede ajustar manualmente.",
                 key=price_key
             )
         else:
-            precio = st.number_input("💰 Precio Total", step=10000.0, value=d_precio, min_value=0.0)
+            precio = st.number_input(
+                "💰 Precio Total",
+                step=1.0,
+                value=d_precio,
+                min_value=0.0,
+                format="%.0f",
+            )
 
         recibido = st.session_state.user.username
 
