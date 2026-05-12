@@ -1,6 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import calendar as cal_module
+import pandas as pd
 from datetime import date
 
 from helpers.constants import DIAS_SEMANA
@@ -414,6 +415,161 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
                     col_s.metric("Saldo", f"{saldo['pending']:,.0f} Gs".replace(",", "."))
             except Exception:
                 pass
+
+            # ==========================================================
+            # CONSUMOS — daily view entry point (v1.10.0)
+            # ==========================================================
+            # Receptionist UX: charging a Coca-Cola needs to be 2-3 clicks
+            # from the calendar tab. Before v1.10.0 this section lived ONLY in
+            # tab_reserva.py edit mode — buried 5+ clicks deep. Now it's
+            # alongside Registrar Pago, where the natural workflow is:
+            # see saldo → charge consumos → collect payment.
+            #
+            # The edit-mode section in tab_reserva.py stays as the
+            # detailed audit view (voided rows, void buttons, folio PDF).
+            # ==========================================================
+            if res_status in active_states:
+                st.markdown("---")
+                try:
+                    from services import ConsumoService, ConsumoError, ProductService
+                    _consumos_active = ConsumoService.list_by_reserva(
+                        reserva_id=res_id, include_voided=False
+                    )
+                except Exception:
+                    _consumos_active = []
+                    ConsumoError = Exception  # noqa: F811
+
+                _consumo_total = sum(float(c.total or 0) for c in _consumos_active)
+                _consumo_count_lbl = f"{len(_consumos_active)} producto(s)"
+                _consumo_total_lbl = f"{_consumo_total:,.0f} Gs".replace(",", ".")
+                st.markdown(
+                    f"**🧾 Consumos** ({_consumo_count_lbl} · {_consumo_total_lbl})"
+                )
+
+                if _consumos_active:
+                    _rows = []
+                    for c in _consumos_active:
+                        _rows.append({
+                            "Producto": c.producto_name,
+                            "Cant.": int(c.quantity or 0),
+                            "Total (Gs)": f"{float(c.total or 0):,.0f}".replace(",", "."),
+                            "Fecha": (
+                                c.created_at.strftime("%d/%m %H:%M")
+                                if c.created_at else "-"
+                            ),
+                        })
+                    st.dataframe(pd.DataFrame(_rows), hide_index=True, width="stretch")
+                else:
+                    st.caption("Sin consumos registrados en esta reserva.")
+
+                # --- Cargar Producto form (expander) ---
+                with st.expander("➕ Cargar Producto", expanded=False):
+                    try:
+                        _all_products = ProductService.list_products(active_only=True)
+                    except Exception:
+                        _all_products = []
+
+                    if not _all_products:
+                        st.warning(
+                            "No hay productos activos en el catálogo. "
+                            "Agregalos desde **📦 Inventario** antes de cargar consumos."
+                        )
+                    else:
+                        # Build product picker — name + price + stock label;
+                        # skip out-of-stock items (mobile parity).
+                        _opt_to_p = {}
+                        for _p in _all_products:
+                            if _p.is_stocked and (_p.stock_current or 0) <= 0:
+                                continue
+                            _stock_str = (
+                                f" · stock {_p.stock_current}"
+                                if _p.is_stocked else ""
+                            )
+                            _price_str = f"{float(_p.price or 0):,.0f}".replace(",", ".")
+                            _label = f"{_p.name} — {_price_str} Gs{_stock_str}"
+                            _opt_to_p[_label] = _p
+                        _opt_labels = list(_opt_to_p.keys())
+
+                        if not _opt_labels:
+                            st.warning(
+                                "Todos los productos del catálogo están sin stock. "
+                                "Reponé desde **📦 Inventario**."
+                            )
+                        else:
+                            _col_prod, _col_qty = st.columns([3, 1])
+                            with _col_prod:
+                                _pick_label = st.selectbox(
+                                    "Producto",
+                                    options=_opt_labels,
+                                    key=f"daily_cons_prod_{res_id}_{day_key}",
+                                )
+                            _picked = _opt_to_p.get(_pick_label)
+                            with _col_qty:
+                                _max_q = (
+                                    int(_picked.stock_current or 1)
+                                    if (_picked and _picked.is_stocked)
+                                    else 99
+                                )
+                                _qty = st.number_input(
+                                    "Cantidad",
+                                    min_value=1,
+                                    max_value=max(_max_q, 1),
+                                    value=1,
+                                    step=1,
+                                    key=f"daily_cons_qty_{res_id}_{day_key}",
+                                )
+
+                            _note = st.text_input(
+                                "Nota (opcional)",
+                                placeholder="Ej: consumido en la cena",
+                                key=f"daily_cons_note_{res_id}_{day_key}",
+                            )
+
+                            if _picked:
+                                _running = float(_picked.price or 0) * int(_qty)
+                                _running_lbl = (
+                                    f"{_running:,.0f} Gs".replace(",", ".")
+                                )
+                                st.info(
+                                    f"💵 **Total: {_running_lbl}** "
+                                    f"({_picked.name} × {int(_qty)})"
+                                )
+
+                            if st.button(
+                                "🧾 Registrar Consumo",
+                                type="primary",
+                                disabled=not _picked,
+                                key=f"daily_cons_submit_{res_id}_{day_key}",
+                                use_container_width=True,
+                            ):
+                                try:
+                                    _username = (
+                                        st.session_state.user.username
+                                        if hasattr(st.session_state, "user")
+                                        else "pc-user"
+                                    )
+                                    ConsumoService.registrar_consumo(
+                                        reserva_id=res_id,
+                                        producto_id=_picked.id,
+                                        quantity=int(_qty),
+                                        description=(_note or "").strip() or None,
+                                        created_by=_username,
+                                    )
+                                    _success_lbl = (
+                                        f"{float(_picked.price or 0) * int(_qty):,.0f} Gs"
+                                        .replace(",", ".")
+                                    )
+                                    st.success(
+                                        f"✓ {_picked.name} × {int(_qty)} registrado "
+                                        f"— {_success_lbl}"
+                                    )
+                                    from frontend_services.cache_service import force_refresh
+                                    force_refresh()
+                                    st.rerun()
+                                except ConsumoError as _e:
+                                    st.error(f"❌ {_e}")
+                                except Exception as _e:
+                                    st.error(f"❌ Error inesperado: {_e}")
 
             # Registrar Pago form (only for active reservations with pending balance)
             if res_status in active_states and saldo and saldo["pending"] > 0:

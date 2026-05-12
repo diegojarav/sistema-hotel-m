@@ -102,6 +102,43 @@ Próximo slot: `016_*.py`. Ready para tag v1.10.0 final.
 - Backup system rewrite — Postgres usa `pg_dump`, no copy de archivo. Reescribir `backup_manager.py`.
 - Cutover playbook: dump SQLite → restore en Postgres staging → smoke tests → cutover prod en ventana de mantenimiento.
 
+## Phase 6.5 — Reporting avanzado (post-PostgreSQL)
+
+Suite de reportes financieros y operativos que se benefician de las features de Postgres (`date_trunc`, window functions, GROUP BY con CUBE/ROLLUP, JSONB indexes). Hoy se pueden hacer en SQLite pero las queries serían menos performantes y más verbosas. Implementar después del cutover (Phase 3+ / Postgres).
+
+**Desglose de caja por categoría de ingreso**:
+- Habitaciones vs Productos/Consumos vs Desayunos (Plan de comidas surcharge).
+- Vistas diaria, semanal, mensual, anual.
+- Comparativa year-over-year.
+- Source de los datos: `transaccion` + breakdown del `reservation.price_breakdown` (ya es JSONB en Postgres → query-able directo).
+
+**Analytics de desayunos**:
+- % de habitaciones con desayuno vs sin desayuno por noche.
+- Promedio de pax desayuno por día / mes.
+- Tendencia por temporada (alta vs baja).
+- Planificación de compra de insumos basada en pax forecast (cross-reference con calendario de reservas futuras).
+- Source: `KitchenReportService.get_daily_report` extendido + `pricing_seasons` para detectar temporada.
+
+**Reporting de productos**:
+- Ranking top N productos más vendidos (ya existe `ProductService.get_top_selling`, falta la vista PC con CSV export + filtros de fecha).
+- Ingresos por categoría (BEBIDA, SNACK, SERVICIO, MINIBAR, OTRO) — diario/mensual/anual.
+- Tendencias mensuales / estacionales.
+- Productos con stock bajo recurrente (para optimizar `stock_minimum`).
+
+**KPIs hoteleros operativos** (RevPAR / ADR forecast):
+- Revenue Per Available Room (`RevPAR`) — revenue total / room_nights disponibles.
+- Average Daily Rate (`ADR`) — revenue de habitaciones / room_nights vendidas.
+- Forecast 30/60/90 días basado en reservas futuras + histórico de pickup.
+- Heatmap de demanda por día de la semana / mes.
+
+**UI**:
+- Nueva página PC `92_📊_Reportes_Avanzados.py` con tabs (Caja / Cocina / Productos / KPIs).
+- CSV + PDF export por cada tab.
+- Charts con `st.line_chart` / `st.bar_chart` (no dependencia extra).
+- Filtros de fecha persistentes en `st.session_state`.
+
+**Dependencia**: Postgres (las queries en SQLite serían 10x más verbosas con CTEs).
+
 ## Backlog (sin prioridad asignada)
 
 Ideas documentadas para no perderlas. **No tienen estimación ni fecha.**
