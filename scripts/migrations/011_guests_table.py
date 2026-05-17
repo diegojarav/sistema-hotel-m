@@ -145,6 +145,24 @@ def run(conn: sqlite3.Connection):
     if not _index_exists(cursor, "ix_checkins_guest_id"):
         cursor.execute("CREATE INDEX ix_checkins_guest_id ON checkins (guest_id)")
 
+    # --- 2.5. Heal legacy schema drift (v1.10.0-dev fix) ---
+    # `checkins.contact_phone` was added to the SQLAlchemy model long ago
+    # without a corresponding migration. Fresh dev DBs got it from init_db();
+    # the GCP VM (which carries forward the original schema) didn't, so
+    # step 3a's SELECT bombs with "no such column: contact_phone" on first
+    # deploy. Idempotent: ALTER ADD only runs if the column is genuinely
+    # absent. Same defensive pattern as the guest_id additions above.
+    if not _column_exists(cursor, "checkins", "contact_phone"):
+        cursor.execute("ALTER TABLE checkins ADD COLUMN contact_phone VARCHAR")
+    # `reservations.contact_phone` and `reservations.contact_email` also live
+    # in the model; cover them too in case an even older DB is missing one.
+    if not _column_exists(cursor, "reservations", "contact_phone"):
+        cursor.execute("ALTER TABLE reservations ADD COLUMN contact_phone VARCHAR")
+    if not _column_exists(cursor, "reservations", "contact_email"):
+        cursor.execute("ALTER TABLE reservations ADD COLUMN contact_email VARCHAR")
+    if not _column_exists(cursor, "checkins", "contact_email"):
+        cursor.execute("ALTER TABLE checkins ADD COLUMN contact_email VARCHAR")
+
     # --- 3. Auto-populate (only if table empty — re-run safety) ---
     cursor.execute("SELECT COUNT(*) FROM guests")
     if cursor.fetchone()[0] > 0:
