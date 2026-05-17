@@ -131,7 +131,9 @@ with tab_actual:
                 "Balance inicial (Gs)",
                 min_value=0.0,
                 value=0.0,
-                step=1000.0,
+                # step=500 matches the smallest common bill denomination in Paraguay.
+                # Typed values keep arbitrary precision; only the +/- arrows snap.
+                step=500.0,
                 format="%.0f",
             )
         with col2:
@@ -212,7 +214,7 @@ with tab_actual:
                 "Monto declarado en caja (Gs)",
                 min_value=0.0,
                 value=float(expected),
-                step=1000.0,
+                step=500.0,
                 format="%.0f",
             )
         with col2:

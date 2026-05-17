@@ -584,7 +584,9 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
                 with pay_col2:
                     monto = st.number_input(
                         "Monto (Gs)", min_value=0.0, value=float(saldo["pending"]),
-                        step=1000.0, format="%.0f",
+                        # step=500 matches Paraguay's smallest common bill;
+                        # typed values keep exact precision (e.g. 332.500 Gs).
+                        step=500.0, format="%.0f",
                         key=f"monto_{res_id}_{day_key}"
                     )
                 with pay_col3:
