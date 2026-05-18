@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any
 import json
 from datetime import date, datetime, timedelta
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 from schemas import (
     ReservationCreate,
@@ -146,7 +147,7 @@ class ReservationService:
         booking_property_id = (
             (first_room.property_id if first_room else None)
             or data.property_id
-            or "los-monges"
+            or DEFAULT_PROPERTY_ID
         )
 
         explicit_guest_id = getattr(data, 'guest_id', None)
@@ -201,7 +202,7 @@ class ReservationService:
 
             # Fetch room details from pre-loaded lookup
             room = room_lookup.get(room_id)
-            prop_id = room.property_id if room else "los-monges"
+            prop_id = room.property_id if room else DEFAULT_PROPERTY_ID
             cat_id = room.category_id if room else (data.category_id or "los-monges-estandar")
 
             # v1.7.0 — Resolve effective meal plan for this reservation.

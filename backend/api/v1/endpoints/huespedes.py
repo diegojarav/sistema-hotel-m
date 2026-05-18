@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from api.deps import get_db, require_role
 from database import User
 from logging_config import get_logger
@@ -48,7 +49,7 @@ router = APIRouter()
 
 # Default property — single-tenant today. Per skill §4 the eventual
 # multi-tenant migration will derive this from the authenticated user.
-PROPERTY_ID = "los-monges"
+PROPERTY_ID = DEFAULT_PROPERTY_ID
 
 # Common role tuples to keep the @router.get(...) signatures readable.
 _READ_ROLES = ("admin", "supervisor", "gerencia", "recepcion", "recepcionista")

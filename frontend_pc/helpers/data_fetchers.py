@@ -1,4 +1,5 @@
 import streamlit as st
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 from services import RoomService, PricingService
 
@@ -63,7 +64,7 @@ def get_seasons():
 # ==========================================
 
 @st.cache_data(ttl=30)
-def get_meals_config(property_id: str = "los-monges") -> dict:
+def get_meals_config(property_id: str = DEFAULT_PROPERTY_ID) -> dict:
     """Fetch the hotel's meal service configuration.
 
     Returns ``{meals_enabled: bool, meal_inclusion_mode: str|None}``. When

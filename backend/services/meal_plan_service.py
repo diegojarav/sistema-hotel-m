@@ -20,6 +20,7 @@ import uuid
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from database import MealPlan
 from services._base import with_db
 from logging_config import get_logger
@@ -56,7 +57,7 @@ class MealPlanService:
     @with_db
     def list_plans(
         db: Session,
-        property_id: str = "los-monges",
+        property_id: str = DEFAULT_PROPERTY_ID,
         mode_filter: Optional[str] = None,
         include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:

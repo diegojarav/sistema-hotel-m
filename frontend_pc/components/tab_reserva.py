@@ -4,6 +4,7 @@ import json
 from datetime import datetime, date, timedelta
 from pydantic import ValidationError
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 from services import ReservationService, GuestService, PricingService, ReservationCreate
 from helpers.constants import LISTA_TIPOS_LEGACY, LISTA_HABITACIONES_LEGACY
@@ -442,7 +443,7 @@ def render_tab_reserva():
 
             for cat_id, cat_room_ids in habs_by_category.items():
                 cat_info = cat_lookup.get(cat_id, {})
-                prop_id = cat_info.get("property_id", "los-monges")
+                prop_id = cat_info.get("property_id", DEFAULT_PROPERTY_ID)
                 cat_name = cat_info.get("name", cat_id)
 
                 price_data = PricingService.calculate_price(
@@ -515,7 +516,7 @@ def render_tab_reserva():
     if "_guest_dropdown_cache" not in st.session_state:
         try:
             st.session_state["_guest_dropdown_cache"] = (
-                GuestService.list_guests_for_dropdown(property_id="los-monges")
+                GuestService.list_guests_for_dropdown(property_id=DEFAULT_PROPERTY_ID)
             )
         except Exception as _e:
             logger.warning(f"Guest dropdown fetch failed: {_e}")

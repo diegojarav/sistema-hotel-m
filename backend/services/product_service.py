@@ -19,6 +19,7 @@ from typing import Optional, List, Dict
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from database import Producto, AjusteInventario, Consumo
 from logging_config import get_logger
 from services._base import with_db
@@ -52,7 +53,7 @@ class ProductService:
         stock_current: Optional[int] = None,
         stock_minimum: Optional[int] = None,
         is_stocked: bool = True,
-        property_id: Optional[str] = "los-monges",
+        property_id: Optional[str] = DEFAULT_PROPERTY_ID,
     ) -> Producto:
         """Create a new product. Raises ProductError on validation failure."""
         if not product_id or not product_id.strip():

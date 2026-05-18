@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fpdf import FPDF
+
+from api.core.config import DEFAULT_PROPERTY_ID
 from fpdf.enums import XPos, YPos
 from sqlalchemy.orm import Session
 
@@ -122,7 +124,7 @@ class DocumentService:
             hotel_name = setting.setting_value
 
         # Try to get property details
-        prop = db.query(Property).filter(Property.id == "los-monges").first()
+        prop = db.query(Property).filter(Property.id == DEFAULT_PROPERTY_ID).first()
         address = prop.address if prop and prop.address else ""
         phone = prop.phone if prop and prop.phone else ""
         email = prop.email if prop and prop.email else ""
@@ -503,7 +505,7 @@ class DocumentService:
     def generate_kitchen_report_pdf(
         db: Session,
         fecha,
-        property_id: str = "los-monges",
+        property_id: str = DEFAULT_PROPERTY_ID,
     ) -> Optional[str]:
         """
         Generate the daily kitchen report PDF (v1.7.0 — Phase 4).

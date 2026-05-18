@@ -47,9 +47,13 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 BACKEND_DIR = PROJECT_ROOT / "backend"
 DB_PATH = BACKEND_DIR / "hotel.db"
 
-# Los Monges Property ID (fixed for consistency)
-PROPERTY_ID = "los-monges"
-PROPERTY_NAME = "Hospedaje Los Monges"
+# Property identity for this seed.
+# v1.10.0+: reads from env vars so the SAME seed structure can be re-used for
+# any hotel deployment. The fallback is the Los Monges identity for the
+# existing install. To seed a different hotel:
+#   DEFAULT_PROPERTY_ID=hotel-demo PROPERTY_NAME="Hotel Demo" python scripts/seed_monges.py
+PROPERTY_ID = os.environ.get("DEFAULT_PROPERTY_ID", "los-monges")
+PROPERTY_NAME = os.environ.get("PROPERTY_NAME", "Hospedaje Los Monges")
 
 # ============================================
 # LOGGING
@@ -80,7 +84,7 @@ def log_section(title: str):
 PROPERTY_DATA = {
     "id": PROPERTY_ID,
     "name": PROPERTY_NAME,
-    "slug": "los-monges",
+    "slug": PROPERTY_ID,  # Phase 2b: slug NOT NULL; default to id for tenant URLs
     "display_mode": "category",  # Category-based, no visible room numbers
     "theme_background": "#FFFFFF",
     "theme_text": "#000000",

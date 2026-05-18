@@ -3,6 +3,7 @@ from database import Room, RoomCategory, Reservation
 from typing import List, Dict
 from datetime import date, timedelta
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 from services._base import with_db
 
@@ -12,7 +13,9 @@ logger = get_logger(__name__)
 class RoomService:
     """Service for room and category operations."""
 
-    DEFAULT_PROPERTY_ID = "los-monges"
+    # Kept as a class attribute for back-compat — anything that still reads
+    # `RoomService.DEFAULT_PROPERTY_ID` will get the env-var-driven value.
+    DEFAULT_PROPERTY_ID = DEFAULT_PROPERTY_ID
 
     @staticmethod
     @with_db

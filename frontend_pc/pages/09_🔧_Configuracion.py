@@ -5,6 +5,7 @@ import os
 # Add backend to path for direct imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../backend')))
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from services import SettingsService, AuthService
 from database import SessionLocal
 
@@ -217,7 +218,7 @@ if _meals_enabled_now and _meals_mode_now in ("OPCIONAL_PERSONA", "OPCIONAL_HABI
                     with SessionLocal() as db:
                         MealPlanService.create_plan(
                             db=db,
-                            property_id="los-monges",
+                            property_id=DEFAULT_PROPERTY_ID,
                             code=n_code.strip().upper(),
                             name=n_name.strip(),
                             description=n_desc.strip() or None,

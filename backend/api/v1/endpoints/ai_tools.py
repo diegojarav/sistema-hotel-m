@@ -17,6 +17,8 @@ from typing import Optional
 # Import services from root (Hybrid Monolith)
 from services import ReservationService, CajaService, TransaccionService, ProductService, ConsumoService, KitchenReportService, SettingsService, EmailService
 
+from api.core.config import DEFAULT_PROPERTY_ID
+
 
 # ==========================================
 # TOOL 1: Check Availability
@@ -358,7 +360,7 @@ def calculate_price(category_name: str, check_in_date: str, stay_days: int, clie
 
     try:
         result = PricingService.calculate_price(
-            property_id="los-monges",
+            property_id=DEFAULT_PROPERTY_ID,
             category_id=category["id"],
             check_in=check_in,
             stay_days=stay_days,
@@ -1307,7 +1309,7 @@ def buscar_huesped_historial(query: Optional[str] = None) -> str:
     try:
         # Search current property (single-tenant today)
         results = GuestService.search_guests(
-            property_id="los-monges", query=query.strip(), limit=10,
+            property_id=DEFAULT_PROPERTY_ID, query=query.strip(), limit=10,
         )
         if not results:
             return f"No encontré ningún huésped que coincida con '{query}'."
@@ -1424,7 +1426,7 @@ def buscar_vehiculo(plate: Optional[str] = None) -> str:
 
     try:
         result = GuestVehicleService.search_by_plate(
-            property_id="los-monges", plate=plate.strip(),
+            property_id=DEFAULT_PROPERTY_ID, plate=plate.strip(),
         )
         if result is None:
             return f"No encontré ningún vehículo registrado con chapa '{plate}'."

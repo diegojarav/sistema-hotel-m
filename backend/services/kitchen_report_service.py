@@ -30,6 +30,7 @@ from datetime import date, timedelta
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from database import Reservation, Room, RoomCategory, MealPlan, Property
 from services._base import with_db
 from logging_config import get_logger
@@ -51,7 +52,7 @@ class KitchenReportService:
     def get_daily_report(
         db: Session,
         fecha: date,
-        property_id: str = "los-monges",
+        property_id: str = DEFAULT_PROPERTY_ID,
     ) -> Dict[str, Any]:
         """Return the per-room breakfast breakdown for a given date.
 

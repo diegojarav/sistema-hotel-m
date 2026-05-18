@@ -4,6 +4,7 @@ from database import Room, RoomCategory, ClientType, PricingSeason, MealPlan, Pr
 from typing import List, Dict, Any, Optional
 from datetime import date
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 from services._base import with_db
 
@@ -178,7 +179,7 @@ class PricingService:
 
     @staticmethod
     @with_db
-    def get_seasons(db: Session, property_id: str = "los-monges") -> List[Dict]:
+    def get_seasons(db: Session, property_id: str = DEFAULT_PROPERTY_ID) -> List[Dict]:
         """Get all active pricing seasons for manual selection."""
         seasons = db.query(PricingSeason).filter(
             PricingSeason.property_id == property_id,
@@ -198,7 +199,7 @@ class PricingService:
 
     @staticmethod
     @with_db
-    def get_client_types(db: Session, property_id: str = "los-monges") -> List[Dict]:
+    def get_client_types(db: Session, property_id: str = DEFAULT_PROPERTY_ID) -> List[Dict]:
         """Get all active client types."""
         types = db.query(ClientType).filter(
             ClientType.property_id == property_id,

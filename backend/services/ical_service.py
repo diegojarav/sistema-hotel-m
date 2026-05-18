@@ -18,6 +18,7 @@ from typing import List, Dict, Any, Optional, Set
 import icalendar
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from database import Reservation, Room, ICalFeed, session_factory
 from logging_config import get_logger
 from services._base import with_db
@@ -196,7 +197,7 @@ class ICalService:
                         price=0,  # OTA manages pricing
                         reserved_by=feed.source,
                         received_by="iCal Sync",
-                        property_id="los-monges",
+                        property_id=DEFAULT_PROPERTY_ID,
                     )
                     db.add(new_res)
                     db.flush()  # so subsequent ID generations see this row

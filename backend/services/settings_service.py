@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from services._base import with_db
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -47,7 +48,7 @@ class SettingsService:
             import uuid
             db.add(SystemSetting(
                 id=str(uuid.uuid4()),
-                property_id="los-monges",
+                property_id=DEFAULT_PROPERTY_ID,
                 setting_key="parking_capacity",
                 setting_value=str(capacity)
             ))
@@ -75,7 +76,7 @@ class SettingsService:
             import uuid
             db.add(SystemSetting(
                 id=str(uuid.uuid4()),
-                property_id="los-monges",  # Default property
+                property_id=DEFAULT_PROPERTY_ID,  # Default property
                 setting_key="hotel_name",
                 setting_value=name
             ))
@@ -85,7 +86,7 @@ class SettingsService:
 
     @staticmethod
     @with_db
-    def get_property_settings(db: Session, property_id: str = "los-monges") -> dict:
+    def get_property_settings(db: Session, property_id: str = DEFAULT_PROPERTY_ID) -> dict:
         """Get property settings: check-in/out times and breakfast policy.
 
         v1.10.0 Phase 2b: `breakfast_included` is no longer a column on Property
@@ -117,7 +118,7 @@ class SettingsService:
 
     @staticmethod
     @with_db
-    def get_meals_config(db: Session = None, property_id: str = "los-monges") -> dict:
+    def get_meals_config(db: Session = None, property_id: str = DEFAULT_PROPERTY_ID) -> dict:
         """Return the hotel's meal service configuration.
 
         Shape: {meals_enabled: bool, meal_inclusion_mode: str|None}
@@ -140,7 +141,7 @@ class SettingsService:
         db: Session,
         meals_enabled: bool,
         meal_inclusion_mode: str = None,
-        property_id: str = "los-monges",
+        property_id: str = DEFAULT_PROPERTY_ID,
     ) -> dict:
         """Update the hotel's meal service config and seed system plans.
 
@@ -202,7 +203,7 @@ class SettingsService:
     )
 
     @staticmethod
-    def _set_kv(db: Session, key: str, value: str, property_id: str = "los-monges") -> None:
+    def _set_kv(db: Session, key: str, value: str, property_id: str = DEFAULT_PROPERTY_ID) -> None:
         """Upsert a single system_settings row. Caller is responsible for db.commit()."""
         from database import SystemSetting
         import uuid
@@ -277,7 +278,7 @@ class SettingsService:
         smtp_enabled: bool,
         smtp_password: str = None,
         email_body_template: str = None,
-        property_id: str = "los-monges",
+        property_id: str = DEFAULT_PROPERTY_ID,
     ) -> dict:
         """Upsert SMTP config. If smtp_password is None/empty, the existing encrypted password is preserved."""
         from api.core.security import encrypt_secret

@@ -57,6 +57,28 @@ DISCORD_WEBHOOK_URL: str = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 
 # ==========================================
+# TENANT / PROPERTY DEFAULT (v1.10.0+)
+# ==========================================
+#
+# Single-tenant systems serve one hotel per deployment. To make a fresh deploy
+# work for ANY hotel without code changes, every service/endpoint reads its
+# default property_id from this env var. Set DEFAULT_PROPERTY_ID per VM.
+#
+# Examples:
+#   Hotel #1 (current):  DEFAULT_PROPERTY_ID=los-monges
+#   Hotel #2 (demo):     DEFAULT_PROPERTY_ID=hotel-demo
+#
+# Fallback is "los-monges" so existing installs without the var still work.
+# Tests + migrations intentionally keep the literal "los-monges" string
+# (fixtures + historical records — see seed_monges.py for the seed path).
+#
+# Read ONCE at import time — every service that imports DEFAULT_PROPERTY_ID
+# binds to whatever was set when the process started.
+
+DEFAULT_PROPERTY_ID: str = os.environ.get("DEFAULT_PROPERTY_ID", "los-monges")
+
+
+# ==========================================
 # CORS CONFIGURATION
 # ==========================================
 

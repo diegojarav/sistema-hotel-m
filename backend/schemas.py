@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional
 from datetime import date, datetime, time
 import re
 
+from api.core.config import DEFAULT_PROPERTY_ID
+
 
 # ==========================================
 # VALIDADORES COMPARTIDOS
@@ -79,7 +81,7 @@ class ReservationCreate(BaseModel):
     received_by: str = Field(default="", description="Recepcionista que tomó la reserva")
     
     # Los Monges / Pricing Fields
-    property_id: Optional[str] = Field(default="los-monges", description="ID de la propiedad")
+    property_id: Optional[str] = Field(default=DEFAULT_PROPERTY_ID, description="ID de la propiedad")
     category_id: Optional[str] = Field(default=None, description="ID de categoría de habitación")
     client_type_id: Optional[str] = Field(default=None, description="ID de tipo de cliente")
     contract_id: Optional[str] = Field(default=None, description="ID de contrato corporativo")
@@ -310,7 +312,7 @@ class CheckInCreate(BaseModel):
 
 class PriceCalculationRequest(BaseModel):
     """Schema para solicitar cálculo de precios."""
-    property_id: str = Field(default="los-monges", description="ID de la propiedad")
+    property_id: str = Field(default=DEFAULT_PROPERTY_ID, description="ID de la propiedad")
     category_id: str = Field(..., description="ID de la categoría de habitación")
     check_in: date = Field(..., description="Fecha de entrada")
     stay_days: int = Field(..., ge=1, le=365, description="Días de estadía")
@@ -740,7 +742,7 @@ class GuestCreate(BaseModel):
     source: Optional[str] = Field(default="Direct")
     # v1.10.0 Phase 2a-ext — birthday automation hook
     birth_date: Optional[date] = Field(default=None, description="Fecha de nacimiento")
-    property_id: Optional[str] = Field(default="los-monges")
+    property_id: Optional[str] = Field(default=DEFAULT_PROPERTY_ID)
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -874,7 +876,7 @@ class BuildingCreate(BaseModel):
     description: Optional[str] = None
     floors: Optional[int] = Field(default=None, ge=1, le=200)
     sort_order: int = 0
-    property_id: Optional[str] = Field(default="los-monges")
+    property_id: Optional[str] = Field(default=DEFAULT_PROPERTY_ID)
 
 
 class BuildingUpdate(BaseModel):

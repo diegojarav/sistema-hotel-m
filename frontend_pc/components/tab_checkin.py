@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 from pydantic import ValidationError
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from logging_config import get_logger
 from services import CheckInService, GuestService, CheckInCreate
 from helpers.ui_helpers import _format_validation_error, analizar_documento_con_ia
@@ -53,7 +54,7 @@ def render_tab_checkin():
         if guest_q and len(guest_q.strip()) >= 2:
             try:
                 matches = GuestService.search_guests(
-                    property_id="los-monges", query=guest_q.strip(), limit=10,
+                    property_id=DEFAULT_PROPERTY_ID, query=guest_q.strip(), limit=10,
                 )
             except Exception as e:
                 logger.warning(f"Master Guest search failed: {e}")

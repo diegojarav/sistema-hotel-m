@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from api.deps import get_current_user, get_db, require_role
 from database import User
 from logging_config import get_logger
@@ -105,7 +106,7 @@ def create_meal_plan(
     try:
         plan = MealPlanService.create_plan(
             db=db,
-            property_id="los-monges",
+            property_id=DEFAULT_PROPERTY_ID,
             code=request.code.strip().upper(),
             name=request.name.strip(),
             description=request.description,

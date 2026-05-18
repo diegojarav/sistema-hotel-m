@@ -14,6 +14,7 @@ from typing import Dict, List
 from datetime import date
 
 # Import services from backend
+from api.core.config import DEFAULT_PROPERTY_ID
 from services import ReservationService
 
 # ==========================================
@@ -57,7 +58,7 @@ def get_all_guest_names_cached() -> List[str]:
     TTL: 120 seconds. Force a refresh via `frontend_services.cache_service.force_refresh`.
     """
     from services import GuestService
-    items = GuestService.list_guests_for_dropdown(property_id="los-monges", limit=1000)
+    items = GuestService.list_guests_for_dropdown(property_id=DEFAULT_PROPERTY_ID, limit=1000)
     return [item["label"] for item in items]
 
 

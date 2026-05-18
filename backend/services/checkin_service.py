@@ -332,7 +332,8 @@ def _try_link_guest(db: Session, checkin: CheckIn) -> Optional[int]:
     """
     try:
         from services.guest_service import GuestService
-        property_id = "los-monges"  # single-tenant for now; multi-tenant via Phase 7
+        from api.core.config import DEFAULT_PROPERTY_ID
+        property_id = DEFAULT_PROPERTY_ID  # single-tenant; configurable via env var (v1.10.0)
         if checkin.room_id:
             from database import Room
             room = db.query(Room).filter(Room.id == checkin.room_id).first()

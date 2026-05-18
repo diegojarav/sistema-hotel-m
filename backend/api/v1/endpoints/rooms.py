@@ -13,14 +13,15 @@ from typing import List
 from datetime import date, datetime
 
 # Import from API deps
+from api.core.config import DEFAULT_PROPERTY_ID
 from api.deps import get_db, get_current_user, require_role
 
 # IMPORT FROM ROOT - Single Source of Truth
 from database import Room, RoomCategory, RoomStatusLog, User, Building
 from services import ReservationService
 
-# Property ID (Los Monges for now - will be dynamic in multi-tenant)
-PROPERTY_ID = "los-monges"
+# Property ID — env-var driven (v1.10.0+). Override via DEFAULT_PROPERTY_ID.
+PROPERTY_ID = DEFAULT_PROPERTY_ID
 
 router = APIRouter()
 

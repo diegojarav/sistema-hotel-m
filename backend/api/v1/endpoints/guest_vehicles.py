@@ -16,6 +16,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from api.deps import get_db, require_role
 from database import User
 from logging_config import get_logger
@@ -38,7 +39,7 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-PROPERTY_ID = "los-monges"
+PROPERTY_ID = DEFAULT_PROPERTY_ID
 
 _READ_ROLES = ("admin", "supervisor", "gerencia", "recepcion", "recepcionista")
 _WRITE_ROLES = ("admin", "supervisor", "gerencia", "recepcion", "recepcionista")
