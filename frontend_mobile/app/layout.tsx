@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import SwbBrand from "@/components/SwbBrand";
 
 
 const geistSans = Geist({
@@ -46,6 +47,8 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         {children}
+        {/* SWB branding footer — fixed bottom, every page. */}
+        <SwbBrand />
       </body>
     </html>
   );

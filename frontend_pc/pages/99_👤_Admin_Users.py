@@ -38,6 +38,10 @@ st.set_page_config(
     page_icon="👤",
     layout="wide"
 )
+# SWB branding footer (fixed bottom, every page).
+from components.styles import inject_swb_brand
+inject_swb_brand()
+
 
 
 # ==========================================

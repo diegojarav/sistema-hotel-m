@@ -10,6 +10,10 @@ from services import SettingsService, AuthService
 from database import SessionLocal
 
 st.set_page_config(page_title="Configuración", page_icon="🔧", layout="centered")
+# SWB branding footer (fixed bottom, every page).
+from components.styles import inject_swb_brand
+inject_swb_brand()
+
 
 # ==========================================
 # AUTH CHECK

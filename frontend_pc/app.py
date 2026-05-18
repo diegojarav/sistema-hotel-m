@@ -16,7 +16,7 @@ from frontend_services.cache_service import force_refresh
 from database import engine
 
 # Components & Helpers
-from components.styles import inject_custom_css
+from components.styles import inject_custom_css, inject_swb_brand
 from components.tab_calendario import render_tab_calendario
 from components.tab_reserva import render_tab_reserva
 from components.tab_checkin import render_tab_checkin
@@ -48,6 +48,9 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# SWB branding footer (fixed, every page).
+inject_swb_brand()
 
 # --- 2. CONTROL DE LOGIN ---
 if 'logged_in' not in st.session_state:

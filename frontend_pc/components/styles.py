@@ -1,6 +1,49 @@
 import streamlit as st
 
 
+def inject_swb_brand():
+    """Inject the SWB (Sahara World Business) branding footer.
+
+    Fixed-position badge that appears on every page. Streamlit's multipage
+    architecture runs each page as an independent script, so this helper
+    must be called from EVERY page (app.py + each file in pages/) — the
+    main DOM is reset on every navigation.
+
+    Style: gold (#C9A84C) on dark (#1a1a2e), 11px, fixed bottom, z-index
+    above all Streamlit chrome. Adds 40px of bottom padding to
+    .block-container so the badge never overlaps the last UI element on
+    long pages.
+    """
+    st.markdown(
+        """
+        <style>
+        .swb-brand {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            padding: 6px 0;
+            background: #1a1a2e;
+            border-top: 1px solid #2a2a4a;
+            z-index: 9999;
+            font-size: 11px;
+            color: #C9A84C;
+            letter-spacing: 0.5px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            pointer-events: none;
+        }
+        /* Push page content up so the fixed footer doesn't overlap the
+         * last element on any page. 40px = 6+6 padding + 11px font +
+         * 1px border + a comfortable safety margin. */
+        .block-container { padding-bottom: 50px !important; }
+        </style>
+        <div class="swb-brand">⚡ SWB — Sahara World Business</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def inject_custom_css():
     """Inyecta CSS para el calendario nativo y tarjetas móviles."""
     st.markdown("""

@@ -35,6 +35,10 @@ REASONS = ["COMPRA", "MERMA", "AJUSTE"]
 # ==========================================
 
 st.set_page_config(page_title="Inventario", page_icon="📦", layout="wide")
+# SWB branding footer (fixed bottom, every page).
+from components.styles import inject_swb_brand
+inject_swb_brand()
+
 
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
     st.error("Debe iniciar sesion para acceder a esta pagina")
