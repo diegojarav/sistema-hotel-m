@@ -591,6 +591,139 @@ def render_tab_reserva():
         if not d_email:
             d_email = item.get("email") or ""
 
+    # ==============================================================
+    # MULTI-VEHICLE WIDGET (v1.10.0 — Phase 2c)
+    # Lives OUTSIDE st.form so add/remove buttons can mutate state
+    # mid-render. The primary vehicle (chapa/model/color) stays inside
+    # the form as a "quick-add" entry. This section adds OPTIONAL extras
+    # — useful for "family arriving in 2 cars at 2 AM".
+    #
+    # On form submit, the handler bundles primary + these extras into
+    # ReservationCreate.vehicles. If receptionist doesn't add anything
+    # here, the legacy single-vehicle path runs exactly as before.
+    # ==============================================================
+    _av_key = "_additional_vehicles"
+    if _av_key not in st.session_state:
+        st.session_state[_av_key] = []
+
+    # Booker's master vehicles (for the "linked" mode dropdown).
+    # Only fetched when a guest is picked from the dropdown above —
+    # otherwise quick-add is the only available mode.
+    _booker_vehicles = []
+    if picked_guest_id:
+        try:
+            from services import GuestVehicleService as _GVSvc
+            _booker_vehicles = _GVSvc.get_vehicles(
+                guest_id=picked_guest_id, active_only=True
+            )
+        except Exception as _e:
+            logger.warning(f"Could not load booker vehicles: {_e}")
+            _booker_vehicles = []
+
+    with st.expander(
+        "🚗 Vehículos adicionales (opcional, para acompañantes)",
+        expanded=False,
+    ):
+        st.caption(
+            "Si la reserva trae **más de un vehículo**, agregalos acá. "
+            "El primer vehículo va en los campos de la reserva (abajo) — "
+            "estos son los EXTRAS. Cada vehículo consume un lugar de "
+            "estacionamiento."
+        )
+
+        # --- Render existing additionals with [✕] buttons ---
+        if st.session_state[_av_key]:
+            for i, av in enumerate(list(st.session_state[_av_key])):
+                cols = st.columns([3, 2, 2, 1])
+                if av["mode"] == "linked":
+                    cols[0].write(f"🔗 **{av.get('plate', '?')}** — {av.get('model', '') or 'sin modelo'}")
+                else:
+                    cols[0].write(f"⚡ **{av.get('plate', '?')}** — {av.get('model', '') or 'sin modelo'}")
+                cols[1].write(av.get("color") or "—")
+                cols[2].write("Del huésped" if av["mode"] == "linked" else "Carga rápida")
+                if cols[3].button("✕", key=f"_av_rm_{i}"):
+                    st.session_state[_av_key].pop(i)
+                    st.rerun()
+        else:
+            st.info("Sin vehículos adicionales todavía.")
+
+        st.markdown("---")
+        st.markdown("**➕ Agregar otro vehículo**")
+
+        # Mode picker — only "linked" available if booker has registered vehicles
+        _av_mode_options = ["⚡ Carga rápida (acompañante)"]
+        if _booker_vehicles:
+            _av_mode_options.insert(0, "🔗 Seleccionar del huésped principal")
+        _av_mode_pick = st.radio(
+            "Modo",
+            options=_av_mode_options,
+            horizontal=True,
+            key="_av_mode_pick",
+            label_visibility="collapsed",
+        )
+
+        if "🔗" in _av_mode_pick:
+            # Linked: dropdown of booker's vehicles
+            _av_v_options = {
+                f"{v.plate_number} — {v.model or 'sin modelo'} ({v.color or 'sin color'})": v
+                for v in _booker_vehicles
+            }
+            _av_v_pick = st.selectbox(
+                "Vehículo del huésped",
+                options=list(_av_v_options.keys()),
+                key="_av_v_select",
+            )
+            _av_notes = st.text_input(
+                "Notas (opcional)",
+                placeholder="Ej: chofer del huésped",
+                key="_av_notes_linked",
+            )
+            if st.button("➕ Agregar", key="_av_add_linked", type="primary"):
+                _picked_v = _av_v_options.get(_av_v_pick)
+                if _picked_v is not None:
+                    st.session_state[_av_key].append({
+                        "mode": "linked",
+                        "guest_vehicle_id": _picked_v.id,
+                        "plate": _picked_v.plate_number,
+                        "model": _picked_v.model,
+                        "color": _picked_v.color,
+                        "notes": _av_notes or None,
+                    })
+                    st.rerun()
+        else:
+            # Quick-add: text inputs
+            _av_c = st.columns(3)
+            _av_plate = _av_c[0].text_input(
+                "Chapa/Patente", placeholder="ABC-123", key="_av_plate"
+            )
+            _av_model = _av_c[1].text_input(
+                "Modelo", placeholder="Toyota Hilux", key="_av_model"
+            )
+            _av_color = _av_c[2].text_input(
+                "Color", placeholder="Blanco", key="_av_color"
+            )
+            _av_notes_q = st.text_input(
+                "Notas (opcional)",
+                placeholder="Ej: auto del acompañante",
+                key="_av_notes_quick",
+            )
+            if st.button("➕ Agregar", key="_av_add_quick", type="primary"):
+                if not _av_plate.strip():
+                    st.warning("Indicá la chapa para agregar el vehículo.")
+                else:
+                    st.session_state[_av_key].append({
+                        "mode": "quick",
+                        "guest_vehicle_id": None,
+                        "plate": _av_plate.strip().upper(),
+                        "model": _av_model.strip() or None,
+                        "color": _av_color.strip() or None,
+                        "notes": _av_notes_q or None,
+                    })
+                    # Clear the inputs for the next add
+                    for _k in ("_av_plate", "_av_model", "_av_color", "_av_notes_quick"):
+                        st.session_state.pop(_k, None)
+                    st.rerun()
+
     st.markdown("---")
 
     # ==============================================================
@@ -704,6 +837,41 @@ def render_tab_reserva():
                 st.error("❌ Error: Debe seleccionar al menos una habitación")
                 has_errors = True
 
+            # === MULTI-VEHICLE: build the list from primary + extras ===
+            # (Phase 2c) The primary vehicle is the chapa/model/color
+            # entered in this form. Extras come from the widget above
+            # (session_state["_additional_vehicles"]).
+            #
+            # If there's no plate at all (primary blank + no extras), we
+            # leave `vehicles=[]` and the service uses the legacy
+            # single-vehicle path (no behaviour change for hotels not
+            # using multi-vehicle).
+            from schemas import VehicleInput as _VehInput
+            _vehicles_list = []
+            if parking and (v_plate or "").strip():
+                _vehicles_list.append(_VehInput(
+                    mode="quick",
+                    plate_number=(v_plate or "").strip(),
+                    model=(v_model or "").strip() or None,
+                    color=(v_color or "").strip() or None,
+                    is_primary=True,
+                ))
+            for _av in st.session_state.get("_additional_vehicles", []):
+                if _av["mode"] == "linked":
+                    _vehicles_list.append(_VehInput(
+                        mode="linked",
+                        guest_vehicle_id=_av["guest_vehicle_id"],
+                        notes=_av.get("notes"),
+                    ))
+                else:
+                    _vehicles_list.append(_VehInput(
+                        mode="quick",
+                        plate_number=_av["plate"],
+                        model=_av.get("model"),
+                        color=_av.get("color"),
+                        notes=_av.get("notes"),
+                    ))
+
             if not has_errors:
                 try:
                     arrival_dt = hora
@@ -755,6 +923,8 @@ def render_tab_reserva():
                             country=ia_data.get("Pais", ""),
                             # v1.10.0 Phase 2a Bug #2 Fix A: explicit Guest link
                             guest_id=picked_guest_id,
+                            # v1.10.0 Phase 2c — Multi-vehicle list
+                            vehicles=_vehicles_list,
                         )
                         if ReservationService.update_reservation(res_id_load, data):
                             force_refresh()
@@ -821,6 +991,8 @@ def render_tab_reserva():
                                     country=ia_data.get("Pais", ""),
                                     # v1.10.0 Phase 2a Bug #2 Fix A: explicit Guest link
                                     guest_id=picked_guest_id,
+                                    # v1.10.0 Phase 2c — Multi-vehicle list
+                                    vehicles=_vehicles_list,
                                 )
 
                                 ids = ReservationService.create_reservations(data)

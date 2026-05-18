@@ -2,7 +2,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
 from database import (
     Room, RoomCategory, Reservation, CheckIn,
-    SessionLocal
+    ReservationVehicle, GuestVehicle,
+    SessionLocal,
 )
 from typing import List, Optional, Dict, Any
 import json
@@ -72,32 +73,59 @@ class ReservationService:
         client_type_use = data.client_type_id or default_client_type
 
         # Enforce Parking Capacity (Check BEFORE creating reservations to avoid double counting)
+        # v1.10.0 Phase 2c — Multi-vehicle:
+        #   • If data.vehicles is provided, ONE parking slot is consumed per
+        #     vehicle (regardless of how many rooms). 3 cars = 3 slots.
+        #   • If data.vehicles is empty (legacy single-vehicle path),
+        #     ONE slot is consumed per room (the old behaviour).
+        #   • New cap rule: a booking can NEVER request more vehicles than the
+        #     hotel's total parking_capacity (independent of current occupancy).
         if data.parking_needed:
-             # Check total parking slots
-             parking_capacity = SettingsService.get_parking_capacity(db)
+            # Check total parking slots
+            parking_capacity = SettingsService.get_parking_capacity(db)
 
-             # Overlap logic: (StartA <= EndB) and (EndA >= StartB)
-             req_start = data.check_in_date
-             req_end = data.check_in_date + timedelta(days=data.stay_days)
+            # Per-vehicle (multi) OR per-room (legacy)
+            n_vehicles_requested = len(data.vehicles) if data.vehicles else 0
+            new_spots_needed = n_vehicles_requested if n_vehicles_requested > 0 else len(data.room_ids)
 
-             existing_parking_count = db.query(Reservation).filter(
-                 Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
-                 Reservation.parking_needed == True,
-                 Reservation.check_in_date < req_end,
-             ).all()
+            # Hard cap: cannot ask for more vehicles than the hotel can ever fit
+            if n_vehicles_requested > parking_capacity:
+                raise ValueError(
+                    f"La reserva solicita {n_vehicles_requested} vehículo(s) "
+                    f"pero la capacidad total del hotel es {parking_capacity}."
+                )
 
-             overlap_count = 0
-             for r in existing_parking_count:
-                 r_end = r.check_in_date + timedelta(days=r.stay_days)
-                 if r.check_in_date < req_end and r_end > req_start:
-                     overlap_count += 1
+            # Overlap logic: (StartA <= EndB) and (EndA >= StartB)
+            req_start = data.check_in_date
+            req_end = data.check_in_date + timedelta(days=data.stay_days)
 
-             new_spots_needed = len(data.room_ids)
+            existing_parking = db.query(Reservation).filter(
+                Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
+                Reservation.parking_needed == True,
+                Reservation.check_in_date < req_end,
+            ).all()
 
-             if overlap_count + new_spots_needed > parking_capacity:
-                 # ValueError so the API endpoint can surface the Spanish message
-                 # as a 400 instead of swallowing it as a generic 500.
-                 raise ValueError(f"Estacionamiento lleno. Capacidad: {parking_capacity}, Ocupados: {overlap_count}, Solicitados: {new_spots_needed}")
+            # Count actual vehicles on each overlapping reservation. If the
+            # reservation has reservation_vehicles rows, count those; otherwise
+            # fall back to 1 slot per room (legacy single-vehicle data).
+            overlap_count = 0
+            for r in existing_parking:
+                r_end = r.check_in_date + timedelta(days=r.stay_days)
+                if r.check_in_date < req_end and r_end > req_start:
+                    n_existing_vehicles = (
+                        db.query(ReservationVehicle)
+                        .filter(ReservationVehicle.reservation_id == r.id)
+                        .count()
+                    )
+                    overlap_count += n_existing_vehicles if n_existing_vehicles > 0 else 1
+
+            if overlap_count + new_spots_needed > parking_capacity:
+                # ValueError so the API endpoint can surface the Spanish message
+                # as a 400 instead of swallowing it as a generic 500.
+                raise ValueError(
+                    f"Estacionamiento lleno. Capacidad: {parking_capacity}, "
+                    f"Ocupados: {overlap_count}, Solicitados: {new_spots_needed}"
+                )
 
         # PERF-001 FIX: Batch fetch all rooms at once to avoid N+1 queries
         rooms_data = db.query(Room).filter(Room.id.in_(data.room_ids)).all()
@@ -317,8 +345,14 @@ class ReservationService:
         #
         # Best-effort: 5-vehicle limit / DB errors are logged and swallowed —
         # the reservation has already committed and is the load-bearing op.
+        #
+        # v1.10.0 Phase 2c: this legacy single-vehicle path ONLY runs when
+        # the caller did NOT supply a multi-vehicle `data.vehicles` list.
+        # When the list is provided, the new multi-vehicle block below owns
+        # all reservation_vehicles rows AND the snapshot writes to the legacy
+        # reservations.vehicle_plate / vehicle_model columns.
         plate_for_master = (getattr(data, 'vehicle_plate', None) or '').strip().upper()
-        if guest_id_for_booking is not None and plate_for_master:
+        if not data.vehicles and guest_id_for_booking is not None and plate_for_master:
             try:
                 from services.guest_vehicle_service import (
                     GuestVehicleError as _GVErr,
@@ -346,6 +380,137 @@ class ReservationService:
                 )
             except Exception as _e:
                 logger.warning(f"Reservation vehicle propagation failed: {_e}")
+
+        # v1.10.0 Phase 2c — Multi-vehicle path
+        # ====================================================================
+        # When data.vehicles is provided, write one reservation_vehicles row
+        # per vehicle FOR EACH created reservation (so a 2-room booking with
+        # 3 cars creates 2×3 = 6 rows — each car attached to each room
+        # reservation, simplifying per-room rendering on the calendar view).
+        #
+        # Linked vehicles  → guest_vehicle_id set, snapshot fields copied
+        #                   from the master GuestVehicle. Validated to
+        #                   belong to the booker's property.
+        # Quick vehicles   → guest_vehicle_id NULL, plate/model/color are
+        #                   the source of truth.
+        #
+        # Primary vehicle: explicit is_primary=True wins; else index 0. The
+        # primary's plate/model are ALSO written to the legacy
+        # reservations.vehicle_plate / vehicle_model columns so the rest of
+        # the codebase (PDF generation, calendar views, AI tools) sees a
+        # single canonical "first vehicle" without joining.
+        #
+        # ValueError on validation failures so the endpoint surfaces a 400
+        # with Spanish detail instead of swallowing as 500.
+        if data.vehicles:
+            # Pick primary vehicle index
+            primary_idx = next(
+                (i for i, v in enumerate(data.vehicles) if v.is_primary),
+                0,
+            )
+
+            # Pre-resolve linked GuestVehicle rows up-front (and validate them
+            # all before writing any row, so a partial failure doesn't leave
+            # half the booking with vehicles).
+            resolved: List[tuple] = []  # list of (plate, model, color, guest_vehicle_id, notes, is_primary)
+            for i, v_in in enumerate(data.vehicles):
+                is_prim = (i == primary_idx)
+                if v_in.mode == "linked":
+                    master = (
+                        db.query(GuestVehicle)
+                        .filter(
+                            GuestVehicle.id == v_in.guest_vehicle_id,
+                            GuestVehicle.property_id == booking_property_id,
+                            GuestVehicle.is_active == True,  # noqa: E712
+                        )
+                        .first()
+                    )
+                    if master is None:
+                        raise ValueError(
+                            f"Vehículo seleccionado (id={v_in.guest_vehicle_id}) "
+                            f"no encontrado o no pertenece a la propiedad."
+                        )
+                    resolved.append((
+                        master.plate_number,
+                        master.model,
+                        master.color,
+                        master.id,
+                        v_in.notes,
+                        is_prim,
+                    ))
+                else:  # quick
+                    plate = (v_in.plate_number or "").strip().upper()
+                    if not plate:
+                        raise ValueError("Vehículo en modo rápido sin chapa válida.")
+                    resolved.append((
+                        plate,
+                        (v_in.model or "").strip() or None,
+                        (v_in.color or "").strip() or None,
+                        None,
+                        v_in.notes,
+                        is_prim,
+                    ))
+
+            # Write reservation_vehicles rows for each created reservation
+            for res_id in created_ids:
+                for plate, model, color, gv_id, notes, is_prim in resolved:
+                    db.add(ReservationVehicle(
+                        reservation_id=res_id,
+                        guest_vehicle_id=gv_id,
+                        plate_number=plate,
+                        model=model,
+                        color=color,
+                        is_primary=is_prim,
+                        notes=notes,
+                    ))
+
+            # Back-compat: also write the primary vehicle's plate/model to
+            # the legacy snapshot columns on each Reservation row
+            primary_plate, primary_model, _, _, _, _ = resolved[primary_idx]
+            for res_id in created_ids:
+                res_row = db.query(Reservation).filter(Reservation.id == res_id).first()
+                if res_row is not None:
+                    res_row.vehicle_plate = primary_plate
+                    res_row.vehicle_model = primary_model or ""
+
+            db.commit()
+
+            # Best-effort: also write the QUICK-add vehicles to the master
+            # GuestVehicle catalogue under the booker's name. This makes
+            # search_by_plate find them immediately AND turns them into
+            # proper master vehicles if the same chapa returns. Skipped
+            # silently on 5-vehicle limit or property mismatch — the
+            # reservation_vehicles row is the load-bearing record.
+            if guest_id_for_booking is not None:
+                try:
+                    from services.guest_vehicle_service import (
+                        GuestVehicleError as _GVErr,
+                        GuestVehicleService as _GVSvc,
+                    )
+                    for plate, model, color, gv_id, _, _ in resolved:
+                        if gv_id is not None:
+                            # Already linked to a master — skip
+                            continue
+                        try:
+                            _GVSvc.create_vehicle(
+                                db=db,
+                                guest_id=guest_id_for_booking,
+                                property_id=booking_property_id,
+                                data={
+                                    "plate_number": plate,
+                                    "model": model,
+                                    "color": color,
+                                },
+                            )
+                        except _GVErr as _e:
+                            logger.info(
+                                f"Quick-add vehicle {plate} not promoted to "
+                                f"master (likely 5-limit or dup): {_e}"
+                            )
+                except Exception as _e:
+                    logger.warning(
+                        f"Multi-vehicle master promotion failed: {_e}"
+                    )
 
         # FEAT-LINK-01: Auto-create CheckIn if document was scanned
         if data.document_number and data.document_number.strip():
@@ -701,12 +866,34 @@ class ReservationService:
     @staticmethod
     @with_db
     def get_reservation_detail(db: Session, res_id: str) -> Optional["ReservationDetailDTO"]:
-        from schemas import ReservationDetailDTO
+        from schemas import ReservationDetailDTO, ReservationVehicleDTO
         r = db.query(Reservation).filter(Reservation.id == res_id).first()
         if not r:
             return None
         room = db.query(Room).filter(Room.id == r.room_id).first()
         room_code = room.internal_code if room else r.room_id
+
+        # Phase 2c: load multi-vehicle list. Empty for legacy single-vehicle
+        # reservations (their vehicle still appears in vehicle_plate/model).
+        veh_rows = (
+            db.query(ReservationVehicle)
+            .filter(ReservationVehicle.reservation_id == res_id)
+            .order_by(ReservationVehicle.is_primary.desc(), ReservationVehicle.id.asc())
+            .all()
+        )
+        vehicles_list = [
+            ReservationVehicleDTO(
+                id=v.id,
+                guest_vehicle_id=v.guest_vehicle_id,
+                plate_number=v.plate_number,
+                model=v.model,
+                color=v.color,
+                is_primary=bool(v.is_primary),
+                notes=v.notes,
+            )
+            for v in veh_rows
+        ]
+
         return ReservationDetailDTO(
             id=r.id,
             room_id=r.room_id,
@@ -743,6 +930,8 @@ class ReservationService:
             breakfast_guests=getattr(r, "breakfast_guests", None),
             # v1.10.0 — Phase 2a — Master Guest link
             guest_id=getattr(r, "guest_id", None),
+            # v1.10.0 — Phase 2c — Multi-vehicle list
+            vehicles=vehicles_list,
         )
 
     @staticmethod

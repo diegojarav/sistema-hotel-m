@@ -710,8 +710,50 @@ No toca el schema. No requiere downtime. Safe en cualquier momento.
 - **DTOs con JSON fields**: usar `Optional[Any]` en pydantic, no `Optional[str]`. Pydantic rechazaría una lista/dict si el DTO la declara como str.
 - **PRAGMA foreign_keys=ON contamination en tests**: `test_db_constraints.py::_enable_fk` activa FK en la connection del StaticPool, y como StaticPool reusa la misma connection, **el PRAGMA persiste para tests subsiguientes**. Test funcions que insertan en tablas con FK a `properties.id` ahora deben depender de `seed_property` (se hizo para `test_settings_service.py` + `test_settings_api.py` en Phase 2b).
 - **`amenities=[]` en fixtures**, NO `amenities="[]"`. Después de Phase 2b las columnas JSON aceptan list/dict directo; pasar string a JSON column causa double-encode.
-- **Migración 014 + 015 ya aplicadas en dev DB** (resultado: drop column breakfast_included + 0 orphans en property_id audits). Próximo slot: `016_*.py`.
+- **Migración 014 + 015 ya aplicadas en dev DB** (resultado: drop column breakfast_included + 0 orphans en property_id audits). Próximo slot: `016_*.py` ya ocupado por Phase 2c — siguiente disponible `017_*.py`.
 - **breakfast_included en código frontend**: el mobile sigue leyendo `propertySettings.breakfast_included` — el backend devuelve el valor derivado. Cero cambios necesarios en mobile.
+
+## Multi-vehicle per Reservation (v1.10.0 — Phase 2c)
+
+Una reserva puede llevar **N vehículos** (no solo uno). Cada vehículo consume un lugar de estacionamiento. Soporta dos modos por vehículo:
+
+- **Linked**: `guest_vehicle_id` apunta al catálogo maestro del booker. La recepcionista lo eligió de un dropdown de los vehículos registrados del huésped principal.
+- **Quick-add**: `guest_vehicle_id IS NULL`. `plate_number`/`model`/`color` son la fuente de verdad. Para vehículos de acompañantes que NO requieren crear un Guest record (caso típico: segundo auto que llega a las 2 AM).
+
+### Tabla
+- `reservation_vehicles` (NEW, migración 016): `id, reservation_id FK reservations CASCADE, guest_vehicle_id FK guest_vehicles SET NULL, plate_number, model, color, is_primary BOOLEAN, notes, created_at`. Index en `(reservation_id)` para render de listado + `(plate_number)` para `search_by_plate` (OCR/futuro).
+
+### Schemas
+- `VehicleInput`: `{mode: "linked"|"quick", guest_vehicle_id?, plate_number?, model?, color?, is_primary, notes?}`. Validator rechaza linked sin id y quick sin plate.
+- `ReservationCreate.vehicles: List[VehicleInput] = []` — campo opcional. Cuando se provee, **toma precedencia** sobre el path legacy single-vehicle.
+- `ReservationVehicleDTO` en el response del endpoint `/reservations/{id}`.
+
+### Reglas de parking (rewrite en `ReservationService.create_reservations`)
+- Si `vehicles=[]` (legacy) → 1 lugar por habitación (comportamiento original).
+- Si `vehicles=[...]` → **1 lugar por vehículo**, sin importar cantidad de habitaciones. 3 autos = 3 lugares.
+- **Cap duro**: una reserva NUNCA puede pedir más vehículos que la capacidad total del hotel (`parking_capacity`). Caso `len(vehicles) > parking_capacity` → `ValueError` → 400 con mensaje en español.
+- Overlap check ahora cuenta `reservation_vehicles` reales de las reservas existentes (fallback a 1 lugar por habitación cuando no hay rows — data legacy).
+
+### Back-compat
+- Las columnas `reservations.vehicle_plate` / `reservations.vehicle_model` **se preservan**. La fila marcada `is_primary=True` (o índice 0 si ninguna lo está) también escribe su plate/model en estas columnas legacy. Toda la lectura existente (PDFs, calendar views, AI tools, mobile detail page) sigue funcionando sin modificación.
+- `_propagate_vehicle_to_master` y el hook de single-vehicle quedan envueltos en `if not data.vehicles:` — corren solo cuando el caller usa el path legacy.
+
+### Search by plate extendido
+- `GuestVehicleService.search_by_plate` ahora cae a `reservation_vehicles` si no encuentra match en `guest_vehicles`. Esto permite encontrar quick-add companions pre-arrival (use case OCR futuro). Cuando el match viene de `reservation_vehicles`, `guest` puede ser `None` (no hay Guest maestro registrado) — el AI tool `buscar_vehiculo` ya está guarded.
+- Las quick-add vehicles también se promueven best-effort al master `guest_vehicles` bajo el nombre del booker (si hay `guest_id`). Así, la próxima vez la misma chapa aparece como `linked`.
+
+### UI
+- **PC `tab_reserva.py`**: expander "🚗 Vehículos adicionales" OUTSIDE el form (Streamlit constraint — el form bloquea estado mutable). El vehículo PRIMARY sigue siendo los campos chapa/modelo/color dentro del form (quick-mode). Los EXTRAS pueden ser quick OR linked (dropdown del catálogo del booker — solo disponible si el guest fue picked del dropdown).
+- **Mobile `GuestForm.tsx`**: sección "Vehículos adicionales" dentro del bloque de Parking. **Solo quick-mode** en mobile v1 (typing es más natural en touch que el dropdown linked). Cada extra: chapa/modelo/color + botón ✕. Linked-mode para mobile queda en backlog.
+
+### Critical gotchas
+- **`vehicles=[]` es el switch entre paths**. Si el frontend manda `vehicles=[]` o no la incluye → path legacy single-vehicle. Si manda `vehicles=[1 entry]` → path multi-vehicle (incluso para 1 vehículo). Ojo con casos de "auto agregado por error" en el UI que quedan colgando.
+- **Primary vehicle siempre se escribe en columnas legacy**. Si pasás 2 vehículos sin `is_primary=True` en ninguno → el de índice 0 gana. Si pasás varios con `is_primary=True` → solo el primero encontrado en ese estado se respeta (no hay validación de "exactamente uno"). Service-side es defensivo, no estricto.
+- **FK CASCADE en SQLite tests**: por defecto SQLite no enforce FK. Para tests de cascade hay que `PRAGMA foreign_keys=ON` per-connection. Ver `test_multi_vehicle.py::TestCascadeDelete` para el patrón.
+- **`search_by_plate` puede devolver `guest=None`**. Para quick-add companions sin Guest maestro registrado. El AI tool `buscar_vehiculo` ya maneja el None (muestra "sin huésped maestro registrado"). Cualquier caller nuevo del shape debe hacer lo mismo.
+- **Quick-add promotion al master es best-effort**. Si el booker ya tiene 5 vehículos registrados (cap de Phase 2a-ext), la promotion se loguea y se ignora — el `reservation_vehicles` row es el record load-bearing. No rompe la reserva.
+- **Mobile no soporta linked mode todavía**. Receptionists en mobile siempre tipean la chapa. Promotion automática al master sigue funcionando. Linked mode mobile = backlog futuro.
+- **Próximo slot de migración: `017_*.py`**.
 
 ## Two-Repo Architecture
 

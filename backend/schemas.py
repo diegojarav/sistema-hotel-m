@@ -13,7 +13,7 @@ Validaciones implementadas:
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from datetime import date, datetime, time
 import re
 
@@ -57,10 +57,78 @@ class UserDTO(BaseModel):
 # SCHEMAS DE RESERVA
 # ==========================================
 
+class VehicleInput(BaseModel):
+    """Single vehicle on a multi-vehicle reservation (v1.10.0 — Phase 2c).
+
+    Two modes:
+
+    - **linked** — `guest_vehicle_id` points at the booker's master
+      `guest_vehicles` row. The receptionist picked it from the dropdown
+      of the primary guest's registered vehicles. plate/model/color are
+      ignored on input (the service copies them from the master).
+
+    - **quick** — `guest_vehicle_id` is None; plate/model/color are the
+      source of truth. Used for companion vehicles whose driver is NOT a
+      registered guest (e.g. a second car arriving at 2 AM — no time to
+      create a Guest record).
+
+    `is_primary` marks the vehicle that ALSO populates the legacy
+    `reservations.vehicle_plate` / `vehicle_model` snapshot columns
+    (back-compat for older readers). Exactly one vehicle per reservation
+    should be primary — the service enforces this (defaults the first
+    one if none is marked, rejects multiple).
+    """
+    mode: Literal["linked", "quick"] = Field(..., description="'linked' = pick from guest catalogue; 'quick' = ad-hoc plate")
+    guest_vehicle_id: Optional[int] = Field(default=None, description="ID en guest_vehicles (modo linked)")
+    plate_number: Optional[str] = Field(default=None, description="Chapa/patente (modo quick)")
+    model: Optional[str] = Field(default=None, description="Modelo del vehículo (modo quick)")
+    color: Optional[str] = Field(default=None, description="Color del vehículo (modo quick)")
+    is_primary: bool = Field(default=False, description="Marca el vehículo que también se snapshot-ea en reservations.vehicle_plate")
+    notes: Optional[str] = Field(default=None, description="Notas opcionales (ej. 'auto del acompañante')")
+
+    @model_validator(mode='after')
+    def validate_mode_fields(self):
+        if self.mode == "linked":
+            if self.guest_vehicle_id is None:
+                raise ValueError("modo 'linked' requiere guest_vehicle_id")
+        elif self.mode == "quick":
+            if not (self.plate_number or "").strip():
+                raise ValueError("modo 'quick' requiere plate_number")
+        return self
+
+    @field_validator('plate_number')
+    @classmethod
+    def normalise_plate(cls, v: Optional[str]) -> Optional[str]:
+        """Normalize plate: uppercase + trim. Mirrors GuestVehicleService._norm_plate."""
+        if v is None:
+            return None
+        cleaned = v.strip().upper()
+        return cleaned or None
+
+
+class ReservationVehicleDTO(BaseModel):
+    """Vehicle row attached to a reservation (response shape).
+
+    Mirrors ReservationVehicle SQLAlchemy model. Always includes the
+    snapshot fields (plate/model/color) — even for linked rows — so
+    the UI can render the list without an extra JOIN to guest_vehicles.
+    """
+    id: int
+    guest_vehicle_id: Optional[int] = None
+    plate_number: str
+    model: Optional[str] = None
+    color: Optional[str] = None
+    is_primary: bool = False
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ReservationCreate(BaseModel):
     """
     Schema para crear/actualizar reservas.
-    
+
     Validaciones:
     - check_in_date: Obligatorio, no puede ser fecha pasada
     - stay_days: Entre 1 y 365 días
@@ -92,13 +160,20 @@ class ReservationCreate(BaseModel):
     
     # Parking & Source
     parking_needed: bool = Field(default=False, description="Indica si se necesita parking")
-    vehicle_model: Optional[str] = Field(default=None, description="Modelo del vehículo")
-    vehicle_plate: Optional[str] = Field(default=None, description="Chapa/Patente del vehículo")
+    vehicle_model: Optional[str] = Field(default=None, description="Modelo del vehículo (legacy single-vehicle compat)")
+    vehicle_plate: Optional[str] = Field(default=None, description="Chapa/Patente del vehículo (legacy single-vehicle compat)")
     # v1.10.0 Phase 2a-ext: color passthrough — propagates to master GuestVehicle.
     # Not stored on the Reservation row (avoids a column add); the auxiliary
     # metadata lives only on the master vehicle, which is the canonical place
     # to ask "¿de quién es el auto blanco?".
-    vehicle_color: Optional[str] = Field(default=None, description="Color del vehículo")
+    vehicle_color: Optional[str] = Field(default=None, description="Color del vehículo (legacy single-vehicle compat)")
+    # v1.10.0 Phase 2c — Multi-vehicle support.
+    # When provided, takes precedence over the single vehicle_plate/model/color
+    # fields above. The service writes one reservation_vehicles row per entry,
+    # AND copies the is_primary row's plate/model into the legacy snapshot
+    # columns so old readers keep working. When empty, the legacy single-
+    # vehicle path is unchanged.
+    vehicles: List[VehicleInput] = Field(default_factory=list, description="Lista de vehículos para la reserva (multi-vehículo)")
     source: Optional[str] = Field(default="Direct", description="Origen de la reserva (ej. Direct, Booking.com)")
     external_id: Optional[str] = Field(default=None, description="ID externo de la reserva (ej. de OTA)")
     paid: Optional[bool] = Field(default=True, description="Si el huesped ya pago. True=Confirmada, False=Pendiente")
@@ -201,6 +276,10 @@ class ReservationDetailDTO(ReservationDTO):
     breakfast_guests: Optional[int] = None
     # v1.10.0 — Phase 2a — Master Guest entity link
     guest_id: Optional[int] = None
+    # v1.10.0 — Phase 2c — Multi-vehicle list. Empty for legacy single-
+    # vehicle reservations (their vehicle still appears in the
+    # vehicle_plate / vehicle_model fields above).
+    vehicles: List[ReservationVehicleDTO] = Field(default_factory=list)
 
 
 class CalendarEventDTO(BaseModel):

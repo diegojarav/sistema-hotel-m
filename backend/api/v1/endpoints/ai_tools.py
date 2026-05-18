@@ -1439,11 +1439,17 @@ def buscar_vehiculo(plate: Optional[str] = None) -> str:
             f"Vehículo: {v.plate_number}"
             + (f" — {v.model}" if v.model else "")
             + (f" ({v.color})" if v.color else ""),
-            f"Propietario: {g.last_name}, {g.first_name}"
-            + (f" — Doc {g.document_number}" if g.document_number else ""),
         ]
-        if g.phone:
-            lines.append(f"Tel: {g.phone}")
+        if g is not None:
+            lines.append(
+                f"Propietario: {g.last_name}, {g.first_name}"
+                + (f" — Doc {g.document_number}" if g.document_number else "")
+            )
+            if g.phone:
+                lines.append(f"Tel: {g.phone}")
+        else:
+            # Phase 2c quick-add companion vehicle: no master Guest registered.
+            lines.append("Propietario: sin huésped maestro registrado (vehículo de acompañante).")
         if active:
             fecha_in = active.get("check_in_date")
             fecha_out = active.get("check_out_date")

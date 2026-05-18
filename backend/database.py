@@ -1020,6 +1020,83 @@ class CheckinVehicle(Base):
     )
 
 
+class ReservationVehicle(Base):
+    """Vehicle attached to a RESERVATION (v1.10.0 — Phase 2c).
+
+    Supports multi-vehicle bookings — a single reservation can have N
+    vehicles (one per parking slot consumed). Two modes per row:
+
+    - **Linked**     `guest_vehicle_id` points at the master
+                    `guest_vehicles` row for the booker's car. The
+                    receptionist picked it from a dropdown of the
+                    primary guest's registered vehicles.
+
+    - **Quick-add** `guest_vehicle_id IS NULL`. The row's plate / model
+                    / color are the source of truth for a companion
+                    vehicle whose driver is NOT a registered guest (e.g.
+                    a second car arriving with friends at 2 AM — no
+                    time to create a Guest record).
+
+    Snapshot fields (`plate_number`, `model`, `color`) are stored on EVERY
+    row — including linked ones — so:
+      - the reservation page can render the list without joining
+      - `GuestVehicleService.search_by_plate` can scan this table for
+        pre-arrival lookups (the future OCR pipeline finds a booking by
+        plate before the guest has even checked in)
+
+    Back-compat with legacy single-vehicle reservations
+    ----------------------------------------------------
+    The pre-existing `reservations.vehicle_plate` and
+    `reservations.vehicle_model` columns are PRESERVED. When a multi-
+    vehicle reservation is created, the FIRST vehicle (or the one with
+    `is_primary=True`) also writes its plate/model to those legacy
+    columns so older code paths that read `reservation.vehicle_plate`
+    continue to work without modification.
+
+    `guest_vehicles` is intentionally NOT touched by quick-add rows.
+    The master catalogue keeps the invariant "every row has an owner".
+    A future admin tool can promote a frequent quick-add vehicle to the
+    master if its driver becomes a returning Guest.
+    """
+    __tablename__ = "reservation_vehicles"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    reservation_id = Column(
+        String,
+        ForeignKey("reservations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    guest_vehicle_id = Column(
+        Integer,
+        ForeignKey("guest_vehicles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Snapshot fields — source of truth for quick-add, denormalised copy
+    # for linked rows (so the reservation list view doesn't need a JOIN).
+    plate_number = Column(String, nullable=False)
+    model = Column(String, nullable=True)
+    color = Column(String, nullable=True)
+
+    # Marks the "primary" vehicle that also populates the legacy
+    # reservations.vehicle_plate / vehicle_model snapshot columns. Exactly
+    # one row per reservation should have is_primary=True (enforced at
+    # service layer — SQLite doesn't easily express partial UNIQUE).
+    is_primary = Column(Boolean, default=False, nullable=False)
+
+    notes = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        # Reservation detail page renders the list (hot lookup)
+        Index("idx_resv_veh_reservation", "reservation_id"),
+        # Plate scan (search_by_plate / future OCR) — same purpose as
+        # idx_vehicle_property_plate on guest_vehicles
+        Index("idx_resv_veh_plate", "plate_number"),
+        # Optional FK lookup
+        Index("idx_resv_veh_guest_vehicle", "guest_vehicle_id"),
+    )
+
+
 
 # ==========================================
 # MIGRACIÓN

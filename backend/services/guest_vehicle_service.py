@@ -37,6 +37,7 @@ from database import (
     Guest,
     GuestVehicle,
     Reservation,
+    ReservationVehicle,
     Room,
 )
 from logging_config import get_logger
@@ -237,8 +238,50 @@ class GuestVehicleService:
                 .first()
             )
 
+        # v1.10.0 Phase 2c — fallback to reservation_vehicles for quick-add
+        # companion vehicles (those have no guest_vehicles row by design).
+        # Returns the same shape, but `guest` may be None if the booking
+        # itself wasn't tied to a master Guest.
         if v is None:
-            return None
+            rv = (
+                db.query(ReservationVehicle)
+                .filter(ReservationVehicle.plate_number == norm)
+                .order_by(ReservationVehicle.created_at.desc())
+                .first()
+            )
+            if rv is None:
+                rv = (
+                    db.query(ReservationVehicle)
+                    .filter(ReservationVehicle.plate_number.ilike(f"%{norm}%"))
+                    .order_by(ReservationVehicle.created_at.desc())
+                    .first()
+                )
+            if rv is None:
+                return None
+            res = db.query(Reservation).filter(Reservation.id == rv.reservation_id).first()
+            # Property scoping: skip if the booking belongs to a different property
+            if res is None or (res.property_id and res.property_id != property_id):
+                return None
+            guest = None
+            if res.guest_id:
+                guest = db.query(Guest).filter(Guest.id == res.guest_id).first()
+            # Same active-reservation summary shape as the guest_vehicles path
+            today = date.today()
+            check_out = res.check_in_date + timedelta(days=res.stay_days or 0) if res.check_in_date else None
+            room = db.query(Room).filter(Room.id == res.room_id).first() if res.room_id else None
+            active_summary = {
+                "id": res.id,
+                "room_id": res.room_id,
+                "room_internal_code": room.internal_code if room else res.room_id,
+                "check_in_date": res.check_in_date,
+                "check_out_date": check_out,
+                "status": res.status,
+            } if res.check_in_date and check_out and check_out > today else None
+            return {
+                "vehicle": rv,           # has .plate_number, .model, .color (same attrs)
+                "guest": guest,          # may be None for unlinked bookings
+                "active_reservation": active_summary,
+            }
 
         guest = db.query(Guest).filter(Guest.id == v.guest_id).first()
         if guest is None:

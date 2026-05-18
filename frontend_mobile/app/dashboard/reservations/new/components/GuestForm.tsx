@@ -5,6 +5,15 @@ import { useEffect, useRef, useState } from 'react';
 import { ClientType } from '@/services/pricing';
 import { searchGuests, GuestSearchResult } from '@/services/guests';
 
+// v1.10.0 Phase 2c — Multi-vehicle support (mobile: quick-mode only).
+// One row per extra vehicle. The first vehicle (primary) lives in the
+// existing vehicleModel/Plate/Color fields above; these are EXTRAS.
+export interface AdditionalVehicle {
+    plate: string;
+    model: string;
+    color: string;
+}
+
 interface FormData {
     apellidos: string;
     nombres: string;
@@ -23,6 +32,8 @@ interface FormData {
     vehiclePlate: string;
     // v1.10.0 Phase 2a-ext — color propagates to master GuestVehicle catalog
     vehicleColor: string;
+    // v1.10.0 Phase 2c — additional vehicles beyond the primary one above
+    additionalVehicles: AdditionalVehicle[];
     source: string;
     // v1.10.0 Phase 2a Bug #2 Fix A — explicit master Guest link
     guestId?: number | null;
@@ -295,6 +306,103 @@ export default function GuestForm({ formData, onFormChange, clientTypes, selecte
                             <p className="text-xs text-gray-400 mt-1">
                                 Se guarda en el catálogo del huésped — habilita el lookup &quot;¿de quién es el auto blanco?&quot;.
                             </p>
+                        </div>
+
+                        {/* v1.10.0 Phase 2c — Multi-vehicle (mobile: quick-mode only) */}
+                        <div className="mt-4 pt-4 border-t border-gray-200">
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-gray-700 text-sm font-semibold">
+                                    Vehículos adicionales
+                                </h4>
+                                <span className="text-xs text-gray-400">
+                                    {formData.additionalVehicles.length} extra(s)
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mb-3">
+                                Si la reserva trae más de un vehículo (acompañantes), agregalos acá.
+                                Cada vehículo consume un lugar de estacionamiento.
+                            </p>
+
+                            {formData.additionalVehicles.length === 0 && (
+                                <p className="text-xs text-gray-400 italic mb-3">
+                                    Sin vehículos adicionales.
+                                </p>
+                            )}
+
+                            {formData.additionalVehicles.map((av, idx) => (
+                                <div
+                                    key={idx}
+                                    className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-semibold text-gray-600">
+                                            🚗 Vehículo extra #{idx + 1}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const next = formData.additionalVehicles.filter(
+                                                    (_, i) => i !== idx,
+                                                );
+                                                onFormChange({ additionalVehicles: next });
+                                            }}
+                                            className="text-xs text-red-600 hover:text-red-800 font-medium"
+                                        >
+                                            ✕ Quitar
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input
+                                            type="text"
+                                            value={av.plate}
+                                            onChange={(e) => {
+                                                const next = [...formData.additionalVehicles];
+                                                next[idx] = { ...av, plate: e.target.value };
+                                                onFormChange({ additionalVehicles: next });
+                                            }}
+                                            placeholder="Chapa"
+                                            className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={av.model}
+                                            onChange={(e) => {
+                                                const next = [...formData.additionalVehicles];
+                                                next[idx] = { ...av, model: e.target.value };
+                                                onFormChange({ additionalVehicles: next });
+                                            }}
+                                            placeholder="Modelo"
+                                            className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                        />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={av.color}
+                                        onChange={(e) => {
+                                            const next = [...formData.additionalVehicles];
+                                            next[idx] = { ...av, color: e.target.value };
+                                            onFormChange({ additionalVehicles: next });
+                                        }}
+                                        placeholder="Color"
+                                        className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                    />
+                                </div>
+                            ))}
+
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    onFormChange({
+                                        additionalVehicles: [
+                                            ...formData.additionalVehicles,
+                                            { plate: '', model: '', color: '' },
+                                        ],
+                                    })
+                                }
+                                className="w-full py-2 mt-1 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg text-sm font-medium hover:bg-amber-100"
+                            >
+                                ➕ Agregar otro vehículo
+                            </button>
                         </div>
                     </>
                 )}

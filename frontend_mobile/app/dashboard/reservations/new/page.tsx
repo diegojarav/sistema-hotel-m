@@ -94,6 +94,8 @@ export default function NewReservationPage() {
         vehiclePlate: string;
         // v1.10.0 Phase 2a-ext — color propagates to master GuestVehicle
         vehicleColor: string;
+        // v1.10.0 Phase 2c — additional vehicles (quick-mode only on mobile)
+        additionalVehicles: Array<{ plate: string; model: string; color: string }>;
         source: string;
         // v1.10.0 Phase 2a Bug #2 Fix A — explicit master Guest link
         guestId?: number | null;
@@ -114,6 +116,7 @@ export default function NewReservationPage() {
         vehicleModel: '',
         vehiclePlate: '',
         vehicleColor: '',
+        additionalVehicles: [],
         source: 'Direct',
         guestId: null,
     });
@@ -421,6 +424,33 @@ export default function NewReservationPage() {
                 vehicle_plate: formData.vehiclePlate || null,
                 // v1.10.0 Phase 2a-ext — color propagates to master GuestVehicle
                 vehicle_color: formData.vehicleColor || null,
+                // v1.10.0 Phase 2c — Multi-vehicle list. Bundle the primary
+                // (chapa/model/color above) as the is_primary entry, plus
+                // any additionals the receptionist added. Empty list when
+                // no plate or no parking_needed → service falls back to
+                // the legacy single-vehicle path.
+                vehicles: (() => {
+                    const list: Array<Record<string, unknown>> = [];
+                    if (formData.parkingNeeded && formData.vehiclePlate.trim()) {
+                        list.push({
+                            mode: 'quick',
+                            plate_number: formData.vehiclePlate.trim(),
+                            model: formData.vehicleModel.trim() || null,
+                            color: formData.vehicleColor.trim() || null,
+                            is_primary: true,
+                        });
+                    }
+                    for (const av of formData.additionalVehicles) {
+                        if (!av.plate.trim()) continue;  // skip empties
+                        list.push({
+                            mode: 'quick',
+                            plate_number: av.plate.trim(),
+                            model: av.model.trim() || null,
+                            color: av.color.trim() || null,
+                        });
+                    }
+                    return list;
+                })(),
                 source: formData.source,
                 paid: paid,
                 // v1.7.0 — Meal Plan (Phase 4) — only sent when user selected a plan

@@ -12,9 +12,55 @@
 
 ---
 
-## [v1.10.0] — abril 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization)
+## [v1.10.0] — abril-mayo 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization) + Phase 2c (Multi-vehicle per reservation)
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + **Phase 2b (type harmonization)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + **Phase 2c (multi-vehicle per reservation)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+
+### Phase 2c — Multi-vehicle per reservation (v1.10.0-dev)
+
+Cierra la limitación histórica de "1 vehículo por reserva". Una reserva puede ahora llevar N vehículos — útil para familias que llegan en 2 autos, grupos con acompañantes, etc.
+
+#### Migración 016 — `016_reservation_vehicles.py`
+- Crea tabla `reservation_vehicles`: `id, reservation_id FK CASCADE, guest_vehicle_id FK SET NULL, plate_number, model, color, is_primary BOOLEAN, notes, created_at`.
+- Indexes en `(reservation_id)` para render de listado + `(plate_number)` para `search_by_plate` (OCR futuro) + `(guest_vehicle_id)`.
+- Idempotente — safe to re-run.
+
+#### Schemas
+- `VehicleInput` (NEW): soporta dos modos por vehículo:
+  - **Linked** (`mode="linked"`): `guest_vehicle_id` apunta al catálogo maestro del booker.
+  - **Quick-add** (`mode="quick"`): `plate_number`/`model`/`color` directos, sin requerir Guest registrado (para acompañantes).
+- `ReservationCreate.vehicles: List[VehicleInput] = []` — campo opcional. Cuando se provee, toma precedencia sobre el path legacy single-vehicle.
+- `ReservationVehicleDTO` en el response del endpoint `/reservations/{id}`.
+
+#### Service layer
+- `ReservationService.create_reservations`:
+  - Parking validation rewrite: 1 lugar por vehículo (no por habitación). Cap duro: `len(vehicles) > parking_capacity` → 400 con mensaje en español. Overlap check cuenta `reservation_vehicles` reales de bookings existentes (fallback a 1 por habitación para data legacy).
+  - Inserta una row `reservation_vehicles` por vehículo por habitación (2 hab × 3 autos = 6 rows).
+  - Linked validates `guest_vehicle_id` existe + pertenece a la property del booking; copia snapshot fields.
+  - Primary vehicle (explicit `is_primary=True` o índice 0) escribe sus plate/model en las columnas legacy `reservations.vehicle_plate`/`vehicle_model` (back-compat).
+  - Quick-add vehicles best-effort promotion al master `guest_vehicles` bajo el booker. 5-vehicle limit overflow se loguea y se ignora.
+- `GuestVehicleService.search_by_plate` extendido: fallback a `reservation_vehicles` cuando no hay match en master. Cuando el match viene de `reservation_vehicles`, `guest` puede ser `None`. AI tool `buscar_vehiculo` actualizado para guardar el `None` con mensaje "sin huésped maestro registrado".
+
+#### Endpoints
+- `GET /api/v1/reservations/{id}` retorna `vehicles: ReservationVehicleDTO[]` (lista vacía para reservas legacy single-vehicle).
+- `POST /api/v1/reservations` acepta `vehicles: VehicleInput[]` en el body. ValueError de validación se mapea a 400 con detail en español.
+
+#### UI
+- **PC `tab_reserva.py`**: expander "🚗 Vehículos adicionales" OUTSIDE el form (Streamlit constraint). Primary vehicle (chapa/modelo/color) sigue dentro del form (quick-mode). Extras soportan quick OR linked (dropdown del catálogo del booker — disponible solo si el guest fue picked del dropdown).
+- **Mobile `GuestForm.tsx`**: sección "Vehículos adicionales" dentro del bloque de Parking. **Solo quick-mode** en mobile v1. Cada extra: chapa/modelo/color + botón ✕.
+
+#### Back-compat
+- Cero cambios para hotels que no usan multi-vehicle. Si `vehicles=[]` (o no se manda), el path legacy single-vehicle corre exactamente igual que antes.
+- Las columnas `reservations.vehicle_plate`/`vehicle_model` se preservan. PDFs, calendar views, AI tools, mobile detail page siguen leyendo sin cambios.
+
+#### Tests
+- `test_multi_vehicle.py` (12 tests): quick-add + linked validation + primary snapshot + parking cap + per-vehicle accounting + search_by_plate fallthrough + endpoint integration + cascade delete + legacy path preservation.
+- Total: **764 tests** (752 baseline + 12 nuevos), 0 regresiones.
+
+#### Backlog
+- Linked-mode para mobile (actualmente solo PC tiene el dropdown).
+- "Promote quick-add a master" como admin tool (cuando un visitante recurrente se vuelve Guest registrado).
+- UI para visualizar la lista en mobile reservation detail page.
 
 ### Phase 2b — Type harmonization (v1.10.0-dev)
 
