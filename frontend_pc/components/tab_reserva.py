@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from pydantic import ValidationError
 
 from api.core.config import DEFAULT_PROPERTY_ID

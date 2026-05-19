@@ -244,12 +244,21 @@ export default function NewReservationPage() {
     // Auto-shrink breakfastGuests when room selection drops the cap below
     // the current value (e.g. user deselects a 4-pax suite). Otherwise the
     // backend would later reject the over-capacity payload.
+    //
+    // IMPORTANT: depend ONLY on `totalRoomCapacity`, NOT on `breakfastGuests`.
+    // Including the latter made the effect fire on every keystroke and
+    // snapped any "decrease the count" attempt back to the max (e.g. user
+    // tried to type 2→1, the effect saw "2 > 2 is false" momentarily then
+    // re-evaluated and re-snapped). The onChange handler in the input
+    // itself already enforces the cap on typed values — this effect only
+    // needs to react when the CAP itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (breakfastGuests > totalRoomCapacity) {
             setBreakfastGuests(totalRoomCapacity);
             setBreakfastGuestsError(null);
         }
-    }, [totalRoomCapacity, breakfastGuests]);
+    }, [totalRoomCapacity]);
 
     // Update price per category when rooms, dates, or client type change
     useEffect(() => {

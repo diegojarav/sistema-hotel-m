@@ -254,6 +254,21 @@ class DocumentService:
         pdf.set_font("Helvetica", "", 10)
         pdf.ln(3)
 
+        # --- Meal Plan (v1.10.0-dev — Phase 4 + bug-fix surfacing in PDF) ---
+        # Only render when the reservation actually has a meal plan attached.
+        # Free-text plan name + huésped count so the guest sees what they
+        # signed up for and the kitchen can cross-reference at check-in.
+        if getattr(reservation, "meal_plan_id", None):
+            from database import MealPlan
+            _mp = db.query(MealPlan).filter(MealPlan.id == reservation.meal_plan_id).first()
+            _plan_name = _mp.name if _mp else "Plan de comidas"
+            _bf_count = getattr(reservation, "breakfast_guests", None)
+            pdf.section_title("Plan de Comidas")
+            pdf.field_row("Plan", _plan_name)
+            if _bf_count is not None and _bf_count > 0:
+                pdf.field_row("Huespedes con desayuno", str(_bf_count))
+            pdf.ln(3)
+
         # --- Parking ---
         if reservation.parking_needed:
             pdf.section_title("Estacionamiento")
