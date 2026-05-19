@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 from services._base import with_db
 
@@ -109,6 +111,65 @@ class SettingsService:
             "check_in_end": prop.check_in_end or "22:00",
             "check_out_time": prop.check_out_time or "10:00",
             "breakfast_included": breakfast_in_rate,
+        }
+
+    @staticmethod
+    @with_db
+    def set_property_hours(
+        db: Session,
+        check_in_start: str,
+        check_in_end: str,
+        check_out_time: str,
+        property_id: str = DEFAULT_PROPERTY_ID,
+    ) -> dict:
+        """Update the property's check-in/out time windows (v1.10.0 Phase 2e).
+
+        Times are stored as "HH:MM" strings (mirrors the existing column type).
+        Validated for shape (must parse as time) and ordering (check_in_start
+        before check_in_end before midnight, check_out_time before
+        check_in_start = same morning window).
+
+        Raises ValueError on validation failure with Spanish message — the
+        endpoint surfaces this as 400.
+        """
+        from database import Property
+        from datetime import time
+
+        def _parse(value: str, field: str) -> time:
+            try:
+                parts = value.strip().split(":")
+                return time(int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+            except (ValueError, IndexError, AttributeError):
+                raise ValueError(f"Formato de hora inválido para {field}: '{value}' (esperado HH:MM)")
+
+        cs = _parse(check_in_start, "check-in inicio")
+        ce = _parse(check_in_end, "check-in fin")
+        co = _parse(check_out_time, "check-out")
+
+        if cs >= ce:
+            raise ValueError(
+                f"El inicio del check-in ({check_in_start}) debe ser anterior "
+                f"al fin del check-in ({check_in_end})."
+            )
+
+        prop = db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            raise ValueError(f"Propiedad {property_id} no encontrada.")
+
+        # Persist HH:MM strings (drop seconds — Property columns are String).
+        prop.check_in_start = f"{cs.hour:02d}:{cs.minute:02d}"
+        prop.check_in_end = f"{ce.hour:02d}:{ce.minute:02d}"
+        prop.check_out_time = f"{co.hour:02d}:{co.minute:02d}"
+        prop.updated_at = datetime.now()
+        db.commit()
+        logger.info(
+            f"Property hours updated: check_in {prop.check_in_start}–{prop.check_in_end} "
+            f"check_out {prop.check_out_time} (property {property_id})"
+        )
+        return {
+            "check_in_start": prop.check_in_start,
+            "check_in_end": prop.check_in_end,
+            "check_out_time": prop.check_out_time,
         }
 
     # ==================================================================

@@ -29,7 +29,7 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
 
 ## Funcionalidades principales
 
-**Reservas**. Ciclo de vida completo con cinco estados auto-derivados de los pagos: `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA / CANCELADA`. El estado se recalcula automáticamente cada vez que se registra o anula un pago. Soporta selección multi-categoría (varias habitaciones de tipos distintos en una misma reserva), cálculo dinámico de precio por temporada y tipo de cliente, override manual de temporada para eventos puntuales, y vinculación con check-in vía OCR de documento.
+**Reservas**. Ciclo de vida completo con cinco estados auto-derivados de los pagos: `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA / CANCELADA`. El estado se recalcula automáticamente cada vez que se registra o anula un pago. Soporta selección multi-categoría (varias habitaciones de tipos distintos en una misma reserva), cálculo dinámico de precio por temporada y tipo de cliente, override manual de temporada para eventos puntuales, y vinculación con check-in vía OCR de documento. **Lógica de "día de hotel"**: la noche de un día no termina a la medianoche sino al check-out del día siguiente — un recepcionista a las 2 AM puede crear una reserva para "anoche" porque la noche todavía sigue vigente operacionalmente. Soporta marcar early check-in y late check-out con hora acordada (las surcharges se configuran en Settings).
 
 **Multi-vehículo por reserva**. Una reserva puede llevar N vehículos — útil para familias que llegan en 2 autos, grupos con acompañantes, etc. Dos modos por vehículo: *linked* (seleccionar del catálogo del huésped principal) o *quick-add* (chapa/modelo/color directo, para acompañantes sin Guest registrado — caso típico: segundo auto que llega tarde sin tiempo para crear ficha). Cap automático: una reserva no puede pedir más vehículos que la capacidad total de estacionamiento del hotel. Cada vehículo consume un lugar de parking.
 
@@ -55,7 +55,7 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
 ┌──────────────────────────────────────────────────────────────────┐
 │                        FastAPI Backend                            │
 │                                                                   │
-│   28 endpoint modules · ~155 routes · 30 SQLite tables           │
+│   28 endpoint modules · ~156 routes · 30 SQLite tables           │
 │   20 AI tools · auto-backups · WAL mode · iCal sync background   │
 │                                                                   │
 └──────────┬─────────────────────────────────┬─────────────────────┘

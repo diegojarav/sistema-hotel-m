@@ -133,13 +133,32 @@ def render_tab_reserva():
 
     # === FECHA CHECK-IN / CHECK-OUT ===
     st.markdown("#### 📅 Fechas de Estadía")
+    # v1.10.0 Phase 2e — hotel-day logic. Before the hotel's check-out time
+    # the operational "today" is yesterday's calendar date — the night is
+    # still in progress. Use `get_current_hotel_day()` so a receptionist at
+    # 02:00 can still book "tonight" (which started yesterday by the wall
+    # clock). The util reads the property's `check_out_time` via the
+    # SettingsService when available; defaults to 10:00 (conservative).
+    from services.hotel_day import get_current_hotel_day
+    from services import SettingsService as _SS
+    try:
+        _co_time = _SS.get_property_settings().get("check_out_time")
+    except Exception:
+        _co_time = None
+    _hotel_today = (
+        get_current_hotel_day(check_out_time=_co_time)
+        if mode_res == "Nueva Reserva" else None
+    )
     col_in, col_out = st.columns(2)
     with col_in:
         check_in = st.date_input(
             "📥 Check-in (Entrada)",
             value=st.session_state.res_checkin,
-            min_value=date.today() if mode_res == "Nueva Reserva" else None,
-            help="Fecha de llegada del huésped",
+            min_value=_hotel_today,
+            help=(
+                "Fecha de llegada del huésped. Antes del check-out del hotel "
+                "podés crear una reserva para 'ayer' — la noche sigue vigente."
+            ),
             key="checkin_input",
             on_change=update_checkout_on_checkin_change
         )
@@ -756,6 +775,38 @@ def render_tab_reserva():
         with c2:
             hora = st.time_input("🕐 Hora Llegada", value=d_hora)
 
+            # v1.10.0 Phase 2e — Early check-in / late check-out toggles.
+            # MVP scope: just persists the flag on the reservation. Surcharge
+            # (if configured) is applied at folio generation. Availability
+            # blocking from late_checkout is deferred to Phase 6.5.
+            st.markdown("##### ⏰ Check-in/out especial")
+            d_early_ci = bool(getattr(res_data, "early_checkin", False)) if res_data else False
+            d_late_co = bool(getattr(res_data, "late_checkout", False)) if res_data else False
+            d_late_co_t = getattr(res_data, "late_checkout_time", None) if res_data else None
+            early_checkin_flag = st.checkbox(
+                "Early check-in (llega antes del horario)",
+                value=d_early_ci,
+                help="Marcar si el huésped llega antes del inicio del horario de check-in del hotel.",
+            )
+            late_checkout_flag = st.checkbox(
+                "Late check-out (se queda más tarde)",
+                value=d_late_co,
+                help="Marcar si el huésped acordó quedarse más allá del check-out estándar.",
+            )
+            late_co_time_str = None
+            if late_checkout_flag:
+                _default_late = (
+                    datetime.strptime(d_late_co_t, "%H:%M").time()
+                    if d_late_co_t else
+                    datetime.strptime("14:00", "%H:%M").time()
+                )
+                late_co_time_obj = st.time_input(
+                    "Hora acordada de salida (late check-out)",
+                    value=_default_late,
+                    help="Hora final acordada con el huésped.",
+                )
+                late_co_time_str = late_co_time_obj.strftime("%H:%M")
+
             st.markdown("##### 🚗 Estacionamiento y Origen")
             source_options = ["Direct", "Booking.com", "Airbnb", "Walk-in", "Whatsapp", "Facebook", "Instagram", "Google", "Telefónica"]
             source_index = 0
@@ -925,6 +976,10 @@ def render_tab_reserva():
                             guest_id=picked_guest_id,
                             # v1.10.0 Phase 2c — Multi-vehicle list
                             vehicles=_vehicles_list,
+                            # v1.10.0 Phase 2e — early/late check-in/out
+                            early_checkin=early_checkin_flag,
+                            late_checkout=late_checkout_flag,
+                            late_checkout_time=late_co_time_str,
                         )
                         if ReservationService.update_reservation(res_id_load, data):
                             force_refresh()
@@ -993,6 +1048,10 @@ def render_tab_reserva():
                                     guest_id=picked_guest_id,
                                     # v1.10.0 Phase 2c — Multi-vehicle list
                                     vehicles=_vehicles_list,
+                                    # v1.10.0 Phase 2e — early/late check-in/out
+                                    early_checkin=early_checkin_flag,
+                                    late_checkout=late_checkout_flag,
+                                    late_checkout_time=late_co_time_str,
                                 )
 
                                 ids = ReservationService.create_reservations(data)

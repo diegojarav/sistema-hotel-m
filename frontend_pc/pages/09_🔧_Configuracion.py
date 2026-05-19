@@ -30,6 +30,74 @@ st.title("🔧 Configuración del Sistema")
 st.markdown("---")
 
 # ==========================================
+# HOTEL HOURS (v1.10.0 — Phase 2e)
+# ==========================================
+st.subheader("⏰ Horarios del Hotel")
+st.caption(
+    "Estas horas definen el **día operacional del hotel**. La noche del día D "
+    "se extiende hasta el check-out del día D+1, no termina a la medianoche. "
+    "Afectan: cuándo se pueden crear reservas (un recepcionista a las 2 AM "
+    "puede crear una reserva para 'anoche' hasta el check-out de la mañana) "
+    "y el límite del día operacional para reportes y caja."
+)
+
+with SessionLocal() as _db:
+    _hours = SettingsService.get_property_settings(db=_db)
+
+from datetime import time as _time
+
+def _parse_hhmm(value: str, fallback: _time) -> _time:
+    try:
+        h, m = (value or "").split(":")[:2]
+        return _time(int(h), int(m))
+    except Exception:
+        return fallback
+
+with st.form("hotel_hours_form"):
+    _cols = st.columns(3)
+    with _cols[0]:
+        _check_in_start = st.time_input(
+            "Inicio check-in",
+            value=_parse_hhmm(_hours["check_in_start"], _time(14, 0)),
+            help="A partir de qué hora del día se permite que los huéspedes lleguen.",
+        )
+    with _cols[1]:
+        _check_in_end = st.time_input(
+            "Fin check-in",
+            value=_parse_hhmm(_hours["check_in_end"], _time(22, 0)),
+            help="Última hora razonable de llegada (informativo).",
+        )
+    with _cols[2]:
+        _check_out_time = st.time_input(
+            "Check-out",
+            value=_parse_hhmm(_hours["check_out_time"], _time(10, 0)),
+            help=(
+                "Hora límite de salida. **Define el final del día operacional**: "
+                "antes de esta hora, todavía es 'la noche anterior' para el sistema."
+            ),
+        )
+
+    if st.form_submit_button("Guardar horarios"):
+        try:
+            with SessionLocal() as _db:
+                SettingsService.set_property_hours(
+                    db=_db,
+                    check_in_start=_check_in_start.strftime("%H:%M"),
+                    check_in_end=_check_in_end.strftime("%H:%M"),
+                    check_out_time=_check_out_time.strftime("%H:%M"),
+                )
+            st.success(
+                f"✅ Horarios actualizados: check-in "
+                f"{_check_in_start.strftime('%H:%M')}–{_check_in_end.strftime('%H:%M')}, "
+                f"check-out {_check_out_time.strftime('%H:%M')}."
+            )
+            st.rerun()
+        except ValueError as _e:
+            st.error(f"❌ {_e}")
+
+st.markdown("---")
+
+# ==========================================
 # PARKING CONFIGURATION
 # ==========================================
 st.subheader("🚗 Estacionamiento")

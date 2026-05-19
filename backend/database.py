@@ -213,6 +213,18 @@ class Reservation(Base):
     # Backfilled by migration 011 from existing (property_id, guest_name) tuples.
     guest_id = Column(Integer, ForeignKey("guests.id", ondelete="SET NULL"), nullable=True, index=True)
 
+    # v1.10.0 — Phase 2e — Early check-in / late check-out (MVP).
+    # MVP scope: flags + late_checkout_time persisted so receptionists can
+    # note the request. **Availability blocking deferred to Phase 6.5** —
+    # ReservationService.create_reservations does NOT yet consult these
+    # fields when checking room overlap. Surcharges live on Property and
+    # are applied at folio generation (not at booking).
+    early_checkin = Column(Boolean, default=False, nullable=False)
+    late_checkout = Column(Boolean, default=False, nullable=False)
+    # NULL when late_checkout=False; "HH:MM" string when True (mirrors
+    # Property.check_*_time column type).
+    late_checkout_time = Column(String, nullable=True)
+
 
 class CheckIn(Base):
     __tablename__ = "checkins"
@@ -507,6 +519,11 @@ class Property(Base):
     check_in_start = Column(String, default="07:00")
     check_in_end = Column(String, default="22:00")
     check_out_time = Column(String, default="10:00")
+    # v1.10.0 Phase 2e — surcharges in BASE currency units (0 = free).
+    # Applied at folio generation when the reservation has the matching
+    # flag set. Availability blocking from late_checkout is deferred.
+    early_checkin_surcharge = Column(Integer, default=0, nullable=False)
+    late_checkout_surcharge = Column(Integer, default=0, nullable=False)
     # Phase 2b: `breakfast_included` REMOVED (was deprecated v1.7). Migration 014
     # drops the SQLite column via DROP COLUMN (SQLite 3.35+). The whole "should
     # the hotel include breakfast?" question is now answered by `meals_enabled`

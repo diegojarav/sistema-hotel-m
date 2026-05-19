@@ -318,6 +318,16 @@ class ReservationService:
 
                 # v1.10.0 — Phase 2a: master Guest link
                 guest_id=guest_id_for_booking,
+
+                # v1.10.0 — Phase 2e: early/late check-in flags (MVP). Surcharges
+                # are applied at folio generation, not at booking. Availability
+                # blocking from late_checkout is deferred to Phase 6.5 — the
+                # overlap check above does NOT yet consult late_checkout_time.
+                early_checkin=bool(getattr(data, 'early_checkin', False)),
+                late_checkout=bool(getattr(data, 'late_checkout', False)),
+                late_checkout_time=(
+                    (getattr(data, 'late_checkout_time', None) or '').strip() or None
+                ) if getattr(data, 'late_checkout', False) else None,
             )
             db.add(new_res)
             created_ids.append(res_id)

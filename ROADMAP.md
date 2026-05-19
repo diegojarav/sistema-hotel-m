@@ -15,10 +15,10 @@
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
-| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) + Phase 2b (Type harmonization, v1.10.0-dev) + Phase 2c (Multi-vehicle per reservation, v1.10.0-dev) + **Phase 2d (Multi-currency MVP, v1.10.0-dev)** |
-| Próxima migración | `018_*.py` |
+| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) + Phase 2b (Type harmonization, v1.10.0-dev) + Phase 2c (Multi-vehicle per reservation, v1.10.0-dev) + Phase 2d (Multi-currency MVP, v1.10.0-dev) + **Phase 2e (Hotel-day logic + early/late check-in/out flags, v1.10.0-dev)** |
+| Próxima migración | `019_*.py` |
 | AI tools | 20 (último: `buscar_vehiculo` — Phase 2c extiende el lookup para encontrar quick-add vehicles vía `reservation_vehicles`) |
-| Tablas | 30 (suma `accepted_currencies` desde Phase 2d) |
+| Tablas | 30 (suma `accepted_currencies` desde Phase 2d; Phase 2e solo agrega columnas) |
 
 ---
 
@@ -105,6 +105,12 @@ Próximo slot: `016_*.py`. Ready para tag v1.10.0 final.
 ## Phase 6.5 — Reporting avanzado (post-PostgreSQL)
 
 Suite de reportes financieros y operativos que se benefician de las features de Postgres (`date_trunc`, window functions, GROUP BY con CUBE/ROLLUP, JSONB indexes). Hoy se pueden hacer en SQLite pero las queries serían menos performantes y más verbosas. Implementar después del cutover (Phase 3+ / Postgres).
+
+**Late-checkout availability blocking** (Phase 2e follow-up):
+- Hoy `late_checkout_time` se persiste en la reserva pero el motor de availability **no lo consulta**. Una reserva con late check-out hasta 14:00 NO bloquea que otra reserva entre a la misma habitación el mismo día a las 14:00 — debería.
+- Cambio: en `ReservationService.create_reservations` el overlap check debe consultar `late_checkout_time` para el día de salida y exigir que el siguiente check-in sea posterior a esa hora.
+- Otro cambio: el `arrival_time` de la próxima reserva debería ser posterior al late check-out del anterior + cleaning buffer (configurable per-property, default 30 min).
+- También se beneficia de "cleaning windows" como concepto formal — pero ese es alcance Phase 7+.
 
 **Desglose de caja por categoría de ingreso**:
 - Habitaciones vs Productos/Consumos vs Desayunos (Plan de comidas surcharge).

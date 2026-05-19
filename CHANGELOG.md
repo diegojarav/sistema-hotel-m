@@ -12,9 +12,65 @@
 
 ---
 
-## [v1.10.0] — abril-mayo 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization) + Phase 2c (Multi-vehicle) + Phase 2d (Multi-currency)
+## [v1.10.0] — abril-mayo 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization) + Phase 2c (Multi-vehicle) + Phase 2d (Multi-currency) + Phase 2e (Hotel-day + early/late check-in/out)
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + **Phase 2d (multi-currency MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+
+### Phase 2e — Hotel-day logic + early/late check-in/out (v1.10.0-dev)
+
+Un "día de hotel" es la unidad operacional del hotel: NO termina a la medianoche sino al check-out del día siguiente. Soluciona el bug operacional: a las 02:00 de D+1 el sistema rechazaba reservas con check_in_date=D — pero esa noche todavía está vigente para el receptionist en el desk.
+
+#### Nuevo módulo `services/hotel_day.py`
+- `get_current_hotel_day(check_out_time, *, now)` — antes del check-out, "hoy" en términos hoteleros es el día calendario anterior.
+- `can_create_reservation_for_date(check_in_date, check_out_time, *, now)` — `True` mientras no haya pasado el check-out del día siguiente al `check_in_date`.
+- `_coerce_time` helper acepta `time` / "HH:MM" / "HH:MM:SS" / None — `Property.check_*_time` se guarda como string así que esta utilidad es load-bearing.
+- Constante `DEFAULT_CHECK_OUT_TIME = time(10, 0)` para callers que no quieren leer DB.
+
+#### Application points
+- **`schemas.py::ReservationCreate.validate_date_coherence`** — cambió de `if check_in_date < date.today()` a `if not can_create_reservation_for_date(check_in_date)`. Mensaje en español. Usa default 10:00 (Pydantic no puede leer DB).
+- **`frontend_pc/components/tab_reserva.py`** date picker `min_value` — cambió de `date.today()` a `get_current_hotel_day(check_out_time=SettingsService.get_property_settings().check_out_time)`.
+- **Mobile** `RoomSelection.tsx` — sin cambios. El input HTML5 no tiene `min` attr, el backend validator hace el filtrado.
+
+#### Migración 018 — `018_early_late_checkout.py`
+- Reservation: +`early_checkin BOOLEAN`, +`late_checkout BOOLEAN`, +`late_checkout_time VARCHAR` (NULL si estándar, "HH:MM" si late).
+- Property: +`early_checkin_surcharge INTEGER`, +`late_checkout_surcharge INTEGER` — en moneda base, 0 = sin surcharge. Aplicación al folio queda como follow-up.
+- Idempotente.
+
+#### Settings UI nueva
+- `PC 09_Configuracion.py` ahora tiene "⏰ Horarios del Hotel" con 3 time pickers (check-in start/end + check-out). Validación: `start < end`.
+- `SettingsService.set_property_hours` (nuevo método) persiste como "HH:MM" strings en columnas existentes de Property.
+- Endpoint `PUT /api/v1/settings/property-hours` (admin/supervisor/gerencia). Devuelve la config actualizada.
+
+#### Form UI (PC tab_reserva)
+Nueva sección "⏰ Check-in/out especial" con dos checkboxes (early_checkin, late_checkout) + `time_input` para hora acordada (visible solo cuando late_checkout=True). Default time 14:00. Persiste vía `ReservationCreate.early_checkin/late_checkout/late_checkout_time`.
+
+#### Service layer
+`ReservationService.create_reservations` ahora pasa las 3 columnas al Reservation. Si `late_checkout=False`, el `late_checkout_time` se persiste como `None` (no permite stale data tipo "asked but cancelled").
+
+#### Back-compat
+- Reservas existentes (`early_checkin=False, late_checkout=False, late_checkout_time=None`) son el caso default — todo sigue funcionando.
+- `validate_date_coherence` con default 10:00 es MÁS permisivo que el rule anterior (antes rechazaba ayer-medianoche; ahora acepta hasta ayer-10:00-AM-del-día-siguiente). NO menos permisivo, así que ningún caller existente rompe.
+- Mobile y PC tabs que crean reservas siguen funcionando idénticamente — los nuevos campos son optional con defaults.
+
+#### Tests
+`test_hotel_day.py` — 27 tests:
+- `get_current_hotel_day` (6): antes/después del check-out, exactamente en el cutoff, evening, accept HH:MM string, default check-out.
+- `can_create_reservation_for_date` (7): yesterday@2am, yesterday@959, yesterday@1001 rejected, today always, future always, far past rejected, later checkout window extends.
+- `_coerce_time` (7): time passthrough, HH:MM, HH:MM:SS, whitespace, None/empty→fallback, garbage→fallback.
+- Pydantic integration (3): today/future accepted, far past rejected.
+- Service persistence (4): default flags false, early_checkin=True persists, late_checkout=True + time persists, late_checkout=False clears time.
+
+Total: **824 tests** (797 baseline + 27 nuevos), 0 regresiones.
+
+#### NOT en scope (deferido a Phase 6.5)
+- **Availability blocking de late_checkout**: si una reserva tiene late_checkout hasta 14:00, una reserva entrando a la misma habitación a las 14:00 NO se bloquea hoy. El `create_reservations` overlap check no consulta `late_checkout_time`. Documentado en backlog Phase 6.5.
+- **Surcharge application en pricing**: las columnas `early_checkin_surcharge` / `late_checkout_surcharge` se persisten en Property pero `PricingService.calculate_price` no las suma. La aplicación al folio quedaría en `DocumentService.generate_folio_pdf` — follow-up.
+
+#### Impact en otros sistemas
+- **Pricing**: NO afectado (surcharge deferred).
+- **Reports**: NO afectado.
+- **iCal sync**: NO afectado (las OTAs no envían early/late info via iCal).
+- **AI tools**: NO afectado. Sería natural extender `consultar_reserva` para mostrar el flag, pero no es bloqueante.
 
 ### Phase 2d — Multi-currency MVP (v1.10.0-dev)
 

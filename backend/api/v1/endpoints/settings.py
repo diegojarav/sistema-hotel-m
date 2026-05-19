@@ -131,6 +131,44 @@ def get_property_settings(db: Session = Depends(get_db)):
     return PropertySettingsResponse(**settings)
 
 
+class PropertyHoursRequest(BaseModel):
+    """Update the hotel's check-in / check-out time windows (Phase 2e)."""
+    check_in_start: str = Field(..., description="Earliest check-in (HH:MM)")
+    check_in_end: str = Field(..., description="Latest typical check-in (HH:MM)")
+    check_out_time: str = Field(..., description="Check-out time (HH:MM) — defines hotel-day boundary")
+
+
+@router.put(
+    "/property-hours",
+    summary="Update Hotel Hours (Phase 2e)",
+    description=(
+        "Set check-in window and check-out time. The check-out time defines the "
+        "operational hotel-day boundary — reservations for date D can be created "
+        "until check_out_time of D+1. Admin only."
+    ),
+)
+def update_property_hours(
+    data: PropertyHoursRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if (current_user.role or "").lower() not in ("admin", "supervisor", "gerencia"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo admin/supervisor/gerencia pueden modificar los horarios del hotel.",
+        )
+    try:
+        result = SettingsService.set_property_hours(
+            db=db,
+            check_in_start=data.check_in_start,
+            check_in_end=data.check_in_end,
+            check_out_time=data.check_out_time,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
 # ==========================================
 # v1.7.0 — MEALS CONFIGURATION (Phase 4)
 # ==========================================

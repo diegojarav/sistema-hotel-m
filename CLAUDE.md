@@ -821,7 +821,47 @@ Agrega `base_currency: str` + `currency_breakdown: list[{currency_code, total_or
 - **Cambiar moneda base con transacciones activas está bloqueado**. `CurrencyService.set_base_currency` rechaza con error en español si hay `Transaccion.voided=False`. Cambiar la base re-significa todos los reportes históricos (1 USD = X PYG, ahora 1 USD = X EUR — los totales serían incomparables).
 - **Seed migración 017 corre solo una vez por property**. Re-running la migración con `accepted_currencies` ya seedeada → skip. Para resetar un seed: borrar manualmente + re-correr `python scripts/run_migrations.py` (la check de `migration_history` no re-correrá la migración 017 — usar `seed_monges.py` o SQL directo).
 - **Mobile NO permite cambiar tipos de cambio**. Toda la mutación es PC-only (admin). Mobile solo lee. Para apertura de hotel a un país nuevo: configurar la base + monedas desde PC primero.
-- **Próximo slot de migración: `018_*.py`**.
+- **Próximo slot de migración: `018_*.py`** ya ocupado por Phase 2e (Hotel-day + early/late check-in). Siguiente disponible: `019_*.py`.
+
+## Hotel-day Logic + Early/Late Check-in/out (v1.10.0 — Phase 2e)
+
+Un "día de hotel" no termina a la medianoche, sino al check-out del día siguiente. La noche del día D sigue vigente hasta `D+1 @ check_out_time`. Un recepcionista a las 02:00 del D+1 sigue trabajando "la noche de D" — debe poder crear una reserva con `check_in_date=D`.
+
+### Utility module
+`backend/services/hotel_day.py`:
+- `get_current_hotel_day(check_out_time, *, now=None)` — devuelve el día operacional vigente. Acepta `time` o "HH:MM" string. Default 10:00 si no se pasa nada.
+- `can_create_reservation_for_date(check_in_date, check_out_time, *, now=None)` — `True` si todavía estamos dentro del hotel-day del `check_in_date` (la noche aún no terminó) o si es futuro.
+- `_coerce_time` (helper) acepta `time` / "HH:MM" / "HH:MM:SS" / None y devuelve un `time` válido. Property guarda check_*_time como strings — esta función lo normaliza.
+- Constante `DEFAULT_CHECK_OUT_TIME = time(10, 0)` — fallback conservador usado por Pydantic validators y otros callers que no quieren leer la DB.
+
+### Application points
+- **Pydantic `ReservationCreate.validate_date_coherence`** (schemas.py): cambió de `if check_in_date < date.today(): reject` a `if not can_create_reservation_for_date(check_in_date): reject`. Mensaje en español: "La fecha de entrada ya pasó (el horario de check-out del día siguiente ya terminó)." Usa el default 10:00 — propiedades con check-out más tarde quedan más permisivas (lo cual es seguro).
+- **PC tab_reserva.py** `date_input min_value`: cambió de `date.today()` a `get_current_hotel_day(check_out_time=<from settings>)`. Carga el check-out de la propiedad vía `SettingsService.get_property_settings()`. Si la carga falla → cae al default 10:00.
+- **Mobile**: `<input type="date">` en RoomSelection.tsx NO tiene `min` attr → el browser acepta cualquier fecha. El backend validator hace el trabajo de rechazar fechas muy pasadas. Sin cambios mobile necesarios.
+
+### Settings UI
+`09_🔧_Configuracion.py` ahora expone una sección "⏰ Horarios del Hotel" con time pickers para `check_in_start` / `check_in_end` / `check_out_time`. Persiste vía nuevo `SettingsService.set_property_hours()`. Validador rechaza `check_in_start >= check_in_end` con mensaje en español. Endpoint: `PUT /api/v1/settings/property-hours` (admin/supervisor/gerencia).
+
+### Early check-in / Late check-out (MVP — Migration 018)
+Nuevas columnas en `reservations`:
+- `early_checkin BOOLEAN default 0` — guest llega antes del check_in_start.
+- `late_checkout BOOLEAN default 0` — guest sale después del check_out_time.
+- `late_checkout_time VARCHAR` — "HH:MM" o NULL. Solo se persiste si `late_checkout=True` (el service ignora el value cuando el flag es false — previene stale data).
+
+Nuevas columnas en `properties`:
+- `early_checkin_surcharge INTEGER default 0` — en moneda base.
+- `late_checkout_surcharge INTEGER default 0` — en moneda base.
+
+UI en PC tab_reserva: checkboxes "Early check-in" + "Late check-out". Cuando late_checkout está marcado, aparece un `time_input` para la hora acordada.
+
+### Critical gotchas
+- **`Property.check_*_time` son STRINGS, no `time`**. La columna es `Column(String, default="07:00")`. Cualquier consumer que quiera operar con `time` debe pasar por `_coerce_time` (o `datetime.strptime(value, "%H:%M").time()` inline). Comparar strings como ordenamiento textual funciona por casualidad (HH:MM zero-padded) pero es frágil — usá `time` siempre.
+- **El Pydantic validator usa default 10:00, NO consulta la DB**. Pydantic no puede leer DB en class-definition time, y agregar un DB-aware validator complicaría el contrato (validators son síncronos / pure). El validator es conservador: rechaza más rápido de lo que estrictamente debería. El service-layer en `create_reservations` SÍ podría consultar la DB y ser más permisivo — esa es la siguiente iteración si los hoteles con check-out 12:00+ se quejan. Para defecto 10:00 es correcto.
+- **Availability blocking de late checkout está DEFERIDO a Phase 6.5**. `late_checkout_time` se guarda pero el overlap check en `create_reservations` NO lo consulta. Una reserva con late check-out hasta 14:00 NO bloquea otra reserva entrando a la misma habitación a las 14:00. Documentado en ROADMAP.md backlog Phase 6.5.
+- **Surcharges no se aplican automáticamente en pricing**. `early_checkin_surcharge` / `late_checkout_surcharge` se guardan en Property pero `PricingService.calculate_price` no los suma. La aplicación debería ocurrir al generar el folio (`DocumentService.generate_folio_pdf`) — pero esa integración no está en este MVP. Quedaría como follow-up Phase 2e-ext.
+- **`set_property_hours` valida `check_in_start < check_in_end`**, pero NO valida `check_out_time` vs `check_in_start` (un hotel puede tener check-out 10:00 y check-in 14:00 — son ventanas separadas). Si querés validar "check-out debe ser antes del próximo check-in", es lógica adicional que no está acá.
+- **El campo `late_checkout_time` se limpia a None cuando `late_checkout=False`** en el service (defense-in-depth contra stale UI). El test `test_late_checkout_time_ignored_when_flag_false` confirma este comportamiento.
+- **Próximo slot de migración: `019_*.py`**.
 
 ## Two-Repo Architecture
 

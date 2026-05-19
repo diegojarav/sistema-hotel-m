@@ -49,9 +49,14 @@ def test_reservation_create_name_too_short():
 
 
 def test_reservation_create_past_date():
-    with pytest.raises(ValidationError, match="anterior a hoy"):
+    """v1.10.0 Phase 2e: yesterday alone is no longer enough to reject —
+    the hotel-day logic allows 'yesterday' bookings as long as the
+    check-out window of the day after hasn't passed (~10:00 AM next day).
+    Use a date well in the past (30 days) so the new validator still
+    rejects it. The new error message is 'ya pasó'."""
+    with pytest.raises(ValidationError, match="ya pasó"):
         ReservationCreate(**_valid_reservation(
-            check_in_date=date.today() - timedelta(days=1)
+            check_in_date=date.today() - timedelta(days=30)
         ))
 
 

@@ -174,6 +174,13 @@ class ReservationCreate(BaseModel):
     # columns so old readers keep working. When empty, the legacy single-
     # vehicle path is unchanged.
     vehicles: List[VehicleInput] = Field(default_factory=list, description="Lista de vehículos para la reserva (multi-vehículo)")
+    # v1.10.0 Phase 2e — Early check-in / late check-out flags (MVP).
+    # The receptionist can mark these on the form; surcharge (if any) is
+    # applied at folio generation. Availability blocking from late_checkout
+    # is deferred to Phase 6.5.
+    early_checkin: bool = Field(default=False, description="Llegada antes del check_in_start del hotel")
+    late_checkout: bool = Field(default=False, description="Salida después del check_out_time del hotel")
+    late_checkout_time: Optional[str] = Field(default=None, description="Hora acordada de late check-out (HH:MM); ignorada si late_checkout=False")
     source: Optional[str] = Field(default="Direct", description="Origen de la reserva (ej. Direct, Booking.com)")
     external_id: Optional[str] = Field(default=None, description="ID externo de la reserva (ej. de OTA)")
     paid: Optional[bool] = Field(default=True, description="Si el huesped ya pago. True=Confirmada, False=Pendiente")
@@ -223,9 +230,27 @@ class ReservationCreate(BaseModel):
 
     @model_validator(mode='after')
     def validate_date_coherence(self):
-        """Valida que la fecha de entrada no sea pasada."""
-        if self.check_in_date < date.today():
-            raise ValueError('La fecha de entrada no puede ser anterior a hoy')
+        """Valida que la fecha de entrada esté dentro del hotel-day vigente
+        o en el futuro.
+
+        v1.10.0 Phase 2e: el "día del hotel" no termina a la medianoche,
+        sino al check-out del día siguiente. Un receptionist a las 02:00
+        de D+1 sigue trabajando "la noche de D" — debe poder crear una
+        reserva con check_in_date=D hasta que pase el check-out del hotel.
+
+        El cutoff exacto depende del check_out_time de la propiedad, que
+        este validator NO conoce (no puede leer la DB en Pydantic). Por
+        eso usa el default conservador 10:00 — propiedades con check-out
+        más tarde permiten ventana más amplia, validada server-side por
+        `ReservationService.create_reservations` antes de persistir.
+        """
+        # Lazy import to avoid a heavy services package load at schema-import time
+        from services.hotel_day import can_create_reservation_for_date
+        if not can_create_reservation_for_date(self.check_in_date):
+            raise ValueError(
+                'La fecha de entrada ya pasó (el horario de check-out del '
+                'día siguiente ya terminó).'
+            )
         return self
 
 
