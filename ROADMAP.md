@@ -11,7 +11,7 @@
 | Item | Estado |
 |---|---|
 | Versión | v1.10.0-dev (listo para tag v1.10.0 final tras commit/push) |
-| Tests | 752 · 83% cobertura |
+| Tests | 797 · 83% cobertura (752 baseline + 12 multi-vehicle Phase 2c + 33 multi-currency Phase 2d) |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |

@@ -31,7 +31,9 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
 
 **Reservas**. Ciclo de vida completo con cinco estados auto-derivados de los pagos: `RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA / CANCELADA`. El estado se recalcula automáticamente cada vez que se registra o anula un pago. Soporta selección multi-categoría (varias habitaciones de tipos distintos en una misma reserva), cálculo dinámico de precio por temporada y tipo de cliente, override manual de temporada para eventos puntuales, y vinculación con check-in vía OCR de documento.
 
-**Caja y pagos**. Sistema de sesiones de caja por usuario con apertura/cierre y reconciliación entre el saldo declarado y el esperado. Tres métodos de pago (efectivo / transferencia / POS) con referencia bancaria o voucher. Las transacciones son inmutables: solo se pueden anular con razón obligatoria, nunca modificar. Los pagos en efectivo requieren caja abierta; transferencia y POS no.
+**Multi-vehículo por reserva**. Una reserva puede llevar N vehículos — útil para familias que llegan en 2 autos, grupos con acompañantes, etc. Dos modos por vehículo: *linked* (seleccionar del catálogo del huésped principal) o *quick-add* (chapa/modelo/color directo, para acompañantes sin Guest registrado — caso típico: segundo auto que llega tarde sin tiempo para crear ficha). Cap automático: una reserva no puede pedir más vehículos que la capacidad total de estacionamiento del hotel. Cada vehículo consume un lugar de parking.
+
+**Caja y pagos multi-moneda**. Sistema de sesiones de caja por usuario con apertura/cierre y reconciliación entre el saldo declarado y el esperado. Tres métodos de pago (efectivo / transferencia / POS) con referencia bancaria o voucher. **El hotel define una moneda base + N monedas aceptadas** del catálogo de 20 monedas (todas las hispanas + USD/EUR/GBP). Los pagos en moneda no-base se convierten automáticamente al registrar y guardan snapshot del tipo de cambio — reportes históricos no cambian si el TC se actualiza después. UI muestra preview en vivo de la conversión ("100 USD ≈ 750.000 ₲ · TC: 1 USD = 7.500 ₲"). El desglose de caja por moneda muestra qué entró en cada divisa. Pensado para zonas de frontera (Ciudad del Este: PYG + USD + BRL diarios). Las transacciones son inmutables: solo se pueden anular con razón obligatoria, nunca modificar. Los pagos en efectivo requieren caja abierta; transferencia y POS no.
 
 **Inventario y consumos**. Catálogo de productos vendibles a habitación (bebidas, snacks, servicios, minibar) con stock y stock mínimo. Cada consumo cargado a una reserva captura snapshot de precio y nombre del producto al momento del cargo (preserva auditoría histórica si los datos cambian después). Al pasar la reserva a `COMPLETADA` se genera automáticamente el folio del huésped (PDF) con todos los cargos itemizados, pagos y saldo.
 
@@ -53,7 +55,7 @@ Sistema de gestión hotelera (PMS) desarrollado para hoteles pequeños y mediano
 ┌──────────────────────────────────────────────────────────────────┐
 │                        FastAPI Backend                            │
 │                                                                   │
-│   26 endpoint modules · ~154 routes · 28 SQLite tables           │
+│   28 endpoint modules · ~155 routes · 30 SQLite tables           │
 │   20 AI tools · auto-backups · WAL mode · iCal sync background   │
 │                                                                   │
 └──────────┬─────────────────────────────────┬─────────────────────┘
