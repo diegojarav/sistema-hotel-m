@@ -120,12 +120,12 @@ tab_actual, tab_historial, tab_reportes = st.tabs([
 with tab_actual:
     current = api_get("/caja/actual")
 
-    if current is None:
-        st.error("No se pudo cargar la informacion de caja.")
-        st.stop()
-
-    # NO SESSION OPEN
-    if current == {} or current is None or not current:
+    # `/caja/actual` returns JSON `null` (→ Python None) when there's no open
+    # session — that's a VALID response, not an API error. Treat `None`,
+    # empty dict, or falsy as "no session open" and fall through to the
+    # "Abrir nueva caja" UI below. Only truly unreachable APIs would have
+    # been caught by api_get's internal st.error path already.
+    if not current:
         st.warning("⚠️ No tenes ninguna sesion de caja abierta.")
         st.markdown("### Abrir nueva caja")
 
