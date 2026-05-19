@@ -288,13 +288,24 @@ class CajaSesion(Base):
 
 
 class Transaccion(Base):
-    """Immutable payment transaction. Voided=True is the only way to nullify."""
+    """Immutable payment transaction. Voided=True is the only way to nullify.
+
+    Multi-currency (v1.10.0 — Phase 2d):
+    - `amount` is ALWAYS in the property's base currency (single source of
+      truth for saldos, caja totals, reports — never changes meaning).
+    - `currency_code` / `exchange_rate` / `amount_original` are populated
+      for non-base-currency payments to preserve "what did the guest hand
+      over?" as a snapshot. Legacy transactions have all three NULL and
+      all read paths treat NULL as "this WAS the base currency at
+      register time".
+    """
     __tablename__ = "transaccion"
     id = Column(Integer, primary_key=True, autoincrement=True)
     # Phase 1 #6: RESTRICT — never delete a reservation with payments (financial audit).
     reserva_id = Column(String, ForeignKey("reservations.id", ondelete="RESTRICT"), nullable=True, index=True)
     # Phase 1 #7: RESTRICT — caja sessions are immutable post-close; never delete one with txns.
     caja_sesion_id = Column(Integer, ForeignKey("caja_sesion.id", ondelete="RESTRICT"), nullable=True, index=True)
+    # In BASE currency, always. amount = amount_original * exchange_rate when non-base.
     amount = Column(Float, nullable=False)
     payment_method = Column(String, nullable=False, index=True)  # EFECTIVO | TRANSFERENCIA | POS
     reference_number = Column(String, nullable=True)
@@ -305,6 +316,11 @@ class Transaccion(Base):
     void_reason = Column(String, nullable=True)
     voided_at = Column(DateTime, nullable=True)
     voided_by = Column(String, nullable=True)
+    # v1.10.0 — Phase 2d (multi-currency snapshot).
+    # NULL on legacy rows; read paths treat NULL as "was base currency".
+    currency_code = Column(String, nullable=True)     # e.g. "USD", "BRL"
+    exchange_rate = Column(Float, nullable=True)       # rate snapshot at register time
+    amount_original = Column(Float, nullable=True)     # amount in the original currency
     # Phase 1 #15: enum CHECK on payment_method.
     # Phase 1 #19: composite index for the saldo() query that filters by reserva + voided.
     __table_args__ = (
@@ -313,6 +329,47 @@ class Transaccion(Base):
             name="ck_transaccion_payment_method",
         ),
         Index("idx_transaccion_reserva_voided", "reserva_id", "voided"),
+        # v1.10.0 Phase 2d — currency-breakdown queries on caja sessions
+        Index("idx_transaccion_currency", "currency_code"),
+    )
+
+
+class AcceptedCurrency(Base):
+    """Currencies a property accepts as payment (v1.10.0 — Phase 2d).
+
+    The property's BASE currency (in `Property.currency`) is also seeded
+    here with `exchange_rate=1.0` for uniformity — every UI dropdown,
+    every conversion lookup uses this single table. The base row is
+    immutable in the rate sense (always 1) but can be soft-deactivated
+    if a hotel ever pivots its base currency.
+
+    `currency_code` is an ISO 4217 code from the catalogue in
+    `services/currency_service.py::CURRENCY_CATALOG`. We snapshot the
+    display fields (name/symbol/decimals) at INSERT time so the catalogue
+    can evolve independently without breaking historical UI.
+    """
+    __tablename__ = "accepted_currencies"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    property_id = Column(
+        String,
+        ForeignKey("properties.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    currency_code = Column(String, nullable=False)            # ISO 4217
+    currency_name = Column(String, nullable=False)            # snapshot
+    currency_symbol = Column(String, nullable=False)          # snapshot
+    decimal_places = Column(Integer, nullable=False, default=2)
+    # Rate TO BASE: 1 unit of this currency = `exchange_rate` units of base.
+    # E.g. base=PYG, USD with rate=7500 → 100 USD becomes 750_000 PYG.
+    exchange_rate = Column(Float, nullable=False)
+    rate_updated_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("property_id", "currency_code", name="uq_accepted_currency"),
+        Index("idx_accepted_curr_property", "property_id", "is_active"),
     )
 
 

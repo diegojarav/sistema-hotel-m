@@ -18,6 +18,7 @@ from typing import Optional, List, Dict
 
 from sqlalchemy.orm import Session
 
+from api.core.config import DEFAULT_PROPERTY_ID
 from database import Transaccion, CajaSesion, Reservation, User
 from logging_config import get_logger
 from services._base import with_db
@@ -46,12 +47,25 @@ class TransaccionService:
         description: Optional[str] = None,
         created_by: Optional[str] = None,
         user_id: Optional[int] = None,
+        currency_code: Optional[str] = None,
+        property_id: Optional[str] = None,
     ) -> Transaccion:
         """
         Register a payment against a reservation.
 
         For EFECTIVO: user_id is required to find the open caja_sesion.
         Raises TransaccionError if no open session exists.
+
+        Multi-currency (v1.10.0 — Phase 2d):
+        - `amount` is the amount IN THE GUEST'S CURRENCY (whatever they
+          actually handed over). If `currency_code` is provided and is
+          NOT the property's base currency, the service converts it to
+          base via CurrencyService and stores BOTH the original and the
+          converted amount on the row (snapshot at register time —
+          historical reports unaffected by later rate changes).
+        - If `currency_code` is None or equals base, the legacy single-
+          currency path runs unchanged (amount stored as-is, all
+          currency fields NULL → "this is a base-currency payment").
         """
         # Validate amount
         if amount is None or amount <= 0:
@@ -93,25 +107,74 @@ class TransaccionService:
                 f"Transaccion {payment_method} sin numero de referencia (reserva {reserva_id})"
             )
 
+        # ---- Phase 2d multi-currency resolution ----
+        # Default property_id: reservation's property if set, else app default.
+        prop_id = property_id or (reserva.property_id or DEFAULT_PROPERTY_ID)
+        # Lazy import to avoid circular service deps
+        from services.currency_service import CurrencyService, CurrencyError
+        base_ccy = CurrencyService.get_base_currency(db=db, property_id=prop_id)
+        ccy_in = (currency_code or "").strip().upper() or None
+
+        # Final values to persist:
+        amount_base = float(amount)
+        amount_original_persist: Optional[float] = None
+        currency_code_persist: Optional[str] = None
+        exchange_rate_persist: Optional[float] = None
+
+        if ccy_in is not None and ccy_in != base_ccy:
+            # Convert to base via the accepted-currency rate
+            try:
+                conv = CurrencyService.convert_to_base(
+                    db=db,
+                    amount_original=amount,
+                    currency_code=ccy_in,
+                    property_id=prop_id,
+                )
+            except CurrencyError as ce:
+                raise TransaccionError(str(ce))
+            amount_base = conv["amount_base"]
+            amount_original_persist = conv["amount_original"]
+            currency_code_persist = conv["currency_code"]
+            exchange_rate_persist = conv["exchange_rate"]
+        elif ccy_in == base_ccy:
+            # Explicitly marked as base-currency payment — populate the
+            # snapshot fields anyway so reports show "received as base"
+            # consistently with non-base rows.
+            amount_original_persist = float(amount)
+            currency_code_persist = base_ccy
+            exchange_rate_persist = 1.0
+        # else: currency_code is None → legacy / unspecified.
+        # Leave the three new fields NULL; readers treat as "base currency".
+
         # Create transaction
         trans = Transaccion(
             reserva_id=reserva_id,
             caja_sesion_id=caja_sesion_id,
-            amount=amount,
+            amount=amount_base,
             payment_method=payment_method,
             reference_number=reference_number,
             description=description,
             created_by=created_by or "sistema",
             voided=False,
+            currency_code=currency_code_persist,
+            exchange_rate=exchange_rate_persist,
+            amount_original=amount_original_persist,
         )
         db.add(trans)
         db.commit()
         db.refresh(trans)
 
-        logger.info(
-            f"Pago registrado: {payment_method} {amount:,.0f} Gs "
-            f"reserva={reserva_id} por={created_by}"
-        )
+        if currency_code_persist and currency_code_persist != base_ccy:
+            logger.info(
+                f"Pago registrado: {payment_method} {amount:,.2f} {currency_code_persist} "
+                f"(TC {exchange_rate_persist} → {amount_base:,.0f} {base_ccy}) "
+                f"reserva={reserva_id} por={created_by}"
+            )
+        else:
+            logger.info(
+                f"Pago registrado: {payment_method} {amount_base:,.0f} {base_ccy} "
+                f"reserva={reserva_id} por={created_by}"
+            )
 
         # Recalculate reservation status
         TransaccionService._recalcular_status_reserva(db, reserva_id)

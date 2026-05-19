@@ -245,6 +245,168 @@ elif _meals_enabled_now and _meals_mode_now == "INCLUIDO":
 st.markdown("---")
 
 # ==========================================
+# MULTI-CURRENCY CONFIGURATION (v1.10.0 — Phase 2d)
+# ==========================================
+st.subheader("💱 Monedas")
+st.caption(
+    "Configure la moneda base del hotel y las monedas adicionales que "
+    "acepta como medio de pago. Los pagos en monedas no-base se convierten "
+    "al tipo de cambio actual y se guardan con snapshot — los reportes "
+    "históricos no cambian si los tipos varían después."
+)
+
+from services import CurrencyService, CurrencyError
+
+with SessionLocal() as _db:
+    _base_ccy = CurrencyService.get_base_currency(db=_db)
+    _accepted = CurrencyService.get_accepted_currencies(
+        db=_db, active_only=False,
+    )
+
+# --- Base currency selector ---
+_catalog_codes = [c["code"] for c in CurrencyService.CATALOG]
+_catalog_labels = {
+    c["code"]: f"{c['code']} — {c['name']} ({c['country']})"
+    for c in CurrencyService.CATALOG
+}
+_curr_base_idx = _catalog_codes.index(_base_ccy) if _base_ccy in _catalog_codes else 0
+
+with st.form("currency_base_form"):
+    st.markdown("**Moneda base**")
+    st.caption(
+        "Todos los totales, saldos y reportes están denominados en esta moneda. "
+        "Cambiarla con transacciones existentes está bloqueado — exportá primero."
+    )
+    _new_base_label = st.selectbox(
+        "Moneda base de la propiedad",
+        options=[_catalog_labels[c] for c in _catalog_codes],
+        index=_curr_base_idx,
+        key="_base_ccy_select",
+    )
+    _new_base = _catalog_codes[
+        [_catalog_labels[c] for c in _catalog_codes].index(_new_base_label)
+    ]
+    if st.form_submit_button("Guardar moneda base"):
+        if _new_base == _base_ccy:
+            st.info(f"La moneda base ya es {_base_ccy}.")
+        else:
+            try:
+                with SessionLocal() as _db:
+                    CurrencyService.set_base_currency(
+                        db=_db, property_id=DEFAULT_PROPERTY_ID, new_base=_new_base,
+                    )
+                st.success(f"✅ Moneda base actualizada a {_new_base}.")
+                st.rerun()
+            except CurrencyError as _e:
+                st.error(f"❌ {_e}")
+
+# --- Accepted currencies table ---
+st.markdown("**Monedas aceptadas**")
+if not _accepted:
+    st.info("Sin monedas configuradas. Agregá al menos la moneda base.")
+else:
+    for _row in _accepted:
+        is_base = _row.currency_code == _base_ccy
+        _cols = st.columns([1, 3, 1, 2, 1.5, 1])
+        _cols[0].write(f"**{_row.currency_code}**" + (" 🏛️" if is_base else ""))
+        _cols[1].write(f"{_row.currency_symbol}  {_row.currency_name}")
+        _cols[2].write(f"{_row.decimal_places}d")
+        if is_base:
+            _cols[3].write("1.0 (base)")
+        else:
+            _cols[3].write(
+                CurrencyService.format_amount(_row.exchange_rate, _base_ccy, with_symbol=False)
+                + f" {_base_ccy}"
+            )
+        _cols[4].write("🟢 Activa" if _row.is_active else "⚪ Inactiva")
+        if not is_base:
+            # Quick rate update for non-base rows
+            _new_rate_key = f"_new_rate_{_row.id}"
+            with _cols[5].popover("✏️", use_container_width=True):
+                _new_rate = st.number_input(
+                    f"Nueva tasa para {_row.currency_code}",
+                    min_value=0.0,
+                    value=float(_row.exchange_rate),
+                    step=1.0,
+                    format="%.4f",
+                    key=_new_rate_key,
+                )
+                if st.button("Guardar tasa", key=f"_save_rate_{_row.id}"):
+                    try:
+                        with SessionLocal() as _db:
+                            CurrencyService.update_exchange_rate(
+                                db=_db, property_id=DEFAULT_PROPERTY_ID,
+                                currency_code=_row.currency_code,
+                                new_rate=float(_new_rate),
+                            )
+                        st.success(f"✅ Tasa actualizada: 1 {_row.currency_code} = {_new_rate} {_base_ccy}")
+                        st.rerun()
+                    except CurrencyError as _e:
+                        st.error(f"❌ {_e}")
+                if _row.is_active:
+                    if st.button(
+                        "🗑️ Quitar esta moneda",
+                        key=f"_rm_{_row.id}",
+                        type="secondary",
+                    ):
+                        try:
+                            with SessionLocal() as _db:
+                                CurrencyService.remove_accepted_currency(
+                                    db=_db, property_id=DEFAULT_PROPERTY_ID,
+                                    currency_code=_row.currency_code,
+                                )
+                            st.success(f"✅ {_row.currency_code} desactivada.")
+                            st.rerun()
+                        except CurrencyError as _e:
+                            st.error(f"❌ {_e}")
+
+# --- Add new currency ---
+_existing_codes = {_r.currency_code for _r in _accepted}
+_addable = [
+    c for c in CurrencyService.CATALOG if c["code"] not in _existing_codes
+]
+if _addable:
+    with st.expander("➕ Agregar nueva moneda"):
+        with st.form("add_currency_form"):
+            _add_label_to_code = {
+                f"{c['code']} — {c['name']} ({c['country']})": c["code"]
+                for c in _addable
+            }
+            _add_pick = st.selectbox(
+                "Moneda del catálogo",
+                options=list(_add_label_to_code.keys()),
+                key="_add_ccy_pick",
+            )
+            _add_rate = st.number_input(
+                f"Tipo de cambio (1 unidad = N {_base_ccy})",
+                min_value=0.0001,
+                value=1.0,
+                step=1.0,
+                format="%.4f",
+                key="_add_ccy_rate",
+                help=f"Ejemplo: si 1 USD = 7.500 {_base_ccy}, escribí 7500",
+            )
+            if st.form_submit_button("Agregar moneda"):
+                _code = _add_label_to_code[_add_pick]
+                try:
+                    with SessionLocal() as _db:
+                        CurrencyService.add_accepted_currency(
+                            db=_db, property_id=DEFAULT_PROPERTY_ID,
+                            currency_code=_code, exchange_rate=float(_add_rate),
+                            sort_order=len(_accepted),
+                        )
+                    st.success(f"✅ Moneda {_code} agregada con tasa {_add_rate}.")
+                    st.rerun()
+                except CurrencyError as _e:
+                    st.error(f"❌ {_e}")
+else:
+    st.caption(
+        "✅ Todas las monedas del catálogo ya están configuradas para esta propiedad."
+    )
+
+st.markdown("---")
+
+# ==========================================
 # EMAIL / SMTP CONFIGURATION (v1.8.0 — Phase 5)
 # ==========================================
 st.subheader("📧 Configuración de Correo")

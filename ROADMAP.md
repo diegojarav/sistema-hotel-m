@@ -15,10 +15,10 @@
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
-| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) + Phase 2b (Type harmonization, v1.10.0-dev) + **Phase 2c (Multi-vehicle per reservation, v1.10.0-dev)** |
-| Próxima migración | `017_*.py` |
+| Phases completadas | 1-6 (v1.4-v1.9) + DB Audit Phase 1 (Postgres-readiness) + Phase 2a (Guests + Buildings) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles, v1.10.0-dev) + Meal Plan UI sweep (PC selector + mobile UX + capacity guard, v1.10.0-dev) + Phase 2b (Type harmonization, v1.10.0-dev) + Phase 2c (Multi-vehicle per reservation, v1.10.0-dev) + **Phase 2d (Multi-currency MVP, v1.10.0-dev)** |
+| Próxima migración | `018_*.py` |
 | AI tools | 20 (último: `buscar_vehiculo` — Phase 2c extiende el lookup para encontrar quick-add vehicles vía `reservation_vehicles`) |
-| Tablas | 29 (suma `reservation_vehicles` desde Phase 2c) |
+| Tablas | 30 (suma `accepted_currencies` desde Phase 2d) |
 
 ---
 

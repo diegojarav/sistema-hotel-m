@@ -753,7 +753,73 @@ Una reserva puede llevar **N vehículos** (no solo uno). Cada vehículo consume 
 - **`search_by_plate` puede devolver `guest=None`**. Para quick-add companions sin Guest maestro registrado. El AI tool `buscar_vehiculo` ya maneja el None (muestra "sin huésped maestro registrado"). Cualquier caller nuevo del shape debe hacer lo mismo.
 - **Quick-add promotion al master es best-effort**. Si el booker ya tiene 5 vehículos registrados (cap de Phase 2a-ext), la promotion se loguea y se ignora — el `reservation_vehicles` row es el record load-bearing. No rompe la reserva.
 - **Mobile no soporta linked mode todavía**. Receptionists en mobile siempre tipean la chapa. Promotion automática al master sigue funcionando. Linked mode mobile = backlog futuro.
-- **Próximo slot de migración: `017_*.py`**.
+- **Próximo slot de migración: `017_*.py`** ya usado por Phase 2d (Multi-currency). Siguiente disponible: `018_*.py`.
+
+## Multi-currency Payments (v1.10.0 — Phase 2d)
+
+Cualquier hotel en cualquier país hispanohablante puede operar con N monedas. Cada hotel tiene UNA **moneda base** (todos los totales/saldos/reportes denominados ahí) y N **monedas aceptadas** que el huésped puede usar para pagar. Para el demo en Ciudad del Este (zona triple frontera): PYG base + USD + BRL diarios.
+
+### Modelo conceptual
+- `Property.currency` (columna pre-existente, reutilizada) = moneda base de la propiedad.
+- `accepted_currencies` (NEW, migración 017) = catálogo per-property de monedas aceptadas + tipos de cambio.
+- `transaccion` extendida con `currency_code` + `exchange_rate` + `amount_original`. El campo `amount` SIEMPRE está en moneda base — no cambia su semántica.
+
+### Snapshot pattern
+Cuando el receptionist registra un pago en USD:
+- `amount_original = 100` (lo que el huésped entregó)
+- `currency_code = "USD"` (moneda)
+- `exchange_rate = 7500` (tipo de cambio CONGELADO al momento del pago)
+- `amount = 750_000` (equivalente en moneda base, persiste para totales/saldos)
+
+Si el admin actualiza el TC después, los reportes históricos NO cambian. Mismo patrón usado para `consumo.unit_price` y `checkin.billing_*`.
+
+### Catálogo
+`services/currency_service.py::CURRENCY_CATALOG` — 20 monedas hard-coded (todas hispanas + USD/EUR/GBP). Los hotels seleccionan de este catálogo, no crean nuevas. Para sumar un país nuevo: agregar entry al catálogo y agregar entry a `migration 017::SEED_BY_BASE` si querés seed automático.
+
+### Service
+- `CurrencyService.get_base_currency(property_id)` — lee `Property.currency`.
+- `CurrencyService.set_base_currency(property_id, new)` — bloqueado si hay transacciones activas en otra base (preserva integridad de reportes históricos).
+- `CurrencyService.get_accepted_currencies(property_id, active_only=True)` — lista ordenada por `sort_order`.
+- `CurrencyService.add_accepted_currency(property_id, code, rate, sort_order)` — idempotente: si la moneda ya existe, actualiza rate + reactiva.
+- `CurrencyService.update_exchange_rate(property_id, code, new_rate)` — rechaza si `code == base` (la base siempre es 1).
+- `CurrencyService.remove_accepted_currency(property_id, code)` — soft-deactivate, rechaza si es base.
+- `CurrencyService.convert_to_base(amount, code, property_id)` → `{amount_base, exchange_rate, currency_code, amount_original}`. Redondea al `decimal_places` de la moneda BASE (no de la original).
+- `CurrencyService.format_amount(amount, code, with_symbol=True)` — convención española: punto miles + coma decimales. PYG `₲ 750.000`, USD `US$ 100,00`, BRL `R$ 1.234,50`.
+
+### Endpoints
+- `GET /api/v1/currencies/catalog` — lista read-only de las 20 monedas.
+- `GET /api/v1/currencies/base` — moneda base actual.
+- `GET /api/v1/currencies?active_only=true` — monedas aceptadas (con rate).
+- `POST /api/v1/currencies` (admin) — agregar.
+- `PUT /api/v1/currencies/{code}/rate` (admin) — actualizar tipo de cambio.
+- `DELETE /api/v1/currencies/{code}` (admin) — desactivar.
+
+### TransaccionService.registrar_pago
+Nuevos kwargs `currency_code` + `property_id` (opcionales para back-compat). Si `currency_code` se omite o coincide con base → camino legacy (transaction.currency_code queda NULL). Si difiere → convierte vía CurrencyService y persiste snapshot completo. Errores de conversión se re-elevan como `TransaccionError` → 400 con mensaje en español.
+
+### CajaService.get_session_summary
+Agrega `base_currency: str` + `currency_breakdown: list[{currency_code, total_original, total_base, count, exchange_rate}]`. Las transacciones legacy (currency_code NULL) se agrupan bajo la base. Ordenado: base primero, luego alfabético.
+
+### Back-compat
+- Transacciones existentes (currency_code IS NULL) son tratadas como "moneda base" por todos los read paths. No hay backfill — el read código sabe interpretar NULL.
+- El campo `amount` SIEMPRE está en base — su significado no cambió, solo se hizo explícito.
+- Endpoints viejos sin `currency_code` siguen funcionando exactamente como antes (camino legacy).
+
+### UI
+- **PC `09_Configuracion.py`**: sección "💱 Monedas" con dropdown de moneda base + tabla de monedas aceptadas (con popovers para editar tasa / desactivar) + expander "+ Agregar nueva moneda" desde catálogo.
+- **PC `calendar_render.py` (Registrar Pago)**: dropdown de moneda al inicio + amount input con step adaptativo (PYG 500, USD/BRL 1) + caption con preview en vivo `"💱 Equivale a 750.000 ₲ · TC: 1 USD = 7.500 ₲"`. Default amount = saldo pendiente convertido a la moneda elegida.
+- **PC `96_Caja.py`**: sección "💱 Desglose por moneda" debajo del "Esperado en caja" cuando la sesión tiene pagos en más de una moneda o una sola no-base. Muestra cada moneda con monto original + TC + equivalente en base + cantidad de pagos.
+- **Mobile `RegistrarPagoModal.tsx`**: pills horizontales con `símbolo + código` para elegir moneda. Step del input = 500 si base es entero, 1 si tiene decimales. Caption verde con preview de conversión. Si solo hay 1 moneda configurada, los pills NO se renderizan (UX sin clutter).
+
+### Critical gotchas
+- **`amount` SIEMPRE en base, sin excepción**. Toda la suma de saldos/totales lee `amount`. No iterar sobre `amount_original` para totales — está en monedas mixtas.
+- **El tipo de cambio se congela al momento del pago** (`exchange_rate` se copia al row). Cambios posteriores no afectan reportes históricos. Si necesitás re-valorizar (ej. tipo "real" según FX feed), es un análisis SEPARADO — la base de auditoría se queda con el snapshot.
+- **`Property.currency` vs columna nueva `base_currency`**: la primera ya existía (default 'PYG'). Reutilizada — NO se creó columna duplicada. La spec inicial pedía `base_currency` nueva; pragmática: usar lo existente.
+- **No FX feeds automáticos**. Hotels en zona frontera tienen su propio TC del día — el admin actualiza manualmente via Settings. Auto-FX queda en backlog (requiere API externa + decisión sobre comisión).
+- **Cambiar moneda base con transacciones activas está bloqueado**. `CurrencyService.set_base_currency` rechaza con error en español si hay `Transaccion.voided=False`. Cambiar la base re-significa todos los reportes históricos (1 USD = X PYG, ahora 1 USD = X EUR — los totales serían incomparables).
+- **Seed migración 017 corre solo una vez por property**. Re-running la migración con `accepted_currencies` ya seedeada → skip. Para resetar un seed: borrar manualmente + re-correr `python scripts/run_migrations.py` (la check de `migration_history` no re-correrá la migración 017 — usar `seed_monges.py` o SQL directo).
+- **Mobile NO permite cambiar tipos de cambio**. Toda la mutación es PC-only (admin). Mobile solo lee. Para apertura de hotel a un país nuevo: configurar la base + monedas desde PC primero.
+- **Próximo slot de migración: `018_*.py`**.
 
 ## Two-Repo Architecture
 

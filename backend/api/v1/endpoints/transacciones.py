@@ -37,6 +37,10 @@ def _trans_to_dto(t) -> dict:
         "void_reason": t.void_reason,
         "voided_at": t.voided_at,
         "voided_by": t.voided_by,
+        # v1.10.0 Phase 2d — multi-currency snapshot
+        "currency_code": getattr(t, "currency_code", None),
+        "exchange_rate": getattr(t, "exchange_rate", None),
+        "amount_original": getattr(t, "amount_original", None),
     }
 
 
@@ -60,6 +64,7 @@ def registrar_pago(
             description=data.description,
             created_by=current_user.username,
             user_id=current_user.id,
+            currency_code=getattr(data, "currency_code", None),
         )
         return _trans_to_dto(trans)
     except TransaccionError as e:

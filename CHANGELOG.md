@@ -12,9 +12,57 @@
 
 ---
 
-## [v1.10.0] — abril-mayo 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization) + Phase 2c (Multi-vehicle per reservation)
+## [v1.10.0] — abril-mayo 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization) + Phase 2c (Multi-vehicle) + Phase 2d (Multi-currency)
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + **Phase 2c (multi-vehicle per reservation)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + **Phase 2d (multi-currency MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+
+### Phase 2d — Multi-currency MVP (v1.10.0-dev)
+
+Cualquier hotel en cualquier país hispanohablante puede operar con N monedas. Cada hotel tiene UNA **moneda base** (`Property.currency`, reutilizada de pre-Phase-2d) y N **monedas aceptadas** que el huésped puede usar para pagar. Demo target: Ciudad del Este (PYG base + USD + BRL diarios).
+
+#### Migración 017 — `017_multi_currency.py`
+- Crea tabla `accepted_currencies` (NEW): `id, property_id FK RESTRICT, currency_code, currency_name, currency_symbol, decimal_places, exchange_rate, rate_updated_at, is_active, sort_order, created_at`. UNIQUE `(property_id, currency_code)`.
+- Agrega 3 columnas a `transaccion`: `currency_code TEXT NULL`, `exchange_rate REAL NULL`, `amount_original REAL NULL` + index `idx_transaccion_currency`.
+- **Reutiliza `Property.currency`** (columna pre-existente) como la moneda base — NO crea columna duplicada.
+- Seedea per-property según base: PYG → `[PYG(rate=1), USD(7500), BRL(1450)]`; USD/ARS/MXN/EUR/BRL → seed apropiado del país.
+- Idempotente — re-run skip rows existentes.
+
+#### Schemas + service
+- `CURRENCY_CATALOG` (read-only): 20 monedas hard-coded — todas hispanas (PYG/ARS/UYU/BRL/CLP/COP/MXN/PEN/BOB/VES/CRC/GTQ/HNL/NIO/DOP/CUP/PAB) + USD/EUR/GBP.
+- `CurrencyService` (NEW): `get_base_currency` + `set_base_currency` + `get_accepted_currencies` + `add_accepted_currency` + `update_exchange_rate` + `remove_accepted_currency` + `convert_to_base` + `format_amount`. Excepción `CurrencyError`.
+- `TransaccionService.registrar_pago` extendido: nuevos kwargs `currency_code` + `property_id` (opcionales). Convierte y persiste snapshot completo (`amount_original`, `exchange_rate`, `currency_code`) cuando la moneda difiere de la base.
+- `CajaService.get_session_summary` extendido: nuevas claves `base_currency` + `currency_breakdown: list[{currency_code, total_original, total_base, count, exchange_rate}]`.
+- Schemas Pydantic: `VehicleInput` ya estaba; agregados `CurrencyCatalogEntry`, `AcceptedCurrencyDTO`, `AcceptedCurrencyCreate`, `AcceptedCurrencyRateUpdate`. `TransaccionCreate` y `TransaccionDTO` extendidos con `currency_code`/`exchange_rate`/`amount_original`.
+
+#### Endpoints
+- `GET /api/v1/currencies/catalog` — lista read-only de las 20 monedas (todos los roles).
+- `GET /api/v1/currencies/base` — moneda base.
+- `GET /api/v1/currencies?active_only=true` — monedas aceptadas con rate actual.
+- `POST /api/v1/currencies` (admin) — agregar moneda. Idempotente: si ya existe, actualiza rate + reactiva.
+- `PUT /api/v1/currencies/{code}/rate` (admin) — cambiar tipo de cambio. Rechaza si `code == base`.
+- `DELETE /api/v1/currencies/{code}` (admin) — soft-deactivate. Rechaza si `code == base`.
+
+#### UI
+- **PC `09_Configuracion.py`**: sección "💱 Monedas" con dropdown de moneda base + tabla de monedas aceptadas (popover para editar tasa/desactivar) + expander "+ Agregar nueva moneda" desde el catálogo.
+- **PC `calendar_render.py` (Registrar Pago)**: dropdown de moneda al inicio del form + amount input con step adaptativo (PYG 500, USD/BRL 1) + caption con preview de conversión en vivo (`"💱 Equivale a 750.000 ₲ · TC: 1 USD = 7.500 ₲"`). Default amount = saldo pendiente convertido a la moneda elegida. Bundle multi-currency en `TransaccionService.registrar_pago`.
+- **PC `96_Caja.py`**: sección "💱 Desglose por moneda" debajo de "Esperado en caja" cuando la sesión tiene pagos en más de una moneda o una sola no-base. Muestra cada moneda con monto original + TC + equivalente en base + count.
+- **Mobile `RegistrarPagoModal.tsx`**: pills horizontales para moneda (`símbolo código`) + amount input con `inputMode`/`step` adaptativos + caption verde con preview de conversión. Si solo hay 1 moneda configurada los pills NO se renderizan.
+- **Mobile `services/currencies.ts`** (NEW): `getBaseCurrency`, `getAcceptedCurrencies`, `getCurrencyCatalog`, `formatAmount`. Mirror del helper backend para consistencia de display.
+
+#### Back-compat
+- Cero cambios para clientes que no usan multi-currency. Transacciones existentes (currency_code IS NULL) tratadas como base por todos los read paths.
+- El campo `amount` SIEMPRE está en moneda base — su significado no cambió, solo se hizo explícito.
+- Endpoint `/transacciones` sin `currency_code` → camino legacy idéntico a pre-Phase-2d.
+
+#### Tests
+- `test_multi_currency.py` (33 tests): config (8) + conversion (6) + payment with currency (5) + caja breakdown (2) + formatting (5) + endpoints (6) + back-compat coverage en cada categoría.
+- Total: **797 tests** (764 baseline + 33 nuevos), 0 regresiones.
+
+#### Backlog
+- Auto-FX feeds (vía API externa tipo Open Exchange Rates o el banco local).
+- Mobile: gestión de monedas (admin) — actualmente solo read-only.
+- Reporting avanzado por moneda (e.g. "qué % de los ingresos vino en USD en abril?").
+- "Restaurar moneda base anterior" — actualmente bloqueado con transacciones existentes; podría desbloquearse con un flag de "valoración histórica" (no afecta `amount` original).
 
 ### Phase 2c — Multi-vehicle per reservation (v1.10.0-dev)
 

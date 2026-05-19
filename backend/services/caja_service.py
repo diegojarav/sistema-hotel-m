@@ -203,6 +203,43 @@ class CajaService:
         user = db.query(User).filter(User.id == sesion.user_id).first()
         user_name = user.username if user else "?"
 
+        # ----- v1.10.0 Phase 2d: currency breakdown -----
+        # Group all non-voided period transactions by currency_code (NULL =
+        # legacy treated as base currency). Each row sums both the original
+        # currency amount AND the base-equivalent.
+        # Lazy import to avoid circular dependency (CurrencyService → AcceptedCurrency).
+        try:
+            from services.currency_service import CurrencyService
+            base_ccy = CurrencyService.get_base_currency(db=db)
+        except Exception:
+            base_ccy = "PYG"  # safe fallback (single-tenant default)
+
+        currency_breakdown: Dict[str, Dict] = {}
+        for t in all_period_trans:
+            # Legacy rows: currency_code IS NULL → treat as base currency.
+            code = (t.currency_code or base_ccy).upper()
+            orig_amount = float(t.amount_original) if t.amount_original is not None else float(t.amount)
+            entry = currency_breakdown.setdefault(code, {
+                "currency_code": code,
+                "total_original": 0.0,
+                "total_base": 0.0,
+                "count": 0,
+                # The latest snapshot rate for display — same currency over a
+                # shift normally uses one rate, but if a rate change mid-
+                # shift produces two values we keep the most recent.
+                "exchange_rate": float(t.exchange_rate) if t.exchange_rate is not None else 1.0,
+            })
+            entry["total_original"] += orig_amount
+            entry["total_base"] += float(t.amount)
+            entry["count"] += 1
+            if t.exchange_rate is not None:
+                entry["exchange_rate"] = float(t.exchange_rate)
+        # Stable ordering: base currency first, then alphabetical
+        currency_breakdown_list = sorted(
+            currency_breakdown.values(),
+            key=lambda e: (0 if e["currency_code"] == base_ccy else 1, e["currency_code"]),
+        )
+
         return {
             "id": sesion.id,
             "user_id": sesion.user_id,
@@ -219,4 +256,7 @@ class CajaService:
             "total_transferencia": transferencia_total,
             "total_pos": pos_total,
             "transactions": all_period_trans,
+            # v1.10.0 Phase 2d additions
+            "base_currency": base_ccy,
+            "currency_breakdown": currency_breakdown_list,
         }

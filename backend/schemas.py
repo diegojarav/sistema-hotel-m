@@ -473,12 +473,22 @@ class CajaSesionDTO(BaseModel):
 
 
 class TransaccionCreate(BaseModel):
-    """Request para registrar un pago."""
+    """Request para registrar un pago.
+
+    Multi-currency (v1.10.0 Phase 2d): el campo `amount` representa el monto
+    en la moneda con la que pagó el huésped. Si `currency_code` se provee y
+    NO es la moneda base de la propiedad, el backend convierte y guarda
+    AMBOS (original + base) en la transacción con snapshot del tipo de cambio.
+    Si `currency_code` se omite, asume moneda base (back-compat con clientes
+    pre-Phase-2d).
+    """
     reserva_id: str = Field(..., description="ID de la reserva")
-    amount: float = Field(..., gt=0, description="Monto del pago (mayor a 0)")
+    amount: float = Field(..., gt=0, description="Monto del pago en la moneda elegida (mayor a 0)")
     payment_method: str = Field(..., description="EFECTIVO | TRANSFERENCIA | POS")
     reference_number: Optional[str] = Field(default=None, description="Numero de referencia (transfer/POS)")
     description: Optional[str] = Field(default=None, description="Descripcion opcional")
+    # v1.10.0 Phase 2d — moneda en la que el huésped pagó. None = moneda base.
+    currency_code: Optional[str] = Field(default=None, description="Código ISO 4217 (PYG, USD, BRL, ...)")
 
     @field_validator('payment_method')
     @classmethod
@@ -487,6 +497,14 @@ class TransaccionCreate(BaseModel):
         if v not in ("EFECTIVO", "TRANSFERENCIA", "POS"):
             raise ValueError("payment_method debe ser EFECTIVO, TRANSFERENCIA o POS")
         return v
+
+    @field_validator('currency_code')
+    @classmethod
+    def normalize_currency_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip().upper()
+        return cleaned or None
 
 
 class TransaccionDTO(BaseModel):
@@ -504,6 +522,51 @@ class TransaccionDTO(BaseModel):
     void_reason: Optional[str] = None
     voided_at: Optional[datetime] = None
     voided_by: Optional[str] = None
+    # v1.10.0 Phase 2d — multi-currency snapshot fields. NULL = legacy (= base ccy).
+    currency_code: Optional[str] = None
+    exchange_rate: Optional[float] = None
+    amount_original: Optional[float] = None
+
+
+# ----------------------------------------------------------------------
+# v1.10.0 Phase 2d — Multi-currency schemas
+# ----------------------------------------------------------------------
+class CurrencyCatalogEntry(BaseModel):
+    """Read-only catalogue entry (one of the 20 currencies the system knows)."""
+    code: str
+    name: str
+    symbol: str
+    decimals: int
+    country: str
+
+
+class AcceptedCurrencyDTO(BaseModel):
+    """A currency configured for a property (with rate + activation flag)."""
+    id: int
+    property_id: str
+    currency_code: str
+    currency_name: str
+    currency_symbol: str
+    decimal_places: int
+    exchange_rate: float
+    rate_updated_at: Optional[datetime] = None
+    is_active: bool
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+class AcceptedCurrencyCreate(BaseModel):
+    """Add a currency to a property's accepted list."""
+    currency_code: str = Field(..., description="Código ISO 4217 del catálogo")
+    exchange_rate: float = Field(..., gt=0, description="Tasa al base (1 unidad = N base)")
+    sort_order: int = Field(default=100, ge=0)
+
+
+class AcceptedCurrencyRateUpdate(BaseModel):
+    """Update the rate for an existing accepted currency."""
+    exchange_rate: float = Field(..., gt=0)
 
 
 class AnularTransaccionRequest(BaseModel):

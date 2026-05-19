@@ -173,6 +173,37 @@ with tab_actual:
 
         st.info(f"💵 **Esperado en caja:** {fmt_gs(expected)}")
 
+        # ----- v1.10.0 Phase 2d: Multi-currency breakdown -----
+        # When the shift has payments in multiple currencies, show each one
+        # with the original amount, conversion rate, and base equivalent.
+        _breakdown = (detalle or {}).get("currency_breakdown") or []
+        _base_ccy = (detalle or {}).get("base_currency", "PYG")
+        if len(_breakdown) > 1 or (
+            len(_breakdown) == 1 and _breakdown[0]["currency_code"] != _base_ccy
+        ):
+            st.markdown("**💱 Desglose por moneda**")
+            try:
+                # Use the backend formatter via direct service import for
+                # consistent display across PC/mobile/PDF.
+                from services import CurrencyService as _CS
+                for entry in _breakdown:
+                    code = entry["currency_code"]
+                    cnt = entry["count"]
+                    orig = _CS.format_amount(entry["total_original"], code)
+                    base = _CS.format_amount(entry["total_base"], _base_ccy)
+                    if code == _base_ccy:
+                        st.write(f"• **{code}**: {orig} ({cnt} pago/s)")
+                    else:
+                        rate = _CS.format_amount(
+                            entry["exchange_rate"], _base_ccy, with_symbol=False,
+                        )
+                        st.write(
+                            f"• **{code}**: {orig}  ·  TC {rate} {_base_ccy}  ·  "
+                            f"≈ {base} ({cnt} pago/s)"
+                        )
+            except Exception as _e:
+                logger.warning(f"Could not render currency breakdown: {_e}")
+
         # Session meta
         opened_at = sesion.get("opened_at", "")
         try:

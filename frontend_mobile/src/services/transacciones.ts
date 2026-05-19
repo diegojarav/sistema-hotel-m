@@ -22,6 +22,11 @@ export interface Transaccion {
     void_reason: string | null;
     voided_at: string | null;
     voided_by: string | null;
+    // v1.10.0 Phase 2d — multi-currency snapshot fields.
+    // NULL on legacy rows = "this was a base-currency payment".
+    currency_code?: string | null;
+    exchange_rate?: number | null;
+    amount_original?: number | null;
 }
 
 export interface RegistrarPagoRequest {
@@ -30,6 +35,9 @@ export interface RegistrarPagoRequest {
     payment_method: PaymentMethod;
     reference_number?: string;
     description?: string;
+    // v1.10.0 Phase 2d — when set + != base currency, backend converts
+    // and snapshots the rate on the transaction row.
+    currency_code?: string;
 }
 
 export interface AnularRequest {

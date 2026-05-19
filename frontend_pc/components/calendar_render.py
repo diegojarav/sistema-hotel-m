@@ -575,42 +575,105 @@ def render_day_reservations(selected_date: date, occupancy_map: dict):
             if res_status in active_states and saldo and saldo["pending"] > 0:
                 st.markdown("---")
                 st.markdown("**💰 Registrar Pago**")
-                pay_col1, pay_col2, pay_col3 = st.columns([1, 1, 1])
+
+                # ----- v1.10.0 Phase 2d: multi-currency selector -----
+                from services import CurrencyService
+                _accepted = CurrencyService.get_accepted_currencies(active_only=True)
+                _base_ccy = CurrencyService.get_base_currency()
+                _ccy_options = {
+                    f"{r.currency_symbol} {r.currency_code}": r
+                    for r in _accepted
+                } if _accepted else {f"₲ {_base_ccy}": None}
+
+                pay_col_ccy, pay_col1, pay_col2, pay_col3 = st.columns([1, 1, 1, 1])
+                with pay_col_ccy:
+                    _ccy_label = st.selectbox(
+                        "Moneda",
+                        options=list(_ccy_options.keys()),
+                        index=0,
+                        key=f"ccy_{res_id}_{day_key}",
+                        help=(
+                            f"Moneda en la que el huésped paga. "
+                            f"Se convierte automáticamente a {_base_ccy}."
+                        ),
+                    )
+                _selected_ccy_row = _ccy_options[_ccy_label]
+                _selected_code = _selected_ccy_row.currency_code if _selected_ccy_row else _base_ccy
+                _selected_decimals = _selected_ccy_row.decimal_places if _selected_ccy_row else 0
+                _selected_rate = _selected_ccy_row.exchange_rate if _selected_ccy_row else 1.0
+                _is_base = _selected_code == _base_ccy
+
                 with pay_col1:
                     metodo = st.selectbox(
                         "Método", ["TRANSFERENCIA", "EFECTIVO", "POS"],
                         key=f"metodo_{res_id}_{day_key}"
                     )
                 with pay_col2:
+                    # Amount step per currency:
+                    #   PYG / 0-decimal currencies → step=500 (smallest common bill)
+                    #   USD / 2-decimal           → step=1 (full dollars / unit)
+                    _step = 500.0 if _selected_decimals == 0 else 1.0
+                    _fmt = f"%.{_selected_decimals}f"
+                    # Default value: full pending in base if base ccy, else convert
+                    if _is_base:
+                        _default_amount = float(saldo["pending"])
+                    else:
+                        # 1 unit of selected ccy = rate units of base → invert
+                        _default_amount = round(
+                            float(saldo["pending"]) / float(_selected_rate or 1),
+                            _selected_decimals,
+                        )
                     monto = st.number_input(
-                        "Monto (Gs)", min_value=0.0, value=float(saldo["pending"]),
-                        # step=500 matches Paraguay's smallest common bill;
-                        # typed values keep exact precision (e.g. 332.500 Gs).
-                        step=500.0, format="%.0f",
-                        key=f"monto_{res_id}_{day_key}"
+                        f"Monto ({_selected_ccy_row.currency_symbol if _selected_ccy_row else _base_ccy})",
+                        min_value=0.0,
+                        value=_default_amount,
+                        step=_step,
+                        format=_fmt,
+                        key=f"monto_{res_id}_{day_key}",
                     )
                 with pay_col3:
                     ref = st.text_input(
                         "Referencia", key=f"ref_{res_id}_{day_key}",
                         placeholder="Nro. transferencia/voucher"
                     )
+
+                # ----- Live conversion preview (only when non-base) -----
+                if not _is_base and monto and monto > 0:
+                    _converted = round(float(monto) * float(_selected_rate), 0)
+                    _conv_label = CurrencyService.format_amount(_converted, _base_ccy)
+                    _rate_label = CurrencyService.format_amount(
+                        _selected_rate, _base_ccy, with_symbol=False,
+                    )
+                    st.caption(
+                        f"💱 Equivale a **{_conv_label}**  ·  "
+                        f"TC: 1 {_selected_code} = {_rate_label} {_base_ccy}"
+                    )
+
                 btn_col1, btn_col2 = st.columns(2)
                 with btn_col1:
                     if st.button(f"✅ Registrar Pago", key=f"pagar_{res_id}_{day_key}"):
                         try:
                             from services import TransaccionService
                             user = st.session_state.user
-                            TransaccionService.registrar_pago(
+                            _trans = TransaccionService.registrar_pago(
                                 reserva_id=res_id,
                                 amount=monto,
                                 payment_method=metodo,
                                 reference_number=ref or None,
                                 created_by=user.username,
                                 user_id=user.id if metodo == "EFECTIVO" else None,
+                                currency_code=_selected_code,
                             )
                             from frontend_services.cache_service import force_refresh
                             force_refresh()
-                            st.success(f"Pago de {monto:,.0f} Gs registrado")
+                            if not _is_base:
+                                _src = CurrencyService.format_amount(monto, _selected_code)
+                                _dst = CurrencyService.format_amount(_trans.amount, _base_ccy)
+                                st.success(f"Pago registrado: {_src}  →  {_dst}")
+                            else:
+                                st.success(
+                                    f"Pago registrado: {CurrencyService.format_amount(monto, _base_ccy)}"
+                                )
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error: {e}")
