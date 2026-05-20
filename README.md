@@ -175,7 +175,7 @@ URLs por defecto: API en `http://localhost:8000` (Swagger en `/docs`), PC en `ht
 
 ## Tests
 
-**752 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`.**
+**824 tests automatizados · 83% cobertura · CI corre en cada push a `main` y `dev`** (752 baseline + 12 multi-vehículo + 33 multi-moneda + 27 hotel-day).
 
 ```bash
 cd backend
@@ -185,7 +185,7 @@ pytest -m kpi                                   # solo KPIs (9 métricas scoread
 pytest -m perf                                  # solo benchmarks de performance
 ```
 
-El CI de GitHub Actions corre los 752 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
+El CI de GitHub Actions corre los 824 tests + 9 KPIs + 19 benchmarks de performance + build del frontend mobile + falla si la cobertura cae bajo 75%. Las fallas notifican por Discord.
 
 ---
 
@@ -197,7 +197,7 @@ sistema-hotel-m/
 │   ├── api/                    # routers + auth + config
 │   │   └── v1/endpoints/       # 26 módulos de endpoints
 │   ├── services/               # 23 servicios de negocio
-│   ├── tests/                  # 752 tests + KPIs + perf
+│   ├── tests/                  # 824 tests + KPIs + perf
 │   ├── database.py             # 28 modelos SQLAlchemy
 │   ├── schemas.py              # validación Pydantic v2
 │   ├── hotel/                  # PDFs generados (gitignored)

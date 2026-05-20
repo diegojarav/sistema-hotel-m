@@ -16,6 +16,16 @@
 
 > Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
 
+### Phase 2e post-deploy bug fixes (commit `a7ada20`, 2026-05-19)
+
+Three bugs surfaced during live staging testing right after Phase 2e shipped:
+
+- **Bug 1 (CRITICAL)** — `frontend_pc/components/tab_reserva.py` was missing `time` in the `from datetime import ...` line. The pre-existing `isinstance(res_data.arrival_time, time)` check on line 99 raised `NameError` the moment anyone opened a reservation in edit mode. One-line fix: added `time` to the import.
+- **Bug 2 (MEDIUM)** — Mobile breakfast-guests counter snapped back to room capacity on every keystroke. Root cause: the Phase 2b auto-shrink `useEffect` had `breakfastGuests` in its dependency array, so it ran on every value change. Fix: depend only on `totalRoomCapacity` (with `eslint-disable react-hooks/exhaustive-deps` + inline rationale). The `onChange` handler still enforces the cap on the way up — only "type 1 when 2 is current" stopped snapping back.
+- **Bug 3 (LOW)** — Reservation confirmation PDF was silent about the meal plan. Added a "Plan de Comidas" section to `DocumentService.generate_reservation_pdf` rendering plan name + breakfast_guests count when present (nothing if the reservation has no meal plan).
+
+Tests: 824 still passing (no new tests added — bugs were UI/output issues without unit-testable seams).
+
 ### Phase 2e — Hotel-day logic + early/late check-in/out (v1.10.0-dev)
 
 Un "día de hotel" es la unidad operacional del hotel: NO termina a la medianoche sino al check-out del día siguiente. Soluciona el bug operacional: a las 02:00 de D+1 el sistema rechazaba reservas con check_in_date=D — pero esa noche todavía está vigente para el receptionist en el desk.

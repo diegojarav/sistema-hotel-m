@@ -18,7 +18,7 @@ backend/          # FastAPI API + services + models
   hotel/          # Generated PDF documents (gitignored)
     Reservas/     # Reservation confirmation PDFs
     Clientes/     # Client registration PDFs
-  tests/          # pytest test suite (752 tests, 83% coverage)
+  tests/          # pytest test suite (824 tests, 83% coverage)
     reports/      # Auto-generated KPI/perf JSON reports
 frontend_pc/      # Streamlit admin dashboard
   pages/          # Admin pages (Rooms, Users, Config, Documents, AI Assistant)
@@ -128,7 +128,7 @@ A scheduled task runs on the 1st of each month at 9 AM:
 ## CI Pipeline (GitHub Actions)
 
 Runs on push to `main`/`dev`:
-1. **backend-tests**: Install deps → all 752 tests (v1.10.0-dev: v1.9.0 baseline 576 + Phase 2a guests/buildings + Phase 2a-ext billing/vehicles + meal plan reservation + capacity guard + Phase 2b type harmonization + miscellaneous) with coverage (75% min) → KPI + perf included → upload reports
+1. **backend-tests**: Install deps → all 824 tests (v1.10.0-dev: 752 v1.10.0-Phase-2b baseline + 12 Phase 2c multi-vehicle + 33 Phase 2d multi-currency + 27 Phase 2e hotel-day) with coverage (75% min) → KPI + perf included → upload reports
 2. **frontend-check**: npm ci → npm run build
 3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
 
@@ -160,6 +160,9 @@ Runs on push to `main`/`dev`:
 - **`launch.json` backend bind: `--host 0.0.0.0`** (NOT `127.0.0.1`). Mobile dev is configured with `NEXT_PUBLIC_API_URL=http://192.168.3.140:8000` (LAN IP) so testing from a real phone on Wi-Fi works. Binding only to `127.0.0.1` makes the Claude_Preview in-browser preview AND the phone fail with `TypeError: Failed to fetch` (no HTTP response — the api client's hardcoded Spanish messages don't intercept network failures). Bind on `0.0.0.0` and both interfaces (localhost + LAN IP) respond. See v1.10.0-dev fix.
 - **Streamlit caches `services/__init__.py` exports across hot-reloads**. When you ADD a new export (e.g. `from services.currency_service import CurrencyService`) and any page tries `from services import CurrencyService`, Streamlit's hot-reload reruns the PAGE script but NOT the cached top-level package. The page hits `ImportError: cannot import name 'CurrencyService'` until the streamlit process is fully restarted (`Ctrl+C` + relaunch). Backend uvicorn doesn't have this problem — its `--reload` flag does a full child-process restart on file change. Symptom is a fresh ImportError after pulling new code; remedy is always "restart Streamlit", never a code fix. Documented after Phase 2d ship (2026-05-18).
 - **`api_get` in PC pages returns `None` for both HTTP failures AND legitimate JSON `null` responses**. `/caja/actual` legitimately returns `null` when there's no open session — that's the API's "no shift right now" signal, not an error. Pages that error-stop on `current is None` mask the real "no session" UI below. Pattern: use `if not current:` to treat None/empty as "no data, render empty state"; only catch true API failures via try/except around `api_get` OR via inspecting status code (currently `api_get` swallows both, so `not current` is the pragmatic check). Fixed in `96_💰_Caja.py` 2026-05-18 (commit `ac55be4`).
+- **`tab_reserva.py` has been hit twice by missing-import bugs** (`time` from `datetime` in commit `a7ada20`). The pattern: a pre-existing `isinstance(x, time)` check uses a symbol that was never imported; the bug doesn't surface until someone exercises that exact code path (an edit on a reservation that has `arrival_time` set). When adding code that uses ANY symbol, double-check the top-level imports — Streamlit pages don't have a linter in CI. Same applies to `from datetime import date`, `from typing import Optional`, etc.
+- **React `useEffect` dependency arrays — the auto-shrink/auto-cap pattern is dangerous**. Effects that read-and-write the same state (e.g. "if `mealGuests > cap`, set `mealGuests = cap`") must NOT include the value-being-shrunk in their dep array, or they fire on every keystroke and snap-back any decrement attempt. Depend only on the thing whose CHANGE triggers the action (`totalRoomCapacity` in our case). Add `eslint-disable-next-line react-hooks/exhaustive-deps` with an inline comment so future readers don't "fix" the dep array back. See commit `a7ada20` for the breakfast-guests case.
+- **GCP staging external IP is ephemeral** — every `gcloud compute instances stop/start` cycle reassigns the external IP. Tracked recent values: `34.29.241.50` (2026-05-17), `34.10.52.145` (2026-05-18), `136.119.0.159` (2026-05-19). Fix: reserve a static external IP in GCP console (~$3/mo) and bind it to the instance — eliminates the demo-URL drift each session. Until then, post-start the user has to fetch the new IP via `gcloud compute instances describe ... --format='get(networkInterfaces[0].accessConfigs[0].natIP)'`.
 
 ## Reservation Status Lifecycle (v1.4.0 — payment-aware)
 
