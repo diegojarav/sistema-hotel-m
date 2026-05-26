@@ -1,0 +1,698 @@
+# CLAUDE_ARCHIVE.md — Historical Reference
+
+> This file contains detailed historical information moved from CLAUDE.md
+> to keep the main file under 40k chars. Reference this file when you
+> need phase-specific details, full column lists, endpoint listings with
+> descriptions, frontend specifics, or historical decisions/rationale.
+>
+> **Active conventions live in CLAUDE.md.** This archive is for context
+> when you need to dig deeper — e.g. "what was the migration order?",
+> "what columns does `guests` have?", "why did we rename GuestService?".
+
+---
+
+## Document Generation System (full detail)
+
+- **Reservation PDFs**: Auto-generated on creation (both PC and mobile), saved to `backend/hotel/Reservas/`
+- **Client PDFs**: Auto-generated on check-in creation, saved to `backend/hotel/Clientes/`
+- **Folio PDFs** (Cuenta del Huésped): Auto-generated on COMPLETADA transition, saved to `backend/hotel/Cuentas/`
+- **Kitchen Report PDFs**: On-demand via `DocumentService.generate_kitchen_report_pdf(fecha)` → `backend/hotel/Reportes_Cocina/cocina_YYYYMMDD.pdf`
+- **Filename format**: `{guest_name}_{dd-mm-yy}_{reservation_id}.pdf` (reservations), `{last_name}_{first_name}_{dd-mm-yy}.pdf` (clients)
+- **On-demand generation**: Download endpoints regenerate PDFs if file is missing
+- **Mobile download**: Uses `fetch()` + blob pattern with JWT auth header
+- **PC browse**: Streamlit "Documentos del Hotel" page reads files directly from disk
+- **API endpoints**: `GET /documents/reservations/{id}`, `GET /documents/clients/{id}`, `GET /documents/folio/{reservation_id}`, `GET /documents/download/{folder}/{filename}`, `GET /documents/list/{folder}`
+
+## Monthly Maintenance Workflow
+
+A scheduled task runs on the 1st of each month at 9 AM:
+1. Runs KPI evaluation suite (including Agent Tool Reliability KPI)
+2. Runs performance benchmarks
+3. Runs full test suite with coverage
+4. Evaluates AI agent: verifies all tools callable, return valid strings, handle edge cases
+5. Generates monthly summary with regressions
+
+## Monitoring Stack (full detail)
+
+| Channel | What | How |
+|---------|------|-----|
+| Discord (runtime) | Backend ERROR/CRITICAL logs | `DiscordWebhookHandler` in `logging_config.py` — auto-sends on error, 5-min dedup, non-blocking |
+| Discord (CI) | GitHub Actions failures | `notify-discord` job in `ci.yml` — uses `DISCORD_WEBHOOK_URL` secret |
+| Healthchecks.io | Backend uptime | Push ping every 15 min from `_periodic_ical_sync()` in `api/main.py` |
+| GitHub Email | CI workflow results | Automatic on push to `main`/`dev` |
+
+## CI Pipeline (full detail)
+
+Runs on push to `main`/`dev`:
+1. **backend-tests**: Install deps → all 824 tests (752 v1.10.0-Phase-2b baseline + 12 Phase 2c multi-vehicle + 33 Phase 2d multi-currency + 27 Phase 2e hotel-day) with coverage (75% min) → KPI + perf included → upload reports
+2. **frontend-check**: npm ci → npm run build
+3. **notify-discord**: Sends Discord alert if any job fails (uses `DISCORD_WEBHOOK_URL` repo secret)
+
+---
+
+## Reservation Status Lifecycle — Full Detail (v1.4.0)
+
+5 statuses with auto-transitions based on payments:
+
+```
+RESERVADA → SEÑADA → CONFIRMADA → COMPLETADA
+    └───────┴──────────┴──→ CANCELADA
+```
+
+| Status | How it's set | Blocks rooms? | Color |
+|--------|-------------|---------------|-------|
+| RESERVADA | Created with zero payments | Yes | Gray |
+| SEÑADA | 0 < sum(active transactions) < total | Yes | Amber |
+| CONFIRMADA | sum(active transactions) >= total | Yes | Green |
+| COMPLETADA | Automatic — check-out date passed (every 15 min) | No (past) | Blue |
+| CANCELADA | Manual — admin/reception cancels | No | Red |
+
+- Status is **derived from transactions** — recalculated automatically in `TransaccionService._recalcular_status_reserva()` on every pago registered or voided
+- Terminal states (CANCELADA, COMPLETADA) are NEVER auto-changed
+- `auto_complete_reservations()` filters on all active states: `["RESERVADA", "SEÑADA", "CONFIRMADA", "Confirmada", "Pendiente"]` for backward compatibility
+- `update_status()` endpoint still allows manual overrides
+
+### Backward compatibility
+The system supports **both** legacy values (`Pendiente`, `Confirmada`, `Completada`, `Cancelada`) AND new values (`RESERVADA`, `SEÑADA`, `CONFIRMADA`, `COMPLETADA`, `CANCELADA`) simultaneously. All status filters use expanded `.in_()` lists. Migration script `scripts/migrate_caja_transacciones.py` renames existing values in place and creates synthetic TRANSFERENCIA transactions for historical CONFIRMADA reservations.
+
+---
+
+## Cash Register (Caja) & Transactions — Full Detail (v1.4.0)
+
+### Tables
+- `caja_sesion` — cash session per user (opening_balance, closing_balance_declared, closing_balance_expected, difference, status ABIERTA|CERRADA)
+- `transaccion` — immutable payment records (amount, payment_method EFECTIVO|TRANSFERENCIA|POS, reserva_id, caja_sesion_id, voided)
+
+### Business rules
+- Only one ABIERTA session per user at a time
+- EFECTIVO payments REQUIRE an open caja session (hard reject with 400 if none)
+- TRANSFERENCIA and POS do NOT require an open session
+- Transactions are immutable — only voided, never deleted or updated
+- Void requires reason ≥ 3 chars; both admin and recepcion can void
+- Closing a session: `expected = opening + sum(EFECTIVO in session)`, `difference = declared - expected`
+
+### Services
+- `CajaService` (`backend/services/caja_service.py`) — abrir_sesion, cerrar_sesion, get_current_session, list_sessions, get_session_summary
+- `TransaccionService` (`backend/services/transaccion_service.py`) — registrar_pago, anular_transaccion, get_saldo, list_transactions, _recalcular_status_reserva
+- Both exported from `services/__init__.py`
+
+### API endpoints
+- `POST/GET /api/v1/caja/*` — abrir, cerrar, actual, historial, {session_id}
+- `POST/GET /api/v1/transacciones/*` — register, anular, list, reserva/{id}
+- `GET /api/v1/reservations/{id}/saldo` — total/paid/pending + transactions
+- `GET /api/v1/reportes/ingresos-diarios?fecha=YYYY-MM-DD`
+- `GET /api/v1/reportes/transferencias?desde=&hasta=`
+- `GET /api/v1/reportes/resumen-periodo?desde=&hasta=`
+
+### Frontend pages
+- **Mobile**: `/dashboard/caja` (open/close/transactions), `RegistrarPagoModal` component on reservation detail
+- **PC**: `frontend_pc/pages/96_💰_Caja.py` with tabs Sesion Actual / Historial / Reportes Financieros
+
+---
+
+## Channel Manager v2 — Full Detail (v1.5.0 — Phase 2)
+
+### Tables
+- `ical_feeds` — extended with `last_sync_status` (OK|ERROR|NEVER), `last_sync_error`, `consecutive_failures`, `last_sync_attempted_at`
+- `ical_sync_log` — per-attempt audit trail (status, counts, error_message, duration_ms); pruned to last 100 per feed
+- `reservations` — extended with `ota_booking_id`, `needs_review`, `review_reason`
+
+### Sources supported (v1.5.0)
+`Booking.com`, `Airbnb`, `Vrbo`, `Expedia`, `Custom` (Custom accepts any standard .ics URL with a free-text source label).
+
+### Sync behavior
+- `_periodic_ical_sync()` runs every 15 minutes (unchanged)
+- `ICalService.sync_feed()` now also:
+  - Detects cancellations: UIDs that disappeared from the feed → mark reservation `needs_review=True` (Discord alert)
+  - Detects conflicts: overlapping bookings on same room → log + count (still creates the OTA reservation since OTA is authoritative)
+  - Tracks per-feed health: `consecutive_failures` increments on failure, resets on success
+  - Sends Discord ERROR-level alert when `consecutive_failures >= 3` (auto-routed via `DiscordWebhookHandler`)
+  - Writes `ICalSyncLog` row with all stats per attempt
+  - Extracts OTA booking IDs from VEVENT DESCRIPTION via regex (`Reservation: 1234`, `airbnb.com/reservations/HM...`, etc.)
+
+### Cancellation handling
+**Decision: flag for review, not auto-cancel.** When a UID disappears:
+1. Reservation marked `needs_review=True` with `review_reason`
+2. Discord alert fires
+3. Operator confirms via PC admin or mobile detail page:
+   - **Acknowledge** → `needs_review=False`, reservation stays active
+   - **Confirm OTA cancellation** → `status=CANCELADA` with reason
+
+If the same UID reappears in a later sync (transient OTA glitch), the flag is auto-cleared.
+
+### API endpoints
+- `GET /api/v1/ical/feeds/{feed_id}/health` — per-feed health summary
+- `GET /api/v1/ical/feeds/{feed_id}/logs?limit=20` — sync history
+- `GET /api/v1/reservations/needs-review` — list flagged reservations
+- `POST /api/v1/reservations/{id}/acknowledge-review` — clear flag, keep active
+- `POST /api/v1/reservations/{id}/confirm-ota-cancellation` — set CANCELADA
+- `GET /api/v1/ical/export/{room_id}.ics` — rate limited to **60 req/min per IP**
+- `GET /api/v1/ical/export/all.ics` — rate limited to **30 req/min per IP**
+
+### Frontend
+- **PC**: `09_🔧_Configuracion.py` with health badges (🟢/🟡/🔴/⚪), per-feed history modal, source dropdown (5 sources), and a "Reservas por revisar" section with acknowledge/cancel buttons
+- **Mobile**: `/dashboard/channels` read-only status page (recepcionist) + "Canales" tile on dashboard with feed counts and alert badge
+- **Mobile**: needs_review banner on reservation detail with [No, mantener] / [Confirmar cancelación] actions
+
+---
+
+## Room Charges & Product Inventory — Full Detail (v1.6.0 — Phase 3)
+
+### Tables
+- `producto` — catalog: id, name, category (BEBIDA|SNACK|SERVICIO|MINIBAR|OTRO), price, stock_current, stock_minimum, is_stocked, is_active
+- `consumo` — line-item charges against a reservation (immutable, voided-only). Captures producto_name + unit_price as snapshots
+- `ajuste_inventario` — audit trail of stock changes (COMPRA | MERMA | AJUSTE), signed quantity_change
+
+### Business rules
+- Consumo can only be registered for active reservations (RESERVADA | SEÑADA | CONFIRMADA + legacy)
+- Stocked products have stock_current decremented on registration, restored on void
+- Services (is_stocked=False) skip stock checks
+- Unit price + producto_name are captured as snapshots (preserves history when prices change or products are renamed)
+- After any consumo change, TransaccionService._recalcular_status_reserva() runs and status may downgrade (CONFIRMADA → SEÑADA if new pending balance)
+- Low-stock Discord alert fires when post-adjustment stock ≤ stock_minimum (via DiscordWebhookHandler on ERROR log)
+- Products can be soft-deleted via is_active=False (hides from selectors but preserves history)
+
+### Services
+- `ProductService` — create/update/deactivate, adjust_stock, list_products, get_low_stock_products, get_top_selling, list_adjustments
+- `ConsumoService` — registrar_consumo, anular_consumo, list_by_reserva, get_consumo_total
+- `TransaccionService.get_saldo()` — now returns `{total, room_total, consumo_total, paid, pending, transacciones}` (breakdown)
+- `DocumentService.generate_folio_pdf(reservation_id)` — Cuenta del Huésped PDF with room charges, consumos, payments, balance. Saved to `hotel/Cuentas/`. Auto-generated on COMPLETADA transition.
+
+### API endpoints
+- `GET /api/v1/productos` — list, filter by category
+- `GET /api/v1/productos/{id}` — detail
+- `POST /api/v1/productos` — create (admin)
+- `PATCH /api/v1/productos/{id}` — update (admin)
+- `DELETE /api/v1/productos/{id}` — soft delete (admin)
+- `POST /api/v1/productos/{id}/ajuste-stock` — adjust stock (admin)
+- `GET /api/v1/productos/{id}/ajustes` — adjustment history (admin)
+- `GET /api/v1/productos/stock-bajo` — low-stock list (admin)
+- `GET /api/v1/productos/mas-vendidos?desde=&hasta=&limit=` — top-selling (admin)
+- `POST /api/v1/consumos` — register (admin + recepcion)
+- `POST /api/v1/consumos/{id}/anular` — void (admin only)
+- `GET /api/v1/consumos/reserva/{reserva_id}` — list active consumos
+- `GET /api/v1/documents/folio/{reservation_id}` — download (always regenerates)
+- `GET /api/v1/documents/list/Cuentas` — list folio PDFs
+
+### Permissions
+| Action | Admin / Supervisor / Gerencia | Recepcion |
+|---|---|---|
+| Product CRUD, stock adjustments, reports | ✅ | ❌ 403 |
+| Register consumo | ✅ | ✅ |
+| Void consumo | ✅ | ❌ 403 |
+| List products, download folio | ✅ | ✅ |
+
+### Frontend
+- **Mobile**: `RegistrarConsumoModal` on reservation detail (grouped-by-category selector + qty stepper + low-stock warnings). New "Consumos" section with itemized list + "Agregar consumo" button. New "Descargar Cuenta (folio)" button.
+- **PC**: new `frontend_pc/pages/95_📦_Inventario.py` with 4 tabs (Productos, Stock y ajustes, Stock bajo, Mas vendidos + CSV export)
+
+---
+
+## Meal Plan Configuration & Kitchen Reports — Full Detail (v1.7.0 — Phase 4)
+
+### Key principle: **optional everywhere**
+Hotels that don't serve meals keep `meals_enabled=false` (the default). In that mode the system behaves **exactly as pre-Phase-4** — no UI changes on mobile, no plan selector, no kitchen page, no AI tool activity. This is a zero-regression gate and is covered by tests in `test_meal_config.py` + `test_kitchen_report.py::test_disabled_returns_empty`.
+
+### 3 modes (when enabled)
+| Mode | Behavior | Reservation form | Kitchen report |
+|---|---|---|---|
+| `INCLUIDO` | Breakfast built into room rate. No plan selector shown. Backend auto-assigns `CON_DESAYUNO` and counts all guests. | Hidden | All active overnight guests |
+| `OPCIONAL_PERSONA` | Per-person-per-night surcharge. Form shows plan dropdown + "Desayunos" input. | Visible | Only guests with `breakfast_guests > 0` |
+| `OPCIONAL_HABITACION` | Flat per-room-per-night surcharge. Form shows plan dropdown (no pax field). | Visible | Only rooms with a non-SOLO plan |
+
+### Tables
+- `properties` — extended with `meals_enabled` (Integer, default 0) + `meal_inclusion_mode` (String, nullable). Legacy `breakfast_included` kept for back-compat (auto-migrated by 005 to `meals_enabled=1, mode=INCLUIDO`).
+- `meal_plans` (NEW) — catalog: `id, property_id, code, name, surcharge_per_person, surcharge_per_room, applies_to_mode, is_system, is_active, sort_order`. Unique `(property_id, code)`. `SOLO_HABITACION` always auto-seeded.
+- `reservations` — extended with `meal_plan_id` (nullable FK) + `breakfast_guests` (nullable Integer).
+
+### Services
+- `MealPlanService` (`backend/services/meal_plan_service.py`) — list/get/create/update/soft_delete + `seed_system_plans(property_id, mode)`. System plans (SOLO_HABITACION, auto-seeded CON_DESAYUNO for INCLUIDO) cannot be deleted.
+- `SettingsService.get_meals_config` / `set_meals_config` — triggers `seed_system_plans` on enable/mode-change.
+- `KitchenReportService.get_daily_report(fecha)` — returns `{enabled, mode, rooms: [...], total_with_breakfast, total_without}`. Date logic: guest slept night of `fecha - 1 day` (so checkout-today IS included, checkin-today is NOT).
+- `DocumentService.generate_kitchen_report_pdf(fecha)` — saves to `backend/hotel/Reportes_Cocina/cocina_YYYYMMDD.pdf`.
+- `PricingService.calculate_price()` — new optional `meal_plan_id` + `breakfast_guests` args. Surcharge injected between season modifier and final rounding. INCLUIDO plans (surcharge=0) are a no-op → no modifier row added.
+
+### API endpoints
+- `GET /api/v1/settings/meals-config` — public (read-only)
+- `PUT /api/v1/settings/meals-config` — admin only; seeds plans on enable
+- `GET/POST/PUT/DELETE /api/v1/meal-plans` — read any auth, writes admin-only
+- `GET /api/v1/reportes/cocina?fecha=YYYY-MM-DD` — admin/recepcion/supervisor/gerencia/**cocina**; default `fecha`=mañana
+- `GET /api/v1/reportes/cocina/pdf?fecha=YYYY-MM-DD` — same roles, returns `FileResponse`
+
+### Cocina role
+New role `cocina` (read-only) — can access only `/api/v1/reportes/cocina*`. Other endpoints' `require_role()` whitelists unchanged, so cocina users hit 403 everywhere else. No DB migration needed — `require_role` accepts any role string.
+
+### Frontend
+- **PC config**: `09_🔧_Configuracion.py` gains a 3-step "Configuración de Comidas" section (toggle → mode → plans editor). New `94_👨‍🍳_Cocina.py` page with date picker (default: tomorrow), metric cards, detail table, CSV + PDF export. Shows "Servicio no habilitado" one-liner when disabled.
+- **PC reservation form** (`tab_reserva.py`, v1.10.0-dev meal-plan UI fix): "🍽️ Plan de comidas" section between Selección de Habitaciones and Precio Dinámico. Lives **outside `st.form`** so the price recalculates on every change. Renders only when `meals_enabled=true && mode != INCLUIDO`. Plan dropdown + `breakfast_guests` `number_input` capped by `sum(selected room max_capacity)` (defaults to 10 when no room is selected). Cached helpers `get_meals_config()` + `get_meal_plans(mode_filter)` in `frontend_pc/helpers/data_fetchers.py` (TTL 30s). `ReservationService.get_reservation` now returns `meal_plan_id` + `breakfast_guests` so edit-mode pre-fills the section.
+- **Mobile**: new `/dashboard/meals/page.tsx` (read-only; Hoy/Mañana toggle). Dashboard tile "Cocina — Desayunos hoy: N" conditionally renders only when `meals_enabled=true`. Reservation form conditionally shows plan selector + breakfast_guests input when mode ≠ INCLUIDO. Input has `inputMode="numeric"` + `pattern="[0-9]*"` + `onFocus={(e)=>e.currentTarget.select()}` so typing replaces the value cleanly on touch keyboards. `max` is dynamic per-room-cap with inline Spanish error + auto-shrink via `useEffect` when the cap drops below the current value.
+
+---
+
+## Master Guest Entity & Buildings — Full Detail (v1.10.0 — Phase 2a)
+
+### Tablas
+- `guests` (NEW) — entidad maestra del huésped (una row por persona, persiste a través de múltiples estadías). Distinta de `checkins` (registro per-estadía / ficha). Schema: `id` (Integer auto), `property_id` FK RESTRICT, identidad (`first_name`, `last_name`, `document_type`, `document_number`), contacto (`email`, `phone`), origen (`nationality`, `country`, `city`), metadata (`notes`, `source`, `is_active`), agregados denormalizados (`total_stays`, `total_spent`, `last_visit_at`), timestamps.
+- `buildings` (NEW) — edificio/anexo dentro de una property. Schema: `id` String slug (e.g. `los-monges-principal`), `property_id` FK RESTRICT, `name`, `description`, `floors`, `sort_order`, `is_active`. UNIQUE `(property_id, name)`.
+- `reservations.guest_id` (NEW Integer FK SET NULL) — link al Guest maestro. Snapshot fields (`guest_name`, `contact_email`) quedan congelados en la reserva.
+- `checkins.guest_id` (NEW Integer FK SET NULL) — mismo patrón.
+- `rooms.building_id` — promovido de `Column(String)` dead-column a FK real con `ondelete=SET NULL`. Migración 012 seedea "Edificio Principal" por property y backfilla todas las habitaciones.
+
+### Servicios
+- **Rename: `GuestService` → `CheckInService`** (en `services/checkin_service.py`). El nombre `GuestService` ahora pertenece a la entidad maestra. Métodos del CheckInService (`register_checkin`, `get_checkin`, `update_checkin`, `search_checkins`, `get_unlinked_reservations`, `get_all_guest_names`, `get_all_billing_profiles`, `get_billing_history`) idénticos.
+- `GuestService` (NEW en `services/guest_service.py`) — `create_guest`, `get_guest`, `update_guest`, `list_guests`, `count_guests`, `search_guests`, **`find_or_create_guest`** (smart-match: documento → email → phone → exact name; crea si no hay match), `get_guest_history`, `refresh_aggregates`. Excepción `GuestServiceError`.
+- `BuildingService` — `create_building`, `get_building`, `list_buildings` (con `room_count` agregado), `update_building`. Excepción `BuildingServiceError`.
+
+### API endpoints
+- `GET /api/v1/huespedes/search?q=&limit=` — autocomplete (mín. 2 chars). Roles: admin/supervisor/gerencia/recepcion/recepcionista.
+- `GET /api/v1/huespedes` — listado paginado (`{items, total, skip, limit}`).
+- `POST /api/v1/huespedes` — crear (mismos roles).
+- `GET /api/v1/huespedes/{id}` — detalle.
+- `PUT /api/v1/huespedes/{id}` — actualizar.
+- `GET /api/v1/huespedes/{id}/history` — historial completo + agregados.
+- `GET /api/v1/buildings` — listar (todos los roles operacionales).
+- `POST /api/v1/buildings` — crear (admin only).
+- `PUT /api/v1/buildings/{id}` — actualizar (admin only).
+- `/api/v1/guests/*` LEGACY URL — sigue gestionando CheckIns, NO se rompe (mobile + PC dependen). Internamente ahora usa `CheckInService`.
+
+### Wire al flujo de reserva
+- `ReservationService.create_reservations` resuelve el Guest **una vez** por booking (vía `find_or_create_guest`) y enlaza `guest_id` en cada reserva creada. Best-effort: si la resolución falla, la reserva sigue sin Guest.
+- `CheckInService.register_checkin` también enlaza al Guest maestro vía `_try_link_guest`.
+
+### Frontend
+- **PC**: nueva página `91_👥_Huespedes.py` (búsqueda + listado paginado + detalle editable + tabs Datos/Historial). En `98_🏠_Admin_Habitaciones.py`: selector "🏢 Filtrar por edificio" arriba de tabs (cuando hay >1 edificio) y expander "Gestionar edificios" admin-only para CRUD. Tabla de inventario suma columna "Edificio".
+- **Mobile**: nuevo `frontend_mobile/src/services/guests.ts` (`getGuest`, `getGuestHistory`, `searchGuests`). En `/dashboard/calendar/[id]`: badge "N estadías previas" / "Primera visita" en sección Huésped. Tap expande historial inline.
+- **PC `tab_reserva.py`**: import switched de `GuestService` → `CheckInService` para el dropdown de nombres existentes (no breaking change para el operador).
+
+### Migraciones
+- **011_guests_table.py**: crea `guests`, agrega `guest_id` a `reservations` y `checkins`, autopobla en cuatro pasos (documento → nombre → backfill reservations.guest_id + checkins.guest_id → refresca agregados). Resultado en dev DB: 107 reservas + 52 checkins → 96 guests, 100% linkeados.
+- **012_buildings_table.py**: crea `buildings`, seedea `<property_id>-principal` "Edificio Principal" por property, backfillea `rooms.building_id` donde NULL.
+
+### Phase 2a-ext — Guest Domain Completion (v1.10.0)
+
+#### Tablas nuevas
+- `guests.birth_date` (NEW Date) — hook para futura automatización de saludos de cumpleaños (ver ROADMAP.md). `find_or_create_guest` y `_augment_guest_if_empty` lo aceptan/propagan ("fill empty, never overwrite").
+- `billing_profiles` (NEW) — perfiles de facturación reutilizables por huésped. Schema: `id` (Integer), `guest_id` FK CASCADE, `property_id` FK RESTRICT, `label`, `is_default` (Boolean), `tax_id_type` (RUC | CI | CUIT | CPF | CNPJ | NIT | …), `tax_id_number`, `business_name`, address fields, `is_active`. UNIQUE no declarado (mismo RUC puede aparecer bajo dos guests legítimamente — corporate + personal).
+- `guest_vehicles` (NEW) — vehículos registrados por huésped, máx 5 (enforced en `GuestVehicleService.create_vehicle` → `MAX_VEHICLES_PER_GUEST = 5`). Plate normalizado a uppercase + trim. Soft-deleted no cuenta para el límite.
+- `checkin_vehicles` (NEW N:M) — vincula `checkins` ↔ `guest_vehicles` por estadía + `parking_spot` + `key_deposited`. UNIQUE (checkin_id, vehicle_id).
+- `checkins.billing_profile_id` (NEW Integer FK SET NULL) — qué perfil se usó para esta estadía. Snapshot fields `checkins.billing_name`/`billing_ruc` se conservan.
+
+#### Servicios nuevos
+- `BillingProfileService` — CRUD + `set_default` (clears siblings) + `find_or_create_from_checkin` (priority: tax_id → business_name → create). Excepción `BillingProfileError`.
+- `GuestVehicleService` — CRUD + 5-limit enforcement + `search_by_plate` (case-insensitive, exact-then-partial, returns vehicle + guest + active reservation if any) + `link_to_checkin`/`unlink_from_checkin`/`get_checkin_vehicles`. Excepción `GuestVehicleError`.
+
+#### Auto-propagación desde CheckIn (load-bearing)
+`CheckInService.register_checkin` y `update_checkin` ahora corren **dos hooks adicionales** después del guest-link:
+- `_propagate_billing_to_profile`: si la ficha tiene billing_name/billing_ruc + guest_id + sin billing_profile_id explícito → crea/encuentra BillingProfile y linkea.
+- `_propagate_vehicle_to_master`: si la ficha tiene vehicle_plate + guest_id → crea/encuentra GuestVehicle y crea CheckinVehicle link.
+Best-effort: errores se loguean y se ignoran (la ficha es load-bearing, los side effects no).
+
+#### Auto-propagación desde Reserva (load-bearing) — v1.10.0-dev fix
+Pre-fix la chapa solo se propagaba al catálogo maestro al hacer check-in. Eso dejaba el lookup `search_by_plate` (y el futuro OCR en la entrada) ciego para reservas hechas con anticipación. Ahora `ReservationService.create_reservations` corre **el mismo hook** después de refrescar agregados del Guest:
+
+- Si la reserva trae `vehicle_plate` + Guest resuelto → llama `GuestVehicleService.create_vehicle` con `plate_number` + `model` + `color`. La service-layer dedupea por (guest, plate); si el vehículo ya existe re-usa.
+- Color sigue patrón "fill empty, never overwrite": si el master tiene `color=None` y la reserva trae color → backfill. Si ya tiene color, no se pisa.
+- Si FEAT-LINK-01 dispara y crea un CheckIn auto-vinculado → además crea el `CheckinVehicle` link explícitamente (el flujo de `register_checkin` no aplica acá porque el CheckIn lo arma `ReservationService` inline).
+- Best-effort: 5-vehicle limit overflow / DB errors se loguean (`logger.warning`) y se ignoran. La reserva ya commitió y es load-bearing.
+
+**Schema**: `ReservationCreate.vehicle_color: Optional[str]` y `CheckInCreate.vehicle_color: Optional[str]` son passthrough — NO se almacenan en `reservations` ni `checkins` (evita 2 ALTER TABLE migrations). Color vive canónicamente en `guest_vehicles.color`.
+
+**UI**: campo "Color del Vehículo" agregado en PC (`tab_reserva.py`, `tab_checkin.py`) y mobile (`GuestForm.tsx`) — solo se muestra cuando hay parking marcado.
+
+Tests: `test_guest_vehicles.py::TestReservationPropagatesVehicle` (6 tests cubren propagación + color + dedup + 5-limit overflow + color backfill).
+
+#### API endpoints
+- `GET/POST/PUT/DELETE /api/v1/huespedes/{id}/billing[/{profile_id}]` (admin/supervisor/gerencia/recepcion/recepcionista para todo).
+- `POST /api/v1/huespedes/{id}/billing/{profile_id}/default` — marcar predeterminado.
+- `GET/POST/PUT/DELETE /api/v1/huespedes/{id}/vehicles[/{vehicle_id}]`.
+- `GET /api/v1/vehicles/search?plate=ABC` — "¿de quién es este auto?" + futuro OCR. Retorna vehicle + guest + active_reservation (404 si no hay match).
+- `GET/POST/DELETE /api/v1/checkins/{checkin_id}/vehicles[/{vehicle_id}]` — per-stay link con parking_spot/key_deposited.
+
+#### Migración 013
+- Crea las 3 tablas + agrega `birth_date` y `billing_profile_id`.
+- Auto-pobla desde data legacy: por cada checkin con `billing_name`/`billing_ruc` → 1 BillingProfile (primer perfil por guest = default), por cada checkin con `vehicle_plate` → 1 GuestVehicle + 1 CheckinVehicle.
+- Resultado en dev DB: 27 BillingProfiles + 18 GuestVehicles + 18 CheckinVehicles + 27 checkins back-filled con billing_profile_id.
+- Idempotente: re-run no duplica (skip si tablas tienen rows).
+
+#### UI
+- **PC `91_👥_Huespedes.py`**: tab "Datos" agrega "🎂 Fecha de nacimiento". Dos tabs nuevos: "🧾 Facturación" (lista perfiles, marcar predet., editar/eliminar, agregar) y "🚗 Vehículos" (lista, agregar con cap visible "N/5", editar/eliminar).
+- **PC `tab_checkin.py`**: captions agregadas explicando que los datos de Facturación + Vehículo se replican automáticamente al huésped maestro (formularios viejos sin cambios — service-layer hace el trabajo). El dropdown rico (perfil predet. → preselect) queda como follow-up UX.
+
+### Guest-flow architecture (Phase 2a Bug #2 fix — single entry point)
+
+Toda creación o referencia a un huésped pasa por **un único punto**: `GuestService.find_or_create_guest`. Esto reemplaza ~5 paths divergentes que coexistían pre-Phase 2a (cada uno con su propia fuzzy logic, generando duplicates).
+
+**Reglas:**
+
+1. **`reservations.guest_id` siempre se setea — explícito o vía `find_or_create_guest`.**
+   - PC + mobile: el dropdown / autocomplete envía `ReservationCreate.guest_id`. Si está presente, el service lo valida (existe + property_id correcto + activo) y lo usa directo. Si la validación falla, fallback transparente a `find_or_create_guest`.
+   - OTA / scripts / manual entry sin dropdown: `guest_id=None` → fallback a `find_or_create_guest` por nombre/doc/email.
+   - Si todo falla, `guest_id` queda NULL (best-effort, no rompe la reserva).
+
+2. **`checkins.guest_id` se setea automáticamente.**
+   - `CheckInService.register_checkin` llama `_try_link_guest` (que delega en `find_or_create_guest`).
+   - `ReservationService.create_reservations` (cuando auto-crea el CheckIn vía FEAT-LINK-01) hereda el mismo `guest_id` de la reserva — no doble resolución.
+
+3. **"Fill empty, never overwrite"**: cuando `find_or_create_guest` matchea un Guest existente, propaga campos NUEVOS desde el form al master (email, phone, nationality, country) PERO solo donde el master tiene blank. Nunca pisa data existente. Mismo patrón en `_augment_guest_from_checkin` (cuando se actualiza una ficha).
+
+4. **Snapshot freeze (intencional)**: `update_reservation` NO re-linkea `guest_id`. El nombre que aparece en la reserva (`guest_name`) es la foto al momento de la booking. Si alguien edita la reserva, el snapshot puede divergir del Guest "vivo" — ese es el diseño. Para cambiar de huésped, se cancela y re-bookea.
+
+5. **Dropdown labels limpios**: `/api/v1/huespedes/dropdown` retorna `"Apellido, Nombre — Doc XXXX"` sin parens embebidos (Bug #1 cleanup). El PC `tab_reserva.py` y mobile `GuestForm.tsx` usan esta misma fuente.
+
+**UX clarity** (single source of truth — la respuesta es siempre obvia):
+- "¿Hacer una reserva?" → huésped se crea/encuentra automáticamente (dropdown / autocomplete + fallback)
+- "¿Hacer un check-in?" → mismo huésped enlazado, master se enriquece con datos nuevos
+- "¿Agregar manualmente?" → página Huéspedes (con detección de duplicados)
+- "¿Editar info de huésped?" → página Huéspedes (snapshots de reservas viejas no se tocan)
+
+**Removed**:
+- `CheckInService.get_all_guest_names` ya no es la fuente del dropdown de reservas. Sigue existiendo para `tab_checkin.py` (billing profiles + ficha edit search), pero el dropdown de "A nombre de" ahora viene del master Guest. `frontend_services/cache_service.get_all_guest_names_cached` sigue funcional pero ahora lee de `GuestService.list_guests_for_dropdown`.
+
+---
+
+## Email Sending — Full Detail (v1.8.0 — Phase 5)
+
+### Tables
+- `email_log` (NEW) — append-only audit trail: `id, reserva_id (FK), recipient_email, subject, status (ENVIADO|FALLIDO|PENDIENTE), error_message, sent_at, sent_by (FK users), created_at`. Indexes on reserva_id, status, sent_at.
+- `system_settings` — usado para SMTP config (key/value): `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password_encrypted`, `smtp_from_name`, `smtp_from_email`, `smtp_enabled`, `email_body_template`. Password se almacena encriptada (Fernet).
+- `reservations.contact_email` ya existía — se persiste cuando un envío usa override y el guest no tenía email.
+
+### Encryption
+- Helpers `encrypt_secret`/`decrypt_secret` en `backend/api/core/security.py` usan `cryptography.fernet.Fernet` con clave derivada de `SECRET_KEY` via PBKDF2HMAC-SHA256 (200k iterations, salt fijo).
+- **Importante**: si rotás `SECRET_KEY`, los passwords SMTP encriptados se vuelven ilegibles → admin debe re-ingresar.
+
+### Business rules
+- Envío async via `fastapi.BackgroundTasks` — endpoint responde 202 inmediato, send corre en background con sesión propia (`session_factory()`).
+- PDF se **regenera siempre** antes de enviar via `DocumentService.generate_reservation_pdf()` (evita enviar datos obsoletos).
+- Rate limit: **3 envíos por reserva por hora**, cuenta SOLO `status='ENVIADO'` (admin puede debuggear SMTP sin auto-bloqueo). 4to → 429 + mensaje en español.
+- Email override en body: si guest no tenía email → persiste en `reservations.contact_email`; si ya tenía email distinto → NO sobrescribe.
+- Body template usa `str.format_map()` con `{nombre_huesped}` y `{nombre_hotel}` (placeholders desconocidos quedan literales, no crashean).
+- MIME usa `email.message.EmailMessage` con `charset='utf-8'` explícito (acentos/ñ).
+- Fallo de envío → `logger.error()` que dispara Discord alert via `DiscordWebhookHandler` automático.
+
+### Services
+- `EmailService` (`backend/services/email_service.py`) — `prepare_send`, `send_async`, `send_test_email`, `get_email_log`, `_check_rate_limit`, `_render_body`, `_build_mime`, `_send_smtp`. Excepción custom `EmailError`.
+- `SettingsService.get_smtp_config(include_password=True)` / `set_smtp_config(...)` — encripta/desencripta password automáticamente.
+
+### API endpoints
+- `GET /api/v1/settings/email` — config SMTP actual (admin only). Password NUNCA expuesta — solo `smtp_password_set: bool`.
+- `PUT /api/v1/settings/email` — guardar config SMTP (admin only). Si `smtp_password=null/empty`, preserva la existente.
+- `POST /api/v1/settings/email/test` — envía email de prueba sincrónico (admin only). Devuelve `{success, message}`.
+- `POST /api/v1/email/reserva/{id}/enviar` — encolar envío (admin/recepcion/recepcionista/supervisor/gerencia). Body opcional `{email}` para override. Retorna 202 + `email_log_id`.
+- `GET /api/v1/email/reserva/{id}/historial` — lista de email_log ordenado DESC por created_at (mismos roles).
+
+### Permissions
+| Action | Admin | Recepcion / Recepcionista / Supervisor / Gerencia | Cocina |
+|---|---|---|---|
+| GET/PUT `/settings/email`, POST `/settings/email/test` | ✅ | ❌ 403 | ❌ 403 |
+| POST `/email/reserva/{id}/enviar`, GET `/historial` | ✅ | ✅ | ❌ 403 |
+
+### Frontend
+- **PC**: sección "📧 Configuración de Correo" en `09_🔧_Configuracion.py` (form host/port/user/password type=password/from_name/from_email/toggle/template + botón "Enviar email de prueba" fuera del form). Botón "📧 Enviar correo" en `tab_reserva.py` modo edit (disabled si reserva nueva). Tab "📧 Historial de Emails" en `97_📄_Documentos_Hotel.py` con filtros fecha/status + export CSV (fuera de `st.form`).
+- **Mobile**: `services/email.ts` (`sendReservationEmail`, `getEmailHistory`). `components/email/EnviarEmailModal.tsx` siguiendo patrón de `RegistrarPagoModal`. Botón "📧 Enviar por correo" en `app/dashboard/calendar/[id]/page.tsx` entre folio y Registrar Pago. Caption "Último envío: ..." debajo del botón. Toast verde de éxito / rojo de error.
+
+---
+
+## Room Status Audit Log — Full Detail (v1.9.0 — Phase 6)
+
+### Tabla
+- `room_status_log` (NEW) — append-only audit trail: `id, room_id (FK), previous_status, new_status, changed_by (username), reason, changed_at`. Indexes en `room_id` y `changed_at`.
+
+### Comportamiento
+- Cada `PATCH /api/v1/rooms/{id}/status` agrega automáticamente una fila — la lógica vive en el endpoint mismo (no servicio separado, es inserción directa via SQLAlchemy).
+- `previous_status` es nullable porque la primera vez que una habitación tiene un cambio puede no tener un estado previo conocido.
+- `changed_by` guarda el `username` (consistente con `room.status_changed_by` que ya usaba el patrón). NO un FK a `users.id` — ver gotcha más abajo.
+- Migración `007_room_status_log.py` tiene drop+recreate idempotente para la tabla phantom que dejaba `migrate_monges.py` (eliminado en v1.9.0).
+
+### API endpoints
+- `PATCH /api/v1/rooms/{id}/status` — admin/supervisor (sin cambio de permisos; ahora también escribe el log).
+- `GET /api/v1/rooms/{id}/status-log?limit=50` — admin/supervisor/recepcion/recepcionista/gerencia. Devuelve historial DESC por `changed_at`.
+
+### Frontend
+- **PC**: expander "📋 Historial de cambios de estado" en `98_🏠_Admin_Habitaciones.py` debajo del botón Eliminar (visible al seleccionar una habitación).
+- No mobile UI — es herramienta de admin operacional.
+
+### Gotcha
+- `changed_by VARCHAR` (username), NO `Integer FK users.id`. Sigue el patrón de `room.status_changed_by` y `email_log.sent_by` (también username). Si un usuario cambia su username, los logs históricos quedan con el username viejo — comportamiento aceptado (auditoría debe reflejar quién hizo la acción al momento, no la identidad actual).
+
+---
+
+## AI Agent Permissions — Full Detail (v1.9.0 — Phase 6)
+
+### Tabla
+- `ai_agent_permissions` (existía como modelo desde v1.0, activada en v1.9 vía migración 008): `id, property_id, role, can_view_reservations, can_create_reservations, can_modify_reservations, can_cancel_reservations, can_view_guests, can_modify_guests, can_view_rooms, can_modify_rooms, can_modify_room_status, can_view_prices, can_modify_prices, can_view_reports, can_export_data, can_modify_settings, requires_confirmation, created_at, updated_at`. Una row por (property_id, role) — `property_id` actualmente nullable (single-tenant).
+- 14 columnas booleanas. Hoy v1.9 sólo 5 están realmente activas (las view_*); las demás están reservadas para tools de modificación futuras (ningún tool de v1.9 escribe).
+
+### Servicio
+- `AIAgentPermissionService` (`backend/services/ai_agent_permission_service.py`) — `get_or_create`, `list_all`, `update_permissions` (con safety anti-lockout para admin/supervisor/gerencia), `get_allowed_tools`.
+- Constantes exportadas: `PERMISSION_COLUMNS`, `TOOL_PERMISSION_MAP`, `DEFAULT_PERMISSIONS_BY_ROLE`.
+- Sigue convención `@with_db` con `db: Session` como PRIMER parámetro posicional.
+
+### Tool ↔ permission mapping
+Las 18 tools del agente se mapean a 5 columnas:
+| Permiso | Tools controladas |
+|---|---|
+| can_view_reservations | search_reservation, get_reservations_report, get_today_summary, get_occupancy_for_month |
+| can_view_guests | search_guest |
+| can_view_rooms | check_availability |
+| can_view_prices | get_hotel_rates, calculate_price |
+| can_view_reports | get_room_performance, get_booking_sources, get_parking_status, get_revenue_summary, consultar_caja, resumen_ingresos_por_metodo, consultar_inventario, consumos_habitacion, reporte_cocina, estado_email_reserva |
+
+Tools nuevos que no estén en `TOOL_PERMISSION_MAP` quedan **siempre permitidos** (defensive default — agregar al mapa antes del deploy).
+
+### Defaults seedeados por migración 008
+| Rol | Defaults |
+|---|---|
+| admin / supervisor / gerencia | TODO en true |
+| recepcion / recepcionista | view_reservations, view_guests, view_rooms, view_prices = true; resto false (incluyendo view_reports → bloquea las 10 tools de reportes) |
+| cocina | TODO en false (cocina usa la página dedicada, no el agente) |
+
+### Middleware en agent.py
+- `filter_tools_for_role(role)` filtra `TOOLS_LIST` antes de pasarlo a Gemini. Cuando una tool está bloqueada, Gemini simplemente no la conoce → responde naturalmente "no tengo herramienta para eso" sin necesidad de mensajes de error custom.
+- `query_agent` endpoint pasa `current_user.role` al `process_query()`.
+
+### API endpoints
+- `GET /api/v1/admin/ai-permissions` — listado completo (admin only). Auto-seedea defaults la primera vez.
+- `GET /api/v1/admin/ai-permissions/{role}` — detalle (admin only).
+- `PUT /api/v1/admin/ai-permissions/{role}` — partial update (admin only). Body: cualquier subset de las 14 columnas booleanas.
+- `GET /api/v1/admin/ai-permissions/{role}/allowed-tools` — diagnóstico, devuelve lista de tools + el `tool_permission_map` completo.
+
+### Frontend PC
+- Página nueva `93_🤖_Permisos_IA.py` (admin only). Por cada rol: expander con 14 checkboxes (uno por permiso) + tooltip que muestra qué tools controla. Form per-rol, partial update vía diff (sólo manda lo que cambió). Panel de referencia al final con mapeo agrupado por permiso.
+
+---
+
+## Type Harmonization — Full Detail (v1.10.0 — Phase 2b)
+
+Última fase de cleanup del schema SQLite antes del cutover a Postgres (Phase 3+). Toca 4 dimensiones:
+
+### Boolean-as-Integer → Boolean (27 columnas)
+
+Reemplazadas todas las columnas que conceptualmente eran booleanas pero estaban declaradas `Column(Integer, default=0/1)`:
+- `room_categories.active`, `rooms.active`, `client_types.active`/`requires_contract`, `client_contracts.active`, `pricing_seasons.active`, `properties.active`/`parking_available`/`meals_enabled`, `ical_feeds.sync_enabled`, `meal_plans.is_system`/`is_active`, `migration_history.success`
+- Las 14 `AIAgentPermission.can_*` + `requires_confirmation`
+
+SQLite almacena Boolean como INTEGER bajo el capó, así que data existente (`0`/`1`) round-trippea transparente via SQLAlchemy. Lectura desde Python ahora devuelve `bool` real (no `int`). En Postgres se vuelve `BOOLEAN` nativo.
+
+### JSON-in-String → JSON (5 columnas)
+
+`Column(String) # JSON` → `Column(JSON)`. Auto-encode/decode al guardar/leer:
+- `room_categories.bed_configuration`, `room_categories.amenities`
+- `reservations.price_breakdown`
+- `pricing_seasons.applies_to_categories`
+- `price_calculations.calculation_details`
+
+**Importante para callers**: ahora pasás un `dict`/`list` directamente — NO `json.dumps()` previo. La service-layer `ReservationService.create_reservations` ya está actualizada (antes hacía `breakdown = json.dumps(...)`, ahora pasa el dict crudo). Los DTOs de respuesta usan `Optional[Any]` para no forzar el shape a string.
+
+En Postgres estos columns se vuelven `JSONB` indexable.
+
+### `properties.breakfast_included` REMOVIDA
+
+Deprecated desde v1.7. SQLite 3.35+ soporta `ALTER TABLE ... DROP COLUMN` nativo — migration 014 ejecuta el DROP. Reemplazo: combinación `meals_enabled` + `meal_inclusion_mode == "INCLUIDO"`.
+
+**Backward compat de API**: `GET /api/v1/settings/property-settings` sigue devolviendo el campo `breakfast_included` en su body. Ahora se deriva de `meals_enabled && mode == 'INCLUIDO'`. El mobile success banner (`"🍳 Desayuno incluido / no incluido"`) sigue funcionando sin cambios.
+
+### `checkins.created_at` Date → DateTime
+
+Captura hora de ingreso, no solo fecha. Data existente (`'YYYY-MM-DD'` strings) sigue leyéndose correctamente (SQLAlchemy parsea como datetime a 00:00:00). Filas nuevas obtienen full timestamp.
+
+### `Property.slug` NOT NULL
+
+Backfill `WHERE slug IS NULL → slug = id` en migration 014. Model promovido a `nullable=False`. Sirve como URL canónica de tenant cuando llegue el SaaS layer (`app.hotel.com/los-monges/`). En SQLite la enforcement del NOT NULL llega en fresh `init_db()` / Postgres cutover.
+
+### 8 `property_id` columnas promovidas a FK real
+
+`room_categories`, `rooms`, `reservations`, `system_settings`, `client_types`, `client_contracts`, `pricing_seasons`, `price_calculations` — todas pasan de `Column(String, nullable=False)` a `Column(String, ForeignKey("properties.id", ondelete="RESTRICT"))`. Option A model-only (Phase 1 convention): la enforcement llega en fresh `init_db()` o Postgres cutover. Migration 015 audita orphans antes de la promoción (0 encontrados en dev).
+
+### Retention script
+
+`scripts/cleanup_retention.py` — idempotente, dry-run capable. Reglas:
+- `price_calculations`: borra rows con `reservation_id IS NULL` más viejas que 90 días (default). Rationale: rows con `reservation_id` son audit del precio aplicado; rows sin reservation son previews/calculator hits.
+- `session_logs`: borra rows con `login_time` más viejo que 365 días (default).
+
+Ejecutar manual o vía cron:
+```bash
+python scripts/cleanup_retention.py              # default
+python scripts/cleanup_retention.py --dry-run    # reporta sin borrar
+python scripts/cleanup_retention.py --price-days 60 --session-days 180
+```
+
+No toca el schema. No requiere downtime. Safe en cualquier momento.
+
+---
+
+## Multi-vehicle per Reservation — Full Detail (v1.10.0 — Phase 2c)
+
+Una reserva puede llevar **N vehículos** (no solo uno). Cada vehículo consume un lugar de estacionamiento. Soporta dos modos por vehículo:
+
+- **Linked**: `guest_vehicle_id` apunta al catálogo maestro del booker. La recepcionista lo eligió de un dropdown de los vehículos registrados del huésped principal.
+- **Quick-add**: `guest_vehicle_id IS NULL`. `plate_number`/`model`/`color` son la fuente de verdad. Para vehículos de acompañantes que NO requieren crear un Guest record (caso típico: segundo auto que llega a las 2 AM).
+
+### Tabla
+- `reservation_vehicles` (NEW, migración 016): `id, reservation_id FK reservations CASCADE, guest_vehicle_id FK guest_vehicles SET NULL, plate_number, model, color, is_primary BOOLEAN, notes, created_at`. Index en `(reservation_id)` para render de listado + `(plate_number)` para `search_by_plate` (OCR/futuro).
+
+### Schemas
+- `VehicleInput`: `{mode: "linked"|"quick", guest_vehicle_id?, plate_number?, model?, color?, is_primary, notes?}`. Validator rechaza linked sin id y quick sin plate.
+- `ReservationCreate.vehicles: List[VehicleInput] = []` — campo opcional. Cuando se provee, **toma precedencia** sobre el path legacy single-vehicle.
+- `ReservationVehicleDTO` en el response del endpoint `/reservations/{id}`.
+
+### Reglas de parking (rewrite en `ReservationService.create_reservations`)
+- Si `vehicles=[]` (legacy) → 1 lugar por habitación (comportamiento original).
+- Si `vehicles=[...]` → **1 lugar por vehículo**, sin importar cantidad de habitaciones. 3 autos = 3 lugares.
+- **Cap duro**: una reserva NUNCA puede pedir más vehículos que la capacidad total del hotel (`parking_capacity`). Caso `len(vehicles) > parking_capacity` → `ValueError` → 400 con mensaje en español.
+- Overlap check ahora cuenta `reservation_vehicles` reales de las reservas existentes (fallback a 1 lugar por habitación cuando no hay rows — data legacy).
+
+### Back-compat
+- Las columnas `reservations.vehicle_plate` / `reservations.vehicle_model` **se preservan**. La fila marcada `is_primary=True` (o índice 0 si ninguna lo está) también escribe su plate/model en estas columnas legacy. Toda la lectura existente (PDFs, calendar views, AI tools, mobile detail page) sigue funcionando sin modificación.
+- `_propagate_vehicle_to_master` y el hook de single-vehicle quedan envueltos en `if not data.vehicles:` — corren solo cuando el caller usa el path legacy.
+
+### Search by plate extendido
+- `GuestVehicleService.search_by_plate` ahora cae a `reservation_vehicles` si no encuentra match en `guest_vehicles`. Esto permite encontrar quick-add companions pre-arrival (use case OCR futuro). Cuando el match viene de `reservation_vehicles`, `guest` puede ser `None` (no hay Guest maestro registrado) — el AI tool `buscar_vehiculo` ya está guarded.
+- Las quick-add vehicles también se promueven best-effort al master `guest_vehicles` bajo el nombre del booker (si hay `guest_id`). Así, la próxima vez la misma chapa aparece como `linked`.
+
+### UI
+- **PC `tab_reserva.py`**: expander "🚗 Vehículos adicionales" OUTSIDE el form (Streamlit constraint — el form bloquea estado mutable). El vehículo PRIMARY sigue siendo los campos chapa/modelo/color dentro del form (quick-mode). Los EXTRAS pueden ser quick OR linked (dropdown del catálogo del booker — solo disponible si el guest fue picked del dropdown).
+- **Mobile `GuestForm.tsx`**: sección "Vehículos adicionales" dentro del bloque de Parking. **Solo quick-mode** en mobile v1 (typing es más natural en touch que el dropdown linked). Cada extra: chapa/modelo/color + botón ✕. Linked-mode para mobile queda en backlog.
+
+---
+
+## Multi-currency Payments — Full Detail (v1.10.0 — Phase 2d)
+
+Cualquier hotel en cualquier país hispanohablante puede operar con N monedas. Cada hotel tiene UNA **moneda base** (todos los totales/saldos/reportes denominados ahí) y N **monedas aceptadas** que el huésped puede usar para pagar. Para el demo en Ciudad del Este (zona triple frontera): PYG base + USD + BRL diarios.
+
+### Modelo conceptual
+- `Property.currency` (columna pre-existente, reutilizada) = moneda base de la propiedad.
+- `accepted_currencies` (NEW, migración 017) = catálogo per-property de monedas aceptadas + tipos de cambio.
+- `transaccion` extendida con `currency_code` + `exchange_rate` + `amount_original`. El campo `amount` SIEMPRE está en moneda base — no cambia su semántica.
+
+### Snapshot pattern
+Cuando el receptionist registra un pago en USD:
+- `amount_original = 100` (lo que el huésped entregó)
+- `currency_code = "USD"` (moneda)
+- `exchange_rate = 7500` (tipo de cambio CONGELADO al momento del pago)
+- `amount = 750_000` (equivalente en moneda base, persiste para totales/saldos)
+
+Si el admin actualiza el TC después, los reportes históricos NO cambian. Mismo patrón usado para `consumo.unit_price` y `checkin.billing_*`.
+
+### Catálogo
+`services/currency_service.py::CURRENCY_CATALOG` — 20 monedas hard-coded (todas hispanas + USD/EUR/GBP). Los hotels seleccionan de este catálogo, no crean nuevas. Para sumar un país nuevo: agregar entry al catálogo y agregar entry a `migration 017::SEED_BY_BASE` si querés seed automático.
+
+### Service
+- `CurrencyService.get_base_currency(property_id)` — lee `Property.currency`.
+- `CurrencyService.set_base_currency(property_id, new)` — bloqueado si hay transacciones activas en otra base (preserva integridad de reportes históricos).
+- `CurrencyService.get_accepted_currencies(property_id, active_only=True)` — lista ordenada por `sort_order`.
+- `CurrencyService.add_accepted_currency(property_id, code, rate, sort_order)` — idempotente: si la moneda ya existe, actualiza rate + reactiva.
+- `CurrencyService.update_exchange_rate(property_id, code, new_rate)` — rechaza si `code == base` (la base siempre es 1).
+- `CurrencyService.remove_accepted_currency(property_id, code)` — soft-deactivate, rechaza si es base.
+- `CurrencyService.convert_to_base(amount, code, property_id)` → `{amount_base, exchange_rate, currency_code, amount_original}`. Redondea al `decimal_places` de la moneda BASE (no de la original).
+- `CurrencyService.format_amount(amount, code, with_symbol=True)` — convención española: punto miles + coma decimales. PYG `₲ 750.000`, USD `US$ 100,00`, BRL `R$ 1.234,50`.
+
+### Endpoints
+- `GET /api/v1/currencies/catalog` — lista read-only de las 20 monedas.
+- `GET /api/v1/currencies/base` — moneda base actual.
+- `GET /api/v1/currencies?active_only=true` — monedas aceptadas (con rate).
+- `POST /api/v1/currencies` (admin) — agregar.
+- `PUT /api/v1/currencies/{code}/rate` (admin) — actualizar tipo de cambio.
+- `DELETE /api/v1/currencies/{code}` (admin) — desactivar.
+
+### TransaccionService.registrar_pago
+Nuevos kwargs `currency_code` + `property_id` (opcionales para back-compat). Si `currency_code` se omite o coincide con base → camino legacy (transaction.currency_code queda NULL). Si difiere → convierte vía CurrencyService y persiste snapshot completo. Errores de conversión se re-elevan como `TransaccionError` → 400 con mensaje en español.
+
+### CajaService.get_session_summary
+Agrega `base_currency: str` + `currency_breakdown: list[{currency_code, total_original, total_base, count, exchange_rate}]`. Las transacciones legacy (currency_code NULL) se agrupan bajo la base. Ordenado: base primero, luego alfabético.
+
+### Back-compat
+- Transacciones existentes (currency_code IS NULL) son tratadas como "moneda base" por todos los read paths. No hay backfill — el read código sabe interpretar NULL.
+- El campo `amount` SIEMPRE está en base — su significado no cambió, solo se hizo explícito.
+- Endpoints viejos sin `currency_code` siguen funcionando exactamente como antes (camino legacy).
+
+### UI
+- **PC `09_Configuracion.py`**: sección "💱 Monedas" con dropdown de moneda base + tabla de monedas aceptadas (con popovers para editar tasa / desactivar) + expander "+ Agregar nueva moneda" desde catálogo.
+- **PC `calendar_render.py` (Registrar Pago)**: dropdown de moneda al inicio + amount input con step adaptativo (PYG 500, USD/BRL 1) + caption con preview en vivo `"💱 Equivale a 750.000 ₲ · TC: 1 USD = 7.500 ₲"`. Default amount = saldo pendiente convertido a la moneda elegida.
+- **PC `96_Caja.py`**: sección "💱 Desglose por moneda" debajo del "Esperado en caja" cuando la sesión tiene pagos en más de una moneda o una sola no-base. Muestra cada moneda con monto original + TC + equivalente en base + cantidad de pagos.
+- **Mobile `RegistrarPagoModal.tsx`**: pills horizontales con `símbolo + código` para elegir moneda. Step del input = 500 si base es entero, 1 si tiene decimales. Caption verde con preview de conversión. Si solo hay 1 moneda configurada, los pills NO se renderizan (UX sin clutter).
+
+---
+
+## Hotel-day Logic + Early/Late Check-in/out — Full Detail (v1.10.0 — Phase 2e)
+
+Un "día de hotel" no termina a la medianoche, sino al check-out del día siguiente. La noche del día D sigue vigente hasta `D+1 @ check_out_time`. Un recepcionista a las 02:00 del D+1 sigue trabajando "la noche de D" — debe poder crear una reserva con `check_in_date=D`.
+
+### Utility module
+`backend/services/hotel_day.py`:
+- `get_current_hotel_day(check_out_time, *, now=None)` — devuelve el día operacional vigente. Acepta `time` o "HH:MM" string. Default 10:00 si no se pasa nada.
+- `can_create_reservation_for_date(check_in_date, check_out_time, *, now=None)` — `True` si todavía estamos dentro del hotel-day del `check_in_date` (la noche aún no terminó) o si es futuro.
+- `_coerce_time` (helper) acepta `time` / "HH:MM" / "HH:MM:SS" / None y devuelve un `time` válido. Property guarda check_*_time como strings — esta función lo normaliza.
+- Constante `DEFAULT_CHECK_OUT_TIME = time(10, 0)` — fallback conservador usado por Pydantic validators y otros callers que no quieren leer la DB.
+
+### Application points
+- **Pydantic `ReservationCreate.validate_date_coherence`** (schemas.py): cambió de `if check_in_date < date.today(): reject` a `if not can_create_reservation_for_date(check_in_date): reject`. Mensaje en español: "La fecha de entrada ya pasó (el horario de check-out del día siguiente ya terminó)." Usa el default 10:00 — propiedades con check-out más tarde quedan más permisivas (lo cual es seguro).
+- **PC tab_reserva.py** `date_input min_value`: cambió de `date.today()` a `get_current_hotel_day(check_out_time=<from settings>)`. Carga el check-out de la propiedad vía `SettingsService.get_property_settings()`. Si la carga falla → cae al default 10:00.
+- **Mobile**: `<input type="date">` en RoomSelection.tsx NO tiene `min` attr → el browser acepta cualquier fecha. El backend validator hace el trabajo de rechazar fechas muy pasadas. Sin cambios mobile necesarios.
+
+### Settings UI
+`09_🔧_Configuracion.py` ahora expone una sección "⏰ Horarios del Hotel" con time pickers para `check_in_start` / `check_in_end` / `check_out_time`. Persiste vía nuevo `SettingsService.set_property_hours()`. Validador rechaza `check_in_start >= check_in_end` con mensaje en español. Endpoint: `PUT /api/v1/settings/property-hours` (admin/supervisor/gerencia).
+
+### Early check-in / Late check-out (MVP — Migration 018)
+Nuevas columnas en `reservations`:
+- `early_checkin BOOLEAN default 0` — guest llega antes del check_in_start.
+- `late_checkout BOOLEAN default 0` — guest sale después del check_out_time.
+- `late_checkout_time VARCHAR` — "HH:MM" o NULL. Solo se persiste si `late_checkout=True` (el service ignora el value cuando el flag es false — previene stale data).
+
+Nuevas columnas en `properties`:
+- `early_checkin_surcharge INTEGER default 0` — en moneda base.
+- `late_checkout_surcharge INTEGER default 0` — en moneda base.
+
+UI en PC tab_reserva: checkboxes "Early check-in" + "Late check-out". Cuando late_checkout está marcado, aparece un `time_input` para la hora acordada.
+
+---
+
+## Migration History (numbered slots)
+
+| Slot | Name | Purpose |
+|---|---|---|
+| 001-003 | (early bootstrap) | Initial schema |
+| 004 | contact_email backfill | Reservation.contact_email column |
+| 005 | meals_enabled backfill | Phase 4 prep — auto-set INCLUIDO from breakfast_included |
+| 006 | email_log | Phase 5 |
+| 007 | room_status_log | Phase 6 |
+| 008 | ai_agent_permissions | Phase 6 (seed defaults per role) |
+| 009 | (reserved) | — |
+| 010 | (reserved) | — |
+| 011 | guests_table | Phase 2a — master Guest entity + back-fill |
+| 012 | buildings_table | Phase 2a — Building entity + back-fill rooms.building_id |
+| 013 | billing_profiles + guest_vehicles + checkin_vehicles | Phase 2a-ext |
+| 014 | drop breakfast_included + slug NOT NULL | Phase 2b |
+| 015 | property_id FK audits (8 tables) | Phase 2b |
+| 016 | reservation_vehicles | Phase 2c |
+| 017 | accepted_currencies + transaccion FX cols | Phase 2d (seeds PYG/USD/BRL for los-monges) |
+| 018 | early_checkin / late_checkout columns | Phase 2e |
+| **019** | **next available** | — |
+
+---
+
+## See Also
+- `CLAUDE.md` — Active conventions, current state, gotchas
+- `CHANGELOG.md` — Version history
+- `ROADMAP.md` — Planned work + Phase 6.5 backlog
+- `README.md` — Public documentation
