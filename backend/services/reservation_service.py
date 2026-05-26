@@ -131,6 +131,31 @@ class ReservationService:
         rooms_data = db.query(Room).filter(Room.id.in_(data.room_ids)).all()
         room_lookup = {r.id: r for r in rooms_data}
 
+        # v1.10.0-dev — Room overlap guard. Before this guard the only
+        # availability check was on parking, so a hotel could silently
+        # double-book a room when `parking_needed=False` (or when the
+        # parking cap wasn't reached). Now we reject any new booking that
+        # collides with an existing active reservation on the same room.
+        # Overlap rule: (req_start < existing_end) AND (existing_start < req_end)
+        req_start = data.check_in_date
+        req_end = data.check_in_date + timedelta(days=data.stay_days)
+        active_statuses = ["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]
+        existing_room_bookings = db.query(Reservation).filter(
+            Reservation.status.in_(active_statuses),
+            Reservation.room_id.in_(data.room_ids),
+            Reservation.check_in_date < req_end,
+        ).all()
+        conflicting_rooms: list[str] = []
+        for er in existing_room_bookings:
+            er_end = er.check_in_date + timedelta(days=er.stay_days)
+            if er.check_in_date < req_end and er_end > req_start:
+                conflicting_rooms.append(er.room_id)
+        if conflicting_rooms:
+            unique = sorted(set(conflicting_rooms))
+            raise ValueError(
+                f"Habitación(es) ya reservada(s) para esas fechas: {', '.join(unique)}"
+            )
+
         # v1.7.0 — Phase 4 (defense-in-depth): cap breakfast_guests at total
         # room capacity. The mobile/PC forms already enforce this client-side,
         # but a misbehaving caller (script, API client, OTA bridge) could send
@@ -942,6 +967,10 @@ class ReservationService:
             guest_id=getattr(r, "guest_id", None),
             # v1.10.0 — Phase 2c — Multi-vehicle list
             vehicles=vehicles_list,
+            # v1.10.0 — Phase 2e — Early/late check-in/out (round-trip)
+            early_checkin=bool(getattr(r, "early_checkin", False)),
+            late_checkout=bool(getattr(r, "late_checkout", False)),
+            late_checkout_time=getattr(r, "late_checkout_time", None),
         )
 
     @staticmethod
@@ -1092,6 +1121,17 @@ class ReservationService:
                 r.breakfast_guests = None
         if hasattr(data, 'breakfast_guests') and data.breakfast_guests is not None:
             r.breakfast_guests = data.breakfast_guests
+
+        # v1.10.0 — Phase 2e — Early/Late check-in/out toggles. Defensive on
+        # the time field: only persist HH:MM when the late_checkout flag is
+        # actually on (defense-in-depth against stale UI state).
+        if hasattr(data, 'early_checkin'):
+            r.early_checkin = bool(getattr(data, 'early_checkin', False))
+        if hasattr(data, 'late_checkout'):
+            r.late_checkout = bool(getattr(data, 'late_checkout', False))
+            r.late_checkout_time = (
+                (getattr(data, 'late_checkout_time', None) or '').strip() or None
+            ) if r.late_checkout else None
 
         db.commit()
         return True

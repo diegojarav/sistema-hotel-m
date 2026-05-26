@@ -466,10 +466,13 @@ class TestReservationCreatesGuest:
         from schemas import ReservationCreate
 
         room_id = seed_full["rooms"][0].id
-        # Two reservations for the same person (matched by document)
-        for _ in range(2):
+        # Two reservations for the same person (matched by document).
+        # Use distinct date ranges so the room-overlap guard doesn't reject
+        # the second booking — this test asserts guest dedup, not room
+        # availability behaviour.
+        for offset in (10, 20):
             data = ReservationCreate(
-                check_in_date=date.today() + timedelta(days=10),
+                check_in_date=date.today() + timedelta(days=offset),
                 stay_days=1,
                 guest_name="Test, Repeat",
                 guest_first_name="Repeat",

@@ -305,6 +305,13 @@ class ReservationDetailDTO(ReservationDTO):
     # vehicle reservations (their vehicle still appears in the
     # vehicle_plate / vehicle_model fields above).
     vehicles: List[ReservationVehicleDTO] = Field(default_factory=list)
+    # v1.10.0 — Phase 2e — Early/late check-in/out flags exposed so the
+    # frontend can render the toggles in edit mode and the agreed-upon
+    # HH:MM. Stored in the DB since Phase 2e but previously omitted from
+    # the detail response (frontend could never round-trip the value).
+    early_checkin: bool = False
+    late_checkout: bool = False
+    late_checkout_time: Optional[str] = None
 
 
 class CalendarEventDTO(BaseModel):
