@@ -10,9 +10,10 @@ from __future__ import annotations
 import json, sys, time, traceback, requests, os
 from datetime import date, timedelta, datetime
 
-BASE = "http://localhost:8000/api/v1"
-PC = "http://localhost:8501"
-MOB = "http://localhost:3000"
+HOST = os.environ.get("E2E_HOST", "localhost")
+BASE = f"http://{HOST}:8000/api/v1"
+PC = f"http://{HOST}:8501"
+MOB = f"http://{HOST}:3000"
 
 RESULTS: list[tuple[str, str, str]] = []  # (scenario, status, notes)
 BUGS: list[tuple[str, str, str]] = []     # (severity, scenario, description)
