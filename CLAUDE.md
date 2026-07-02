@@ -33,10 +33,10 @@ scripts/           Migrations (NNN_*.py), seeds, deploy, retention
 
 | Item | Value |
 |---|---|
-| HEAD commit | `71c6fd2` (docs: pre-compaction sync) |
+| HEAD commit | `28e3661`+ (E2E marathon: room-overlap guard + configurable harness) |
 | Released tag | `v1.10.0` at `c342a4b` (Phase 2b) |
 | Working tree | clean, both `private/dev` + `origin/main` synced |
-| Tests | **824 passing**, 83% coverage |
+| Tests | **832 passing**, 83% coverage |
 | Migrations | **018 applied**, next slot **`019_*.py`** |
 | Staging VM | `hotel-munich-staging` (STOPPED — ephemeral IP on restart) |
 | AI Tools | 20 (last added: `buscar_vehiculo`) |
@@ -135,6 +135,7 @@ Performance baselines (N=10/100/500): occupancy_map, today_summary, monthly_room
 - **`seed_rooms` auto-includes `seed_client_types`** (since Phase 2a, because `reservations.client_type_id` is now a real FK).
 - **`seed_pricing_data` depends on `seed_property`**.
 - **FK CASCADE tests**: SQLite doesn't enforce FK by default — use `db_session.execute(text("PRAGMA foreign_keys=ON"))` per-connection. See `test_multi_vehicle.py::TestCascadeDelete`.
+- **NEVER hardcode check-in dates in tests** (`"2026-06-01"` style). The hotel-day validator (Phase 2e) rejects past dates → tests rot into 422 failures when the date passes (bit test_caja_api + test_consumo_api, July 2026). Use `(date.today() + timedelta(days=N)).isoformat()`.
 
 ## Commit Conventions
 
@@ -353,7 +354,7 @@ Changes to these require KPI test validation:
 | Healthchecks.io | Backend uptime | Push ping every 15min from `_periodic_ical_sync()` |
 | GitHub Email | CI results | Automatic on push to `main`/`dev` |
 
-**CI**: backend-tests (824 tests + KPI + perf, 75% min coverage) + frontend-check (npm ci + build) + notify-discord on fail. Runs on push to `main`/`dev`.
+**CI**: backend-tests (832 tests + KPI + perf, 75% min coverage) + frontend-check (npm ci + build) + notify-discord on fail. Runs on push to `main`/`dev`.
 
 **Monthly maintenance** (1st of month, 9AM): KPI suite + perf benchmarks + full test + AI agent eval + summary with regressions.
 

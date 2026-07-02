@@ -16,6 +16,20 @@
 
 > Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
 
+### Test date-rot fix + doc sync (2026-07-02)
+
+- **7 tests en `test_caja_api.py` fallaron por date rot**: los helpers hardcodeaban `check_in_date: "2026-06-01"` / `"2026-07-01"` — futuras al escribirse (mayo), pasadas en julio → el validador hotel-day (Phase 2e) las rechaza con 422. Fix: constante `FUTURE_CHECKIN = (date.today() + timedelta(days=30)).isoformat()` en `test_caja_api.py` y `test_consumo_api.py` (este último tenía `"2026-07-10"`/`"2026-07-15"` — a días de romperse). Regla nueva en CLAUDE.md Test Conventions: NUNCA hardcodear check-in dates en tests.
+- Docs sync: test count 824 → **832** (E2E marathon sumó 8 regresiones), ROADMAP slot 016 → 019, "18 herramientas" → 20, párrafo de cierre desactualizado (D1/D2/D3 ya cerradas). `.e2e_*.log` agregado a `.gitignore` + logs viejos borrados.
+
+### E2E marathon fixes (commits `b246175` + `28e3661`, 2026-05-26)
+
+Un marathon E2E de 18 escenarios (`scripts/e2e_marathon.py`, harness nuevo de 938 líneas contra backend vivo) encontró 2 bugs que dejaban estados irrecuperables desde el UI:
+
+- **Bug 1 (CRITICAL) — double-booking silencioso**: `ReservationService.create_reservations` solo chequeaba overlap de PARKING, nunca de habitación — una segunda reserva para la misma habitación/fechas pasaba siempre que el parking no fuera cuello de botella. Fix: room-overlap guard con regla half-open `(existing_start < req_end) AND (existing_end > req_start)`; estados activos bloquean, CANCELADA/COMPLETADA no; fechas back-to-back permitidas. Error 400 en español: "Habitación(es) ya reservada(s) para esas fechas: ...".
+- **Bug 2 (MEDIUM) — late_checkout no round-trippeaba**: `early_checkin`/`late_checkout`/`late_checkout_time` se persistían al crear pero el detail DTO no los exponía y `update_reservation` los ignoraba — PC edit-mode nunca podía editar la hora acordada. Fix: 3 campos agregados a `ReservationDetailDTO` + `update_reservation` los escribe (limpia `late_checkout_time` cuando el flag queda en False).
+- Harness configurable vía `E2E_HOST` env var (default localhost; `E2E_HOST=<VM_IP>` para staging). Verificado 18/18 PASS contra staging.
+- Tests: +8 regresiones en `test_reservation_e2e_regressions.py` (overlap exacto/parcial/adyacente/cancelada + late_checkout persist/DTO/update/clear). Total: 832.
+
 ### Phase 2e post-deploy bug fixes (commit `a7ada20`, 2026-05-19)
 
 Three bugs surfaced during live staging testing right after Phase 2e shipped:

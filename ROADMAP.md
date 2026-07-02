@@ -11,7 +11,7 @@
 | Item | Estado |
 |---|---|
 | Versión | v1.10.0-dev (listo para tag v1.10.0 final tras commit/push) |
-| Tests | 797 · 83% cobertura (752 baseline + 12 multi-vehicle Phase 2c + 33 multi-currency Phase 2d) |
+| Tests | 832 · 83% cobertura (752 baseline + 12 Phase 2c + 33 Phase 2d + 27 Phase 2e + 8 regresiones E2E marathon) |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
@@ -93,7 +93,7 @@ Implementada via migraciones 014 + 015 + script `scripts/cleanup_retention.py` (
 - ✅ **`scripts/cleanup_retention.py`** — idempotente, dry-run capable, configurable. Documentado en CLAUDE.md como periodic maintenance task.
 - Tests: 19 nuevos en `test_type_harmonization.py`, total **752 tests**, 0 regresiones.
 
-Próximo slot: `016_*.py`. Ready para tag v1.10.0 final.
+Próximo slot: `019_*.py` (016 Phase 2c, 017 Phase 2d, 018 Phase 2e ya aplicadas).
 
 ## Phase 3+ — PostgreSQL cutover (después de Phase 2b)
 
@@ -180,6 +180,6 @@ El producto fue diseñado para un caso de uso específico (hotel pequeño-median
 
 La dirección natural es **estabilizar al cliente actual** mientras se prepara el sistema para escalar horizontalmente cuando aparezca el cliente #2. Eso significa: mantener la cobertura de tests, mantener los KPIs en 100/100, y completar las features de tenant isolation antes de aceptar un segundo hotel. El umbral técnico documentado para migrar SQLite → PostgreSQL es cliente #3 o >20 usuarios concurrentes simultáneos.
 
-El **agente IA conversacional** es uno de los diferenciadores fuertes — 18 herramientas en español que cubren todas las consultas operativas habituales, sin que el operador necesite memorizar dónde está cada reporte en el menú. La activación de `AIAgentPermission` (Feature 1) lo lleva al siguiente nivel: agente personalizado por rol, con políticas de acceso granulares. Esto es especialmente valioso si el sistema escala a SaaS y diferentes hoteles quieren limitar qué información expone el agente a cada tipo de empleado.
+El **agente IA conversacional** es uno de los diferenciadores fuertes — 20 herramientas en español que cubren todas las consultas operativas habituales, sin que el operador necesite memorizar dónde está cada reporte en el menú. La activación de `AIAgentPermission` (Feature 1) lo lleva al siguiente nivel: agente personalizado por rol, con políticas de acceso granulares. Esto es especialmente valioso si el sistema escala a SaaS y diferentes hoteles quieren limitar qué información expone el agente a cada tipo de empleado.
 
-A más corto plazo, la prioridad operativa es cerrar las **decisiones técnicas pendientes (D1/D2/D3)** para limpiar el repo de ambigüedades, y ejecutar los deploys pendientes de v1.7.0 + v1.8.0 cuando el cliente lo apruebe (ambas versiones están listas, validadas con tests, y no rompen nada existente).
+A más corto plazo, la prioridad operativa es continuar el **live testing en staging** del stack v1.10.0-dev (Phases 2c/2d/2e + fixes del E2E marathon), decidir el corte del tag v1.10.1/v1.11.0, y avanzar los follow-ups de Phase 6.5 cuando el testing lo justifique (late-checkout blocking, surcharges en folio). Las decisiones D1/D2/D3 ya están cerradas (2026-04-22).

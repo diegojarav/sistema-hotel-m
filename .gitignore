@@ -17,6 +17,7 @@ logs/
 hotel.db
 hotel.db-wal
 hotel.db-shm
+.e2e_*.log
 
 # Ignorar Entornos Virtuales (Por si acaso)
 venv/

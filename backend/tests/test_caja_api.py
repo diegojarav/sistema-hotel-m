@@ -3,7 +3,12 @@ API tests for /caja, /transacciones, /reportes endpoints
 ==========================================================
 """
 
+from datetime import date, timedelta
+
 import pytest
+
+# Hotel-day validator (Phase 2e) rejects past check-in dates — never hardcode
+FUTURE_CHECKIN = (date.today() + timedelta(days=30)).isoformat()
 
 
 class TestCajaAPI:
@@ -108,7 +113,7 @@ class TestTransaccionAPI:
             "/api/v1/reservations",
             headers=auth_headers_admin,
             json={
-                "check_in_date": "2026-06-01",
+                "check_in_date": FUTURE_CHECKIN,
                 "stay_days": 1,
                 "guest_name": "Test Payment",
                 "room_ids": ["los-monges-room-001"],
@@ -281,7 +286,7 @@ class TestReportesFinancierosAPI:
             "/api/v1/reservations",
             headers=auth_headers_admin,
             json={
-                "check_in_date": "2026-07-01",
+                "check_in_date": FUTURE_CHECKIN,
                 "stay_days": 1,
                 "guest_name": "Report Test",
                 "room_ids": ["los-monges-room-001"],

@@ -5,7 +5,12 @@ Focuses on RBAC (recepcion can't CRUD products or void consumos) and
 the basic HTTP contract.
 """
 
+from datetime import date, timedelta
+
 import pytest
+
+# Hotel-day validator (Phase 2e) rejects past check-in dates — never hardcode
+FUTURE_CHECKIN = (date.today() + timedelta(days=30)).isoformat()
 
 
 class TestProductEndpoints:
@@ -114,7 +119,7 @@ class TestConsumoEndpoints:
             "/api/v1/reservations",
             headers=headers,
             json={
-                "check_in_date": "2026-07-10",
+                "check_in_date": FUTURE_CHECKIN,
                 "stay_days": 1,
                 "guest_name": "Consumo Test",
                 "room_ids": ["los-monges-room-001"],
@@ -253,7 +258,7 @@ class TestFolioEndpoint:
             "/api/v1/reservations",
             headers=auth_headers_admin,
             json={
-                "check_in_date": "2026-07-15",
+                "check_in_date": FUTURE_CHECKIN,
                 "stay_days": 1,
                 "guest_name": "Folio Test",
                 "room_ids": ["los-monges-room-001"],
