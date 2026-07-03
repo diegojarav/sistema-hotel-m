@@ -10,6 +10,12 @@ from __future__ import annotations
 import json, sys, time, traceback, requests, os
 from datetime import date, timedelta, datetime
 
+# Windows redirected stdout defaults to cp1252, which can't encode the ──── /
+# ✅ glyphs below — force UTF-8 so the harness works outside a UTF-8 terminal
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 HOST = os.environ.get("E2E_HOST", "localhost")
 BASE = f"http://{HOST}:8000/api/v1"
 PC = f"http://{HOST}:8501"
@@ -737,9 +743,20 @@ def s15_documents():
     step("S15 — Documents: list Reservas/Cuentas/Clientes")
     try:
         results = {}
-        for folder in ("Reservas","Cuentas","Clientes","Reportes_Cocina"):
+        for folder in ("Reservas","Cuentas","Clientes"):
             r = requests.get(f"{BASE}/documents/list/{folder}", headers=H())
             results[folder] = (r.status_code, len(r.json()) if r.status_code == 200 and isinstance(r.json(), list) else "n/a")
+        # Reportes_Cocina is intentionally NOT in the /documents/list whitelist:
+        # kitchen PDFs are served only via /reportes/cocina/pdf (regenerated on
+        # demand, cocina-role gated). Lock in the 400 + verify the real endpoint.
+        r = requests.get(f"{BASE}/documents/list/Reportes_Cocina", headers=H())
+        if r.status_code != 400:
+            bug("low","S15",f"Reportes_Cocina listing expected 400 (whitelist), got {r.status_code}")
+        results["Reportes_Cocina"] = (r.status_code, "expected-400")
+        r = requests.get(f"{BASE}/reportes/cocina/pdf", headers=H())
+        results["cocina_pdf_endpoint"] = (r.status_code, r.headers.get("content-type",""))
+        if r.status_code not in (200, 404):  # 404 = meals disabled, acceptable
+            bug("medium","S15",f"/reportes/cocina/pdf unexpected {r.status_code}: {r.text[:200]}")
         print(f"   listings: {results}")
         # Generate folio for S3 to populate Cuentas
         if STATE.get("s3_reservation_id"):

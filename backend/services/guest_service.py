@@ -39,7 +39,7 @@ import re
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import Guest, Reservation, Room
@@ -240,6 +240,13 @@ class GuestService:
             return []
 
         like = f"%{q}%"
+        # Full-name concat matches: guest_name "Familia Martínez" gets split
+        # into first/last on create, so a full-string query matches neither
+        # column alone. coalesce required: NULL || 'x' is NULL on SQLite AND
+        # Postgres, which would silently drop guests missing one name part.
+        full_fl = func.coalesce(Guest.first_name, "") + " " + func.coalesce(Guest.last_name, "")
+        full_lf = func.coalesce(Guest.last_name, "") + " " + func.coalesce(Guest.first_name, "")
+        display_lf = func.coalesce(Guest.last_name, "") + ", " + func.coalesce(Guest.first_name, "")
         results = (
             db.query(Guest)
             .filter(Guest.property_id == property_id)
@@ -247,6 +254,9 @@ class GuestService:
             .filter(or_(
                 Guest.last_name.ilike(like),
                 Guest.first_name.ilike(like),
+                full_fl.ilike(like),
+                full_lf.ilike(like),
+                display_lf.ilike(like),
                 Guest.document_number.ilike(like),
                 Guest.email.ilike(like),
                 Guest.phone.ilike(like),

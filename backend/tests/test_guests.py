@@ -185,6 +185,61 @@ class TestSearchGuests:
         assert GuestService.search_guests(db=db_session, property_id="los-monges", query="P") == []
 
 
+class TestSearchGuestsFullName:
+    """Regression: E2E marathon S16 — full-name query missed a guest whose
+    guest_name was split into first/last on create (search only matched
+    individual columns, never the concatenation)."""
+
+    def _create_split_guest(self, db_session):
+        # find_or_create_guest splits "Familia Martínez" → first="Familia", last="Martínez"
+        return GuestService.find_or_create_guest(
+            db=db_session, property_id="los-monges", guest_name="Familia Martínez"
+        )
+
+    def test_full_name_concat_matches(self, db_session, seed_property):
+        g = self._create_split_guest(db_session)
+        assert g is not None
+        results = GuestService.search_guests(
+            db=db_session, property_id="los-monges", query="Familia Martínez"
+        )
+        assert any(r.id == g.id for r in results)
+
+    def test_full_name_reversed_matches(self, db_session, seed_property):
+        g = self._create_split_guest(db_session)
+        results = GuestService.search_guests(
+            db=db_session, property_id="los-monges", query="Martínez Familia"
+        )
+        assert any(r.id == g.id for r in results)
+
+    def test_full_name_partial_span_matches(self, db_session, seed_property):
+        # Substring spanning the first/last boundary — proves concat, not token match
+        g = self._create_split_guest(db_session)
+        results = GuestService.search_guests(
+            db=db_session, property_id="los-monges", query="lia Mart"
+        )
+        assert any(r.id == g.id for r in results)
+
+    def test_display_format_lastname_comma_matches(self, db_session, seed_property):
+        # PC/AI labels render "Apellido, Nombre" — copy-paste back into search must work
+        g = self._create_split_guest(db_session)
+        results = GuestService.search_guests(
+            db=db_session, property_id="los-monges", query="Martínez, Familia"
+        )
+        assert any(r.id == g.id for r in results)
+
+    def test_null_name_part_is_safe(self, db_session, seed_property):
+        # coalesce guard: NULL || 'x' is NULL on SQLite AND Postgres — a guest
+        # missing one name part must not be silently dropped nor crash
+        g = GuestService.create_guest(
+            db=db_session, property_id="los-monges",
+            data={"first_name": "", "last_name": "SoloApellido", "document_number": "NULLPART1"},
+        )
+        results = GuestService.search_guests(
+            db=db_session, property_id="los-monges", query="SoloApellido"
+        )
+        assert any(r.id == g.id for r in results)
+
+
 # ======================================================================
 # FIND OR CREATE
 # ======================================================================
@@ -533,3 +588,20 @@ class TestGuestEndpoints:
         # query with single char fails validation (Field min_length=2)
         r = client.get("/api/v1/huespedes/search?q=A", headers=auth_headers_admin)
         assert r.status_code == 422
+
+    def test_search_full_name_via_api(self, client, auth_headers_admin, seed_property):
+        # Regression E2E S16: autocomplete shares search_guests — full-name must match
+        client.post(
+            "/api/v1/huespedes",
+            headers=auth_headers_admin,
+            json={"first_name": "Familia", "last_name": "Martínez"},
+        )
+        r = client.get(
+            "/api/v1/huespedes/search", headers=auth_headers_admin,
+            params={"q": "Familia Martínez"},
+        )
+        assert r.status_code == 200
+        assert any(
+            item["first_name"] == "Familia" and item["last_name"] == "Martínez"
+            for item in r.json()
+        )

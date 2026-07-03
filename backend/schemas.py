@@ -410,11 +410,24 @@ class CheckInCreate(BaseModel):
         """Valida que al menos haya nombre o documento."""
         has_name = bool(self.last_name.strip() or self.first_name.strip())
         has_doc = bool(self.document_number.strip())
-        
+
         # Al menos uno debe estar presente
         if not has_name and not has_doc:
             pass
         return self
+
+
+class CheckInDetail(CheckInCreate):
+    """CheckInCreate + row identity y links al master Guest.
+
+    Lo devuelve CheckInService.get_checkin — additive sobre CheckInCreate
+    para que consumers viejos (PC tab_checkin) sigan leyendo los mismos
+    campos. guest_id/billing_profile_id son nullable: el linking es
+    best-effort (fichas sin identidad quedan sin Guest maestro).
+    """
+    id: int
+    guest_id: Optional[int] = None
+    billing_profile_id: Optional[int] = None
 
 
 # ==========================================

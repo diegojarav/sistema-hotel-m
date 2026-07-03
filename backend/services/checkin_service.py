@@ -30,7 +30,7 @@ from typing import List, Optional, Dict
 from datetime import date, datetime
 
 from logging_config import get_logger
-from schemas import CheckInCreate
+from schemas import CheckInCreate, CheckInDetail
 from services._base import with_db
 
 logger = get_logger(__name__)
@@ -192,10 +192,14 @@ class CheckInService:
 
     @staticmethod
     @with_db
-    def get_checkin(db: Session, checkin_id: int) -> Optional[CheckInCreate]:
+    def get_checkin(db: Session, checkin_id: int) -> Optional[CheckInDetail]:
         c = db.query(CheckIn).filter(CheckIn.id == checkin_id).first()
         if not c: return None
-        return CheckInCreate(
+        return CheckInDetail(
+            id=c.id,
+            guest_id=c.guest_id,
+            billing_profile_id=c.billing_profile_id,
+            reservation_id=c.reservation_id,
             room_id=c.room_id,
             check_in_time=datetime.combine(date.today(), c.check_in_time) if c.check_in_time else None,
             last_name=c.last_name or "",
@@ -207,6 +211,8 @@ class CheckInService:
             civil_status=c.civil_status or "",
             document_number=c.document_number or "",
             country=c.country or "",
+            contact_phone=c.contact_phone or "",
+            contact_email=c.contact_email or "",
             billing_name=c.billing_name or "",
             billing_ruc=c.billing_ruc or "",
             vehicle_model=c.vehicle_model or "",

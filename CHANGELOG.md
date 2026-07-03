@@ -16,6 +16,15 @@
 
 > Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
 
+### E2E round 2 vs staging: full-name search + checkin DTO (2026-07-03)
+
+Marathon 18/18 PASS contra staging (`35.255.12.85`, deploy `58c1a71`), pero el output escondía 3 anomalías dentro de escenarios que pasaban:
+
+- **Bug (MEDIUM) — búsqueda full-name no matcheaba**: `GuestService.search_guests` matcheaba columnas individuales pero nunca la concatenación — "Familia Martínez" se guarda split (first="Familia", last="Martínez") y la query full-string no matcheaba ninguna columna sola. Afectaba al AI tool `buscar_huesped_historial` Y al autocomplete `/huespedes/search` (PC + mobile). Fix: matches concat NULL-safe (`coalesce(first,'') || ' ' || coalesce(last,'')` en ambos órdenes + formato display "Apellido, Nombre"). Portable SQLite/Postgres. +6 tests.
+- **Bug (LOW) — checkin response sin guest_id**: POST `/api/v1/guests` devolvía solo `{message, id}` y GET `/guests/{id}` re-instanciaba el INPUT schema — `guest_id`/`billing_profile_id` persistidos pero nunca serializados (el bloque de verificación billing/vehicle del marathon S8 se salteaba silenciosamente). Fix: POST expone `guest_id` + `billing_profile_id` (nullables — linking best-effort); nuevo `CheckInDetail(CheckInCreate)` en schemas.py con `id`/`guest_id`/`billing_profile_id`/`contact_*` para el detail. Additivo — PC tab_checkin lee los mismos attrs. +3 tests.
+- **No-bug — `/documents/list/Reportes_Cocina` → 400 es INTENCIONAL**: los PDFs de cocina se sirven solo vía `/reportes/cocina/pdf` (regenerado on-demand, rol cocina). El harness inventó la expectativa de 4 carpetas; ahora asserta el 400 esperado + verifica el endpoint real. Ojo: `DocumentService.list_documents` tiene fallback silencioso a RESERVAS_DIR para folders desconocidos — si algún día se whitelistea Reportes_Cocina, agregar el branch en el service o devuelve archivos mal etiquetados.
+- **Harness fix**: crash `UnicodeEncodeError` con stdout redirigido en Windows (cp1252 no codifica `────`/`✅`) — `sys.stdout.reconfigure(encoding="utf-8")` al inicio.
+
 ### Test date-rot fix + doc sync (2026-07-02)
 
 - **7 tests en `test_caja_api.py` fallaron por date rot**: los helpers hardcodeaban `check_in_date: "2026-06-01"` / `"2026-07-01"` — futuras al escribirse (mayo), pasadas en julio → el validador hotel-day (Phase 2e) las rechaza con 422. Fix: constante `FUTURE_CHECKIN = (date.today() + timedelta(days=30)).isoformat()` en `test_caja_api.py` y `test_consumo_api.py` (este último tenía `"2026-07-10"`/`"2026-07-15"` — a días de romperse). Regla nueva en CLAUDE.md Test Conventions: NUNCA hardcodear check-in dates en tests.

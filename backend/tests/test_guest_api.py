@@ -23,6 +23,54 @@ class TestCreateCheckin:
         })
         assert r.status_code == 401
 
+    def test_response_includes_guest_link(self, client, auth_headers_admin, seed_rooms):
+        """Regression: E2E marathon S8 — create response must expose the
+        master-guest links so API consumers can verify propagation."""
+        r = client.post("/api/v1/guests", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "Linked",
+            "first_name": "Guest",
+            "document_number": "LINK001",
+            "billing_name": "Corp SA",
+            "billing_ruc": "1234567-8",  # real digits — validator strips non-digits
+        }, headers=auth_headers_admin)
+        assert r.status_code in (200, 201), r.text
+        body = r.json()
+        assert isinstance(body.get("guest_id"), int), body
+        assert isinstance(body.get("billing_profile_id"), int), body
+        # Prove guest_id points at the master Guest, not the checkin row
+        g = client.get(f"/api/v1/huespedes/{body['guest_id']}", headers=auth_headers_admin)
+        assert g.status_code == 200
+        assert g.json()["document_number"] == "LINK001"
+
+    def test_guest_id_null_when_unlinkable(self, client, auth_headers_admin, seed_rooms):
+        """Blank identity → best-effort linking returns None, not a 500."""
+        r = client.post("/api/v1/guests", json={
+            "room_id": seed_rooms["rooms"][0].id,
+        }, headers=auth_headers_admin)
+        assert r.status_code in (200, 201), r.text
+        assert r.json().get("guest_id") is None
+
+
+class TestGetCheckinDetail:
+    def test_detail_exposes_ids(self, client, auth_headers_admin, seed_rooms):
+        """Regression: detail response used to rebuild the INPUT schema,
+        dropping id/guest_id/billing_profile_id/contact fields."""
+        created = client.post("/api/v1/guests", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "Detail",
+            "first_name": "Check",
+            "document_number": "DET001",
+            "contact_phone": "+595-981-111222",
+        }, headers=auth_headers_admin).json()
+
+        r = client.get(f"/api/v1/guests/{created['id']}", headers=auth_headers_admin)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == created["id"]
+        assert body["guest_id"] == created["guest_id"]
+        assert body["contact_phone"] == "+595-981-111222"
+
 
 class TestSearchCheckins:
     def test_search(self, client, auth_headers_admin, seed_rooms):

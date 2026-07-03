@@ -24,7 +24,7 @@ from api.deps import get_db, get_current_user
 from logging_config import get_logger
 
 logger = get_logger(__name__)
-from database import User
+from database import CheckIn, User
 
 # IMPORT FROM ROOT - Single Source of Truth
 from services import CheckInService, DocumentService
@@ -105,7 +105,16 @@ def create_checkin(
             DocumentService.generate_client_pdf(db, checkin_id)
         except Exception as pdf_err:
             logger.warning(f"Client PDF generation failed for CheckIn #{checkin_id}: {pdf_err}")
-        return {"message": "Check-in registered successfully", "id": checkin_id}
+        # Expose master-guest links set by register_checkin's best-effort
+        # hooks (_try_link_guest / _propagate_billing_to_profile). Both are
+        # nullable by contract — blank identity fields leave guest_id NULL.
+        row = db.query(CheckIn).filter(CheckIn.id == checkin_id).first()
+        return {
+            "message": "Check-in registered successfully",
+            "id": checkin_id,
+            "guest_id": row.guest_id if row else None,
+            "billing_profile_id": row.billing_profile_id if row else None,
+        }
     except Exception as e:
         logger.error(f"Failed to register check-in: {e}", exc_info=True)
         raise HTTPException(
