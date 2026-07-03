@@ -52,26 +52,6 @@ class TestCreateCheckin:
         assert r.json().get("guest_id") is None
 
 
-class TestGetCheckinDetail:
-    def test_detail_exposes_ids(self, client, auth_headers_admin, seed_rooms):
-        """Regression: detail response used to rebuild the INPUT schema,
-        dropping id/guest_id/billing_profile_id/contact fields."""
-        created = client.post("/api/v1/guests", json={
-            "room_id": seed_rooms["rooms"][0].id,
-            "last_name": "Detail",
-            "first_name": "Check",
-            "document_number": "DET001",
-            "contact_phone": "+595-981-111222",
-        }, headers=auth_headers_admin).json()
-
-        r = client.get(f"/api/v1/guests/{created['id']}", headers=auth_headers_admin)
-        assert r.status_code == 200
-        body = r.json()
-        assert body["id"] == created["id"]
-        assert body["guest_id"] == created["guest_id"]
-        assert body["contact_phone"] == "+595-981-111222"
-
-
 class TestSearchCheckins:
     def test_search(self, client, auth_headers_admin, seed_rooms):
         # Create a checkin first
@@ -144,6 +124,24 @@ class TestGetCheckinDetail:
         r = client.get("/api/v1/guests/99999",
                         headers=auth_headers_admin)
         assert r.status_code == 404
+
+    def test_detail_exposes_ids(self, client, auth_headers_admin, seed_rooms):
+        """Regression: detail response used to rebuild the INPUT schema,
+        dropping id/guest_id/billing_profile_id/contact fields."""
+        created = client.post("/api/v1/guests", json={
+            "room_id": seed_rooms["rooms"][0].id,
+            "last_name": "Detail",
+            "first_name": "Check",
+            "document_number": "DET002",
+            "contact_phone": "+595-981-111222",
+        }, headers=auth_headers_admin).json()
+
+        r = client.get(f"/api/v1/guests/{created['id']}", headers=auth_headers_admin)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == created["id"]
+        assert body["guest_id"] == created["guest_id"]
+        assert body["contact_phone"] == "+595-981-111222"
 
 
 class TestUpdateCheckin:
