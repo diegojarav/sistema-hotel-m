@@ -11,7 +11,7 @@
 | Item | Estado |
 |---|---|
 | Versión | v1.10.0-dev (listo para tag v1.10.0 final tras commit/push) |
-| Tests | 859 · 83% cobertura (752 baseline + 12 Phase 2c + 33 Phase 2d + 27 Phase 2e + 8 E2E marathon + 9 E2E round 2 + 18 late-checkout blocking) |
+| Tests | 870 · 83% cobertura (baseline 752 + Phases 2c/2d/2e + E2E marathon/round-2 + late-checkout blocking + update-path guards) |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |
 | Entorno | GCP VM (e2-small) · SQLite WAL · un comando deploy |
@@ -93,7 +93,7 @@ Implementada via migraciones 014 + 015 + script `scripts/cleanup_retention.py` (
 - ✅ **`scripts/cleanup_retention.py`** — idempotente, dry-run capable, configurable. Documentado en CLAUDE.md como periodic maintenance task.
 - Tests: 19 nuevos en `test_type_harmonization.py`, total **752 tests**, 0 regresiones.
 
-Próximo slot: `019_*.py` (016 Phase 2c, 017 Phase 2d, 018 Phase 2e ya aplicadas).
+Próximo slot: ver tabla "Estado actual" (esta sección es histórica — 016 Phase 2c, 017 Phase 2d, 018 Phase 2e, 019 cleaning_buffer ya aplicadas).
 
 ## Phase 3+ — PostgreSQL cutover (después de Phase 2b)
 

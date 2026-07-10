@@ -37,6 +37,133 @@ def _cleaning_buffer_minutes(db: Session, property_id: Optional[str]) -> int:
     return 30 if value is None else max(0, int(value))
 
 
+# Statuses that hold a room (block availability). CANCELADA/COMPLETADA and
+# their legacy spellings never block.
+ACTIVE_STATUSES = ["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]
+
+
+def _assert_rooms_available(
+    db: Session,
+    room_ids: List[str],
+    check_in_date: date,
+    stay_days: int,
+    *,
+    arrival_time=None,
+    property_id: Optional[str] = None,
+    exclude_reservation_id: Optional[str] = None,
+) -> None:
+    """Raise Spanish ValueError if any room is unavailable for the window.
+
+    Shared by create AND update (pass `exclude_reservation_id` on update so
+    the reservation being edited doesn't conflict with itself). Two layers:
+      1. Hard overlap — half-open [check_in, check_in + stay_days) against
+         existing active reservations on the same rooms.
+      2. Phase 6.5 forward late-checkout — an existing late check-out ending
+         on `check_in_date` blocks arrivals earlier than late_checkout_time
+         + the property's cleaning buffer.
+    """
+    req_start = check_in_date
+    req_end = check_in_date + timedelta(days=stay_days)
+    q = db.query(Reservation).filter(
+        Reservation.status.in_(ACTIVE_STATUSES),
+        Reservation.room_id.in_(room_ids),
+        Reservation.check_in_date < req_end,
+    )
+    if exclude_reservation_id:
+        q = q.filter(Reservation.id != exclude_reservation_id)
+    existing = q.all()
+
+    conflicting_rooms: list[str] = []
+    for er in existing:
+        er_end = er.check_in_date + timedelta(days=er.stay_days)
+        if er.check_in_date < req_end and er_end > req_start:
+            conflicting_rooms.append(er.room_id)
+    if conflicting_rooms:
+        unique = sorted(set(conflicting_rooms))
+        raise ValueError(
+            f"Habitación(es) ya reservada(s) para esas fechas: {', '.join(unique)}"
+        )
+
+    buffer_min = _cleaning_buffer_minutes(db, property_id)
+    for er in existing:
+        er_end = er.check_in_date + timedelta(days=er.stay_days)
+        er_lct = (getattr(er, "late_checkout_time", None) or "").strip()
+        if er_end == req_start and getattr(er, "late_checkout", False) and er_lct:
+            min_arrival = earliest_next_arrival(er_lct, buffer_min)
+            if arrival_time is None or arrival_time < min_arrival:
+                raise ValueError(
+                    f"La habitación {er.room_id} tiene late check-out hasta "
+                    f"las {er_lct} ese día. Indique una hora de llegada a "
+                    f"partir de las {min_arrival.strftime('%H:%M')}."
+                )
+
+
+def _assert_late_checkout_grantable(
+    db: Session,
+    room_ids: List[str],
+    check_in_date: date,
+    stay_days: int,
+    late_checkout_time: str,
+    *,
+    property_id: Optional[str] = None,
+    exclude_reservation_id: Optional[str] = None,
+) -> None:
+    """Phase 6.5 reverse guard: granting late check-out must not collide
+    with an arrival already booked for the checkout day. Shared by create
+    and update (updates are THE desk workflow for granting it)."""
+    req_end = check_in_date + timedelta(days=stay_days)
+    buffer_min = _cleaning_buffer_minutes(db, property_id)
+    min_arrival = earliest_next_arrival(late_checkout_time, buffer_min)
+    q = db.query(Reservation).filter(
+        Reservation.status.in_(ACTIVE_STATUSES),
+        Reservation.room_id.in_(room_ids),
+        Reservation.check_in_date == req_end,
+    )
+    if exclude_reservation_id:
+        q = q.filter(Reservation.id != exclude_reservation_id)
+    for nb in q.all():
+        if nb.arrival_time is None or nb.arrival_time < min_arrival:
+            llegada = nb.arrival_time.strftime("%H:%M") if nb.arrival_time else "sin hora definida"
+            raise ValueError(
+                f"El late check-out hasta las {late_checkout_time} choca con la "
+                f"reserva {nb.id} que llega a la habitación {nb.room_id} "
+                f"ese día ({llegada}). La llegada siguiente debe ser a "
+                f"partir de las {min_arrival.strftime('%H:%M')}."
+            )
+
+
+def _parking_spots_in_window(
+    db: Session,
+    req_start: date,
+    req_end: date,
+    *,
+    exclude_reservation_id: Optional[str] = None,
+) -> int:
+    """Parking spots held by active reservations overlapping the window.
+
+    Counts `reservation_vehicles` rows per reservation when present,
+    falling back to 1 spot per reservation (legacy single-vehicle data).
+    """
+    q = db.query(Reservation).filter(
+        Reservation.status.in_(ACTIVE_STATUSES),
+        Reservation.parking_needed == True,  # noqa: E712
+        Reservation.check_in_date < req_end,
+    )
+    if exclude_reservation_id:
+        q = q.filter(Reservation.id != exclude_reservation_id)
+    count = 0
+    for r in q.all():
+        r_end = r.check_in_date + timedelta(days=r.stay_days)
+        if r.check_in_date < req_end and r_end > req_start:
+            n_vehicles = (
+                db.query(ReservationVehicle)
+                .filter(ReservationVehicle.reservation_id == r.id)
+                .count()
+            )
+            count += n_vehicles if n_vehicles > 0 else 1
+    return count
+
+
 def _resolve_meal_plan_field(db: Session, plan_id: Optional[str], field: str) -> Optional[str]:
     """Fetch a single field (code/name) from a MealPlan by id. Returns None on miss.
     Used by the reservation detail DTO so the mobile / PC UI can render the plan
@@ -114,25 +241,7 @@ class ReservationService:
             req_start = data.check_in_date
             req_end = data.check_in_date + timedelta(days=data.stay_days)
 
-            existing_parking = db.query(Reservation).filter(
-                Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
-                Reservation.parking_needed == True,
-                Reservation.check_in_date < req_end,
-            ).all()
-
-            # Count actual vehicles on each overlapping reservation. If the
-            # reservation has reservation_vehicles rows, count those; otherwise
-            # fall back to 1 slot per room (legacy single-vehicle data).
-            overlap_count = 0
-            for r in existing_parking:
-                r_end = r.check_in_date + timedelta(days=r.stay_days)
-                if r.check_in_date < req_end and r_end > req_start:
-                    n_existing_vehicles = (
-                        db.query(ReservationVehicle)
-                        .filter(ReservationVehicle.reservation_id == r.id)
-                        .count()
-                    )
-                    overlap_count += n_existing_vehicles if n_existing_vehicles > 0 else 1
+            overlap_count = _parking_spots_in_window(db, req_start, req_end)
 
             if overlap_count + new_spots_needed > parking_capacity:
                 # ValueError so the API endpoint can surface the Spanish message
@@ -146,70 +255,25 @@ class ReservationService:
         rooms_data = db.query(Room).filter(Room.id.in_(data.room_ids)).all()
         room_lookup = {r.id: r for r in rooms_data}
 
-        # v1.10.0-dev — Room overlap guard. Before this guard the only
-        # availability check was on parking, so a hotel could silently
-        # double-book a room when `parking_needed=False` (or when the
-        # parking cap wasn't reached). Now we reject any new booking that
-        # collides with an existing active reservation on the same room.
-        # Overlap rule: (req_start < existing_end) AND (existing_start < req_end)
-        req_start = data.check_in_date
-        req_end = data.check_in_date + timedelta(days=data.stay_days)
-        active_statuses = ["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]
-        existing_room_bookings = db.query(Reservation).filter(
-            Reservation.status.in_(active_statuses),
-            Reservation.room_id.in_(data.room_ids),
-            Reservation.check_in_date < req_end,
-        ).all()
-        conflicting_rooms: list[str] = []
-        for er in existing_room_bookings:
-            er_end = er.check_in_date + timedelta(days=er.stay_days)
-            if er.check_in_date < req_end and er_end > req_start:
-                conflicting_rooms.append(er.room_id)
-        if conflicting_rooms:
-            unique = sorted(set(conflicting_rooms))
-            raise ValueError(
-                f"Habitación(es) ya reservada(s) para esas fechas: {', '.join(unique)}"
-            )
+        # v1.10.0-dev — Room overlap guard + Phase 6.5 forward late-checkout
+        # blocking, shared with update_reservation via _assert_rooms_available.
+        # Before this guard the only availability check was on parking, so a
+        # hotel could silently double-book a room when `parking_needed=False`.
+        _assert_rooms_available(
+            db, data.room_ids, data.check_in_date, data.stay_days,
+            arrival_time=data.arrival_time,
+            property_id=data.property_id,
+        )
 
-        # Phase 6.5 — Late-checkout availability blocking. A reservation with
-        # late check-out occupies its room INTO the checkout day until
-        # late_checkout_time; back-to-back bookings on that day are only
-        # allowed when the new arrival comes after late_checkout_time plus
-        # the property's cleaning buffer.
-        buffer_min = _cleaning_buffer_minutes(db, data.property_id)
-
-        # Forward: an EXISTING late check-out ends on our check-in day.
-        for er in existing_room_bookings:
-            er_end = er.check_in_date + timedelta(days=er.stay_days)
-            er_lct = (getattr(er, "late_checkout_time", None) or "").strip()
-            if er_end == req_start and getattr(er, "late_checkout", False) and er_lct:
-                min_arrival = earliest_next_arrival(er_lct, buffer_min)
-                if data.arrival_time is None or data.arrival_time < min_arrival:
-                    raise ValueError(
-                        f"La habitación {er.room_id} tiene late check-out hasta "
-                        f"las {er_lct} ese día. Indique una hora de llegada a "
-                        f"partir de las {min_arrival.strftime('%H:%M')}."
-                    )
-
-        # Reverse: the NEW booking requests late check-out — its checkout-day
-        # room hold must not collide with an arrival already booked that day.
+        # Phase 6.5 reverse guard: the NEW booking requests late check-out —
+        # its checkout-day room hold must not collide with an arrival already
+        # booked that day.
         new_lct = (getattr(data, "late_checkout_time", None) or "").strip()
         if getattr(data, "late_checkout", False) and new_lct:
-            min_arrival = earliest_next_arrival(new_lct, buffer_min)
-            next_day_bookings = db.query(Reservation).filter(
-                Reservation.status.in_(active_statuses),
-                Reservation.room_id.in_(data.room_ids),
-                Reservation.check_in_date == req_end,
-            ).all()
-            for nb in next_day_bookings:
-                if nb.arrival_time is None or nb.arrival_time < min_arrival:
-                    llegada = nb.arrival_time.strftime("%H:%M") if nb.arrival_time else "sin hora definida"
-                    raise ValueError(
-                        f"El late check-out hasta las {new_lct} choca con la "
-                        f"reserva {nb.id} que llega a la habitación {nb.room_id} "
-                        f"ese día ({llegada}). La llegada siguiente debe ser a "
-                        f"partir de las {min_arrival.strftime('%H:%M')}."
-                    )
+            _assert_late_checkout_grantable(
+                db, data.room_ids, data.check_in_date, data.stay_days, new_lct,
+                property_id=data.property_id,
+            )
 
         # v1.7.0 — Phase 4 (defense-in-depth): cap breakfast_guests at total
         # room capacity. The mobile/PC forms already enforce this client-side,
@@ -1156,10 +1220,47 @@ class ReservationService:
         r = db.query(Reservation).filter(Reservation.id == res_id).first()
         if not r: return False
 
+        # ── Availability guards (validate BEFORE mutating the row) ─────────
+        # Edits can move dates or switch rooms; pre-guard they silently
+        # double-booked — the exact bug class the E2E marathon fixed on the
+        # create path. The reservation being edited is excluded so re-saving
+        # its own window never self-conflicts.
+        target_room = data.room_ids[0] if data.room_ids else r.room_id
+        _assert_rooms_available(
+            db, [target_room], data.check_in_date, data.stay_days,
+            arrival_time=data.arrival_time,
+            property_id=r.property_id,
+            exclude_reservation_id=r.id,
+        )
+
+        # Parking follows the dates: a parked booking moved into a window
+        # where the lot is full leaves the guest without the spot they were
+        # promised. Own spots = this reservation's vehicles (fallback 1).
+        if r.parking_needed:
+            from services.settings_service import SettingsService
+            parking_capacity = SettingsService.get_parking_capacity(db)
+            own_vehicles = (
+                db.query(ReservationVehicle)
+                .filter(ReservationVehicle.reservation_id == r.id)
+                .count()
+            )
+            own_spots = own_vehicles if own_vehicles > 0 else 1
+            occupied = _parking_spots_in_window(
+                db, data.check_in_date,
+                data.check_in_date + timedelta(days=data.stay_days),
+                exclude_reservation_id=r.id,
+            )
+            if occupied + own_spots > parking_capacity:
+                raise ValueError(
+                    f"Estacionamiento lleno para las nuevas fechas. "
+                    f"Capacidad: {parking_capacity}, Ocupados: {occupied}, "
+                    f"Esta reserva necesita: {own_spots}"
+                )
+
         r.check_in_date = data.check_in_date
         r.stay_days = data.stay_days
         r.guest_name = data.guest_name
-        r.room_id = data.room_ids[0] if data.room_ids else r.room_id # Only update if provided
+        r.room_id = target_room # Only updated if room_ids provided
         r.room_type = data.room_type
         r.price = data.price
         # arrival_time is already a `time` (schema + column are both Time).
@@ -1194,24 +1295,12 @@ class ReservationService:
             # not collide with an arrival already booked for the checkout day
             # (updates are THE main path for granting it — guest asks at desk).
             if new_late and new_lct:
-                res_end = data.check_in_date + timedelta(days=data.stay_days)
-                buffer_min = _cleaning_buffer_minutes(db, r.property_id)
-                min_arrival = earliest_next_arrival(new_lct, buffer_min)
-                next_day_bookings = db.query(Reservation).filter(
-                    Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
-                    Reservation.room_id == r.room_id,
-                    Reservation.check_in_date == res_end,
-                    Reservation.id != r.id,
-                ).all()
-                for nb in next_day_bookings:
-                    if nb.arrival_time is None or nb.arrival_time < min_arrival:
-                        llegada = nb.arrival_time.strftime("%H:%M") if nb.arrival_time else "sin hora definida"
-                        raise ValueError(
-                            f"El late check-out hasta las {new_lct} choca con la "
-                            f"reserva {nb.id} que llega a la habitación {r.room_id} "
-                            f"ese día ({llegada}). La llegada siguiente debe ser a "
-                            f"partir de las {min_arrival.strftime('%H:%M')}."
-                        )
+                _assert_late_checkout_grantable(
+                    db, [target_room], data.check_in_date, data.stay_days,
+                    new_lct,
+                    property_id=r.property_id,
+                    exclude_reservation_id=r.id,
+                )
             r.late_checkout = new_late
             r.late_checkout_time = new_lct
 

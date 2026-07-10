@@ -16,6 +16,15 @@
 
 > Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
 
+### Update-path availability guards (2026-07-10, tarde)
+
+`update_reservation` reescribía `check_in_date`/`stay_days`/`room_id` SIN ningún check de disponibilidad — editar fechas o cambiar de habitación podía double-bookear silenciosamente (la misma clase de bug que el marathon arregló en el create path, `b246175`) o mover una reserva con parking a una ventana con el estacionamiento lleno.
+
+- **Refactor**: guards extraídos a helpers compartidos por create + update: `_assert_rooms_available()` (overlap duro + forward late-checkout), `_assert_late_checkout_grantable()` (reverse), `_parking_spots_in_window()` (conteo por vehículos con fallback 1/reserva). Constante `ACTIVE_STATUSES` módulo-level. Mensajes españoles idénticos — cero cambio de contrato en create.
+- **Update ahora valida ANTES de mutar**: overlap de habitación (excluyéndose a sí misma — re-guardar la propia ventana nunca auto-choca), forward late-checkout al moverse a un día con late check-out ajeno, y parking (si `parking_needed`, la ocupación de la ventana nueva + los spots propios no puede exceder capacidad).
+- PUT ya devolvía 400 español para `ValueError` (Phase 6.5); PC edit-mode ya muestra `st.error`.
+- Tests: +11 (`test_update_availability.py`) — overlap (5), forward LCO en update (2), parking (3), endpoint 400 (1). Total: **870**.
+
 ### Phase 6.5 (parcial) — Late-checkout availability blocking (2026-07-10)
 
 El primer follow-up de Phase 6.5 sale del backlog: el motor de disponibilidad ahora SÍ consulta `late_checkout_time`.

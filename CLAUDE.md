@@ -33,10 +33,10 @@ scripts/           Migrations (NNN_*.py), seeds, deploy, retention
 
 | Item | Value |
 |---|---|
-| HEAD commit | `0f8940c`+ (late-checkout blocking Phase 6.5) |
+| HEAD commit | `e5b2bb8`+ (Phase 6.5 blocking + update-path guards) |
 | Released tag | `v1.10.0` at `c342a4b` (Phase 2b) |
 | Working tree | clean, both `private/dev` + `origin/main` synced |
-| Tests | **859 passing**, 83% coverage |
+| Tests | **870 passing**, 83% coverage |
 | Migrations | **019 applied**, next slot **`020_*.py`** |
 | Staging VM | `hotel-munich-staging` (STOPPED — ephemeral IP on restart) |
 | AI Tools | 20 (last added: `buscar_vehiculo`) |
@@ -187,6 +187,7 @@ Performance baselines (N=10/100/500): occupancy_map, today_summary, monthly_room
 - **`find_or_create_guest` is best-effort**: if all identity inputs are blank → returns `None`. Caller treats `None` as "could not link" — reservation stays valid with `guest_id=NULL`.
 - **`update_reservation` does NOT re-link `guest_id`** (intentional snapshot freeze). To change guest, cancel + re-book.
 - **`update_reservation` clears `breakfast_guests` when `meal_plan_id` set to None** — prevents "2 guests with breakfast, no plan" → kitchen over-count.
+- **update_reservation validates availability since 2026-07-10** (room overlap + late-checkout + parking, excluding itself) via helpers shared with create (`_assert_rooms_available` etc.). Any new booking-mutation path MUST call the same helpers.
 - **Status auto-recalculates** on every payment/consumo change via `TransaccionService._recalcular_status_reserva()`. Don't manually set CONFIRMADA — register the payment and let the service derive it.
 
 ### Multi-currency
@@ -356,7 +357,7 @@ Changes to these require KPI test validation:
 | Healthchecks.io | Backend uptime | Push ping every 15min from `_periodic_ical_sync()` |
 | GitHub Email | CI results | Automatic on push to `main`/`dev` |
 
-**CI**: backend-tests (859 tests + KPI + perf, 75% min coverage) + frontend-check (npm ci + build) + notify-discord on fail. Runs on push to `main`/`dev`.
+**CI**: backend-tests (870 tests + KPI + perf, 75% min coverage) + frontend-check (npm ci + build) + notify-discord on fail. Runs on push to `main`/`dev`.
 
 **Monthly maintenance** (1st of month, 9AM): KPI suite + perf benchmarks + full test + AI agent eval + summary with regressions.
 
