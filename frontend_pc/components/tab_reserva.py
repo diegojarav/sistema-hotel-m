@@ -981,12 +981,20 @@ def render_tab_reserva():
                             late_checkout=late_checkout_flag,
                             late_checkout_time=late_co_time_str,
                         )
-                        if ReservationService.update_reservation(res_id_load, data):
+                        try:
+                            updated = ReservationService.update_reservation(res_id_load, data)
+                        except ValueError as biz_err:
+                            # Phase 6.5: business-rule rejection (e.g. late
+                            # check-out chocando con la llegada siguiente)
+                            updated = False
+                            st.error(f"❌ {biz_err}")
+                        else:
+                            if not updated:
+                                st.error("Error al actualizar")
+                        if updated:
                             force_refresh()
                             st.success(f"✅ Reserva {res_id_load} actualizada. Actualizando calendario...")
                             st.rerun()
-                        else:
-                            st.error("Error al actualizar")
                     else:
                         # === MODO CREACIÓN ===
                         st.markdown("#### 📊 Procesando reservas...")

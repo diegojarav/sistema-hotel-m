@@ -322,14 +322,19 @@ def update_reservation(
     current_user = Depends(get_current_user)  # 🔒 Protected
 ):
     """Update a reservation."""
-    success = ReservationService.update_reservation(db, reservation_id, data)
-    
+    try:
+        success = ReservationService.update_reservation(db, reservation_id, data)
+    except ValueError as e:
+        # Business-rule rejections (e.g. Phase 6.5 late-checkout collision)
+        # surface as 400 + Spanish detail, same pattern as create.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Reservation {reservation_id} not found"
         )
-    
+
     return {"message": "Reservation updated successfully", "id": reservation_id}
 
 

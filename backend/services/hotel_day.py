@@ -64,6 +64,31 @@ def _coerce_time(value: Union[time, str, None], fallback: time = DEFAULT_CHECK_O
     return fallback
 
 
+def earliest_next_arrival(
+    late_checkout_time: Union[time, str, None],
+    buffer_minutes: int = 30,
+) -> time:
+    """Earliest allowed arrival for the NEXT guest on a room whose previous
+    guest has late check-out until `late_checkout_time`.
+
+    = late_checkout_time + cleaning buffer, capped at 23:59 (a buffer that
+    crosses midnight would make the room unbookable that day, which is a
+    property-config error, not a reason to overflow into the next date).
+
+    Args:
+        late_checkout_time: `time` or "HH:MM" string (Reservation stores it
+            as a string). None/invalid falls back to the 10:00 default via
+            `_coerce_time` — callers should only pass real late-checkout rows.
+        buffer_minutes: cleaning time, from `Property.cleaning_buffer_minutes`.
+    """
+    lco = _coerce_time(late_checkout_time)
+    anchor = date(2000, 1, 1)
+    moment = datetime.combine(anchor, lco) + timedelta(minutes=max(0, buffer_minutes))
+    if moment.date() != anchor:
+        return time(23, 59)
+    return moment.time()
+
+
 def get_current_hotel_day(
     check_out_time: Union[time, str, None] = None,
     *,

@@ -521,9 +521,13 @@ class Property(Base):
     check_out_time = Column(String, default="10:00")
     # v1.10.0 Phase 2e — surcharges in BASE currency units (0 = free).
     # Applied at folio generation when the reservation has the matching
-    # flag set. Availability blocking from late_checkout is deferred.
+    # flag set.
     early_checkin_surcharge = Column(Integer, default=0, nullable=False)
     late_checkout_surcharge = Column(Integer, default=0, nullable=False)
+    # Phase 6.5 — minutes of cleaning time required between a late check-out
+    # and the next same-day arrival on the same room. Consulted by the
+    # availability guard in ReservationService.create_reservations.
+    cleaning_buffer_minutes = Column(Integer, default=30, nullable=False)
     # Phase 2b: `breakfast_included` REMOVED (was deprecated v1.7). Migration 014
     # drops the SQLite column via DROP COLUMN (SQLite 3.35+). The whole "should
     # the hotel include breakfast?" question is now answered by `meals_enabled`

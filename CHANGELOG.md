@@ -16,6 +16,19 @@
 
 > Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
 
+### Phase 6.5 (parcial) — Late-checkout availability blocking (2026-07-10)
+
+El primer follow-up de Phase 6.5 sale del backlog: el motor de disponibilidad ahora SÍ consulta `late_checkout_time`.
+
+- **Regla**: una reserva con late check-out ocupa su habitación DENTRO del día de salida hasta `late_checkout_time`. La siguiente llegada ese día debe ser a partir de `late_checkout_time + cleaning buffer`.
+- **Buffer configurable per-property**: `properties.cleaning_buffer_minutes` (migración **019**, default 30 min). Helper puro `hotel_day.earliest_next_arrival()` (suma con cap a 23:59).
+- **Guard forward** (create): reserva nueva llegando el día del late check-out sin `arrival_time` o con llegada temprana → 400 español accionable: "La habitación X tiene late check-out hasta las 14:00 ese día. Indique una hora de llegada a partir de las 14:30."
+- **Guard reverse** (create + update): OTORGAR late check-out que choca con una llegada ya reservada para el día de salida → 400 "El late check-out hasta las 14:00 choca con la reserva #... (11:00)...". El update es EL flujo de mostrador (huésped pide en recepción) — guardado también ahí.
+- Back-to-back sin late check-out sigue permitido (regresión del marathon intacta). CANCELADA/COMPLETADA no bloquean. iCal sync no pasa por `create_reservations` — OTA authoritative intacto.
+- **Bug fix (colateral, CRITICAL en edit)**: `update_reservation` llamaba `.time()` sobre `arrival_time` que ya es `time` → `AttributeError` en TODO update que llevara hora de llegada (ningún input lo hacía funcionar; el marathon S11 no lo pisó porque omite `arrival_time` — y de paso los updates borraban la hora guardada). Fix + regression test. PUT endpoint ahora atrapa `ValueError` → 400 español; PC edit-mode muestra `st.error` en vez de traceback.
+- Tests: +18 (`test_late_checkout_blocking.py`) — helper puro, forward (5), reverse (3), update guard (3), endpoint 400 (1). Total: **859**.
+- Pendiente Phase 6.5: surcharges al folio, desglose caja por categoría, analytics — ver ROADMAP.
+
 ### E2E round 2 vs staging: full-name search + checkin DTO (2026-07-03)
 
 Marathon 18/18 PASS contra staging (`35.255.12.85`, deploy `58c1a71`), pero el output escondía 3 anomalías dentro de escenarios que pasaban:

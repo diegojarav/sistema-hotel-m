@@ -33,11 +33,11 @@ scripts/           Migrations (NNN_*.py), seeds, deploy, retention
 
 | Item | Value |
 |---|---|
-| HEAD commit | `28e3661`+ (E2E marathon: room-overlap guard + configurable harness) |
+| HEAD commit | `0f8940c`+ (late-checkout blocking Phase 6.5) |
 | Released tag | `v1.10.0` at `c342a4b` (Phase 2b) |
 | Working tree | clean, both `private/dev` + `origin/main` synced |
-| Tests | **832 passing**, 83% coverage |
-| Migrations | **018 applied**, next slot **`019_*.py`** |
+| Tests | **859 passing**, 83% coverage |
+| Migrations | **019 applied**, next slot **`020_*.py`** |
 | Staging VM | `hotel-munich-staging` (STOPPED — ephemeral IP on restart) |
 | AI Tools | 20 (last added: `buscar_vehiculo`) |
 | Roles | admin, supervisor, gerencia, recepcion, recepcionista, cocina |
@@ -119,7 +119,7 @@ Performance baselines (N=10/100/500): occupancy_map, today_summary, monthly_room
 ## Migration Conventions
 
 - **Location**: `scripts/migrations/NNN_description.py`
-- **Next slot**: **`019_*.py`** (slots 001-018 taken)
+- **Next slot**: **`020_*.py`** (slots 001-019 taken)
 - **Format**: each file exports `MIGRATION_NAME`, `MIGRATION_DESCRIPTION`, `run(conn)` function. Idempotent — safe to re-run.
 - **Runner**: `python scripts/run_migrations.py` auto-discovers + applies only pending (tracked via `migration_history` table).
 - **ALWAYS add a numbered migration when adding a column** to any SQLAlchemy model. VM `hotel.db` predates reseeding — missing migrations surface as `OperationalError: no such column` on deploy. Schema drift is a hard recurring bug.
@@ -202,7 +202,8 @@ Performance baselines (N=10/100/500): occupancy_map, today_summary, monthly_room
 - **`Property.check_*_time` are STRINGS** (`Column(String, default="07:00")`). To operate as `time`, pass through `_coerce_time` or `datetime.strptime(value, "%H:%M").time()`. Comparing strings sort-textually works by coincidence (HH:MM zero-padded) but is fragile.
 - **Pydantic validator uses default 10:00**, NOT a DB read (Pydantic validators are pure / sync). Conservative — rejects faster than strictly needed. Service-layer could be more permissive (next iteration).
 - **`late_checkout_time` cleared to None when `late_checkout=False`** in service (defense vs stale UI).
-- **Late-checkout availability blocking DEFERRED to Phase 6.5**. `late_checkout_time` stored but overlap check does NOT consult it. A reservation with late checkout until 14:00 does NOT block another check-in at 14:00.
+- **Late-checkout availability blocking ACTIVE** (Phase 6.5, 2026-07-10): next same-day arrival must be ≥ `late_checkout_time + cleaning_buffer_minutes` (property config, default 30). Guard is in create (forward + reverse) AND update (granting late checkout at the desk). Missing `arrival_time` on the incoming booking → REJECTED with actionable Spanish 400 — callers that never send arrival_time will hit this on late-checkout days.
+- **`update_reservation` + `arrival_time`**: schema field is `time`, column is `Time` — assign directly, NEVER call `.time()` on it (crashed every edit that carried an arrival time until 2026-07-10).
 
 ### Meals
 
@@ -250,6 +251,7 @@ Derived from payments; auto-recalculated. Terminal states (CANCELADA/COMPLETADA)
 ### Hotel-day Rules
 
 - Day D ends at `D+1 @ check_out_time`, not midnight.
+- Late checkout blocks same-day arrivals until `late_checkout_time + cleaning_buffer_minutes` (Phase 6.5).
 - `services/hotel_day.py::can_create_reservation_for_date` is the gate.
 - Pydantic validator uses default 10:00 (no DB read); PC date picker reads property settings.
 
@@ -354,7 +356,7 @@ Changes to these require KPI test validation:
 | Healthchecks.io | Backend uptime | Push ping every 15min from `_periodic_ical_sync()` |
 | GitHub Email | CI results | Automatic on push to `main`/`dev` |
 
-**CI**: backend-tests (832 tests + KPI + perf, 75% min coverage) + frontend-check (npm ci + build) + notify-discord on fail. Runs on push to `main`/`dev`.
+**CI**: backend-tests (859 tests + KPI + perf, 75% min coverage) + frontend-check (npm ci + build) + notify-discord on fail. Runs on push to `main`/`dev`.
 
 **Monthly maintenance** (1st of month, 9AM): KPI suite + perf benchmarks + full test + AI agent eval + summary with regressions.
 

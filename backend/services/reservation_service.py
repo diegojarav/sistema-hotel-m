@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
 from database import (
     Room, RoomCategory, Reservation, CheckIn,
-    ReservationVehicle, GuestVehicle,
+    ReservationVehicle, GuestVehicle, Property,
     SessionLocal,
 )
 from typing import List, Optional, Dict, Any
@@ -18,8 +18,23 @@ from schemas import (
     TodaySummaryDTO
 )
 from services._base import with_db
+from services.hotel_day import earliest_next_arrival
 
 logger = get_logger(__name__)
+
+
+def _cleaning_buffer_minutes(db: Session, property_id: Optional[str]) -> int:
+    """Property-configured cleaning buffer (minutes), default 30.
+
+    Used by the Phase 6.5 late-checkout availability guard. Defensive
+    getattr: a VM whose properties table predates migration 019 must not
+    crash the booking path over a missing config column.
+    """
+    prop = None
+    if property_id:
+        prop = db.query(Property).filter(Property.id == property_id).first()
+    value = getattr(prop, "cleaning_buffer_minutes", None) if prop else None
+    return 30 if value is None else max(0, int(value))
 
 
 def _resolve_meal_plan_field(db: Session, plan_id: Optional[str], field: str) -> Optional[str]:
@@ -155,6 +170,46 @@ class ReservationService:
             raise ValueError(
                 f"Habitación(es) ya reservada(s) para esas fechas: {', '.join(unique)}"
             )
+
+        # Phase 6.5 — Late-checkout availability blocking. A reservation with
+        # late check-out occupies its room INTO the checkout day until
+        # late_checkout_time; back-to-back bookings on that day are only
+        # allowed when the new arrival comes after late_checkout_time plus
+        # the property's cleaning buffer.
+        buffer_min = _cleaning_buffer_minutes(db, data.property_id)
+
+        # Forward: an EXISTING late check-out ends on our check-in day.
+        for er in existing_room_bookings:
+            er_end = er.check_in_date + timedelta(days=er.stay_days)
+            er_lct = (getattr(er, "late_checkout_time", None) or "").strip()
+            if er_end == req_start and getattr(er, "late_checkout", False) and er_lct:
+                min_arrival = earliest_next_arrival(er_lct, buffer_min)
+                if data.arrival_time is None or data.arrival_time < min_arrival:
+                    raise ValueError(
+                        f"La habitación {er.room_id} tiene late check-out hasta "
+                        f"las {er_lct} ese día. Indique una hora de llegada a "
+                        f"partir de las {min_arrival.strftime('%H:%M')}."
+                    )
+
+        # Reverse: the NEW booking requests late check-out — its checkout-day
+        # room hold must not collide with an arrival already booked that day.
+        new_lct = (getattr(data, "late_checkout_time", None) or "").strip()
+        if getattr(data, "late_checkout", False) and new_lct:
+            min_arrival = earliest_next_arrival(new_lct, buffer_min)
+            next_day_bookings = db.query(Reservation).filter(
+                Reservation.status.in_(active_statuses),
+                Reservation.room_id.in_(data.room_ids),
+                Reservation.check_in_date == req_end,
+            ).all()
+            for nb in next_day_bookings:
+                if nb.arrival_time is None or nb.arrival_time < min_arrival:
+                    llegada = nb.arrival_time.strftime("%H:%M") if nb.arrival_time else "sin hora definida"
+                    raise ValueError(
+                        f"El late check-out hasta las {new_lct} choca con la "
+                        f"reserva {nb.id} que llega a la habitación {nb.room_id} "
+                        f"ese día ({llegada}). La llegada siguiente debe ser a "
+                        f"partir de las {min_arrival.strftime('%H:%M')}."
+                    )
 
         # v1.7.0 — Phase 4 (defense-in-depth): cap breakfast_guests at total
         # room capacity. The mobile/PC forms already enforce this client-side,
@@ -1107,7 +1162,10 @@ class ReservationService:
         r.room_id = data.room_ids[0] if data.room_ids else r.room_id # Only update if provided
         r.room_type = data.room_type
         r.price = data.price
-        r.arrival_time = data.arrival_time.time() if data.arrival_time else None
+        # arrival_time is already a `time` (schema + column are both Time).
+        # The old `.time()` call raised AttributeError on EVERY update that
+        # carried an arrival time — no input shape made it work.
+        r.arrival_time = data.arrival_time if data.arrival_time else None
         r.reserved_by = data.reserved_by
         r.contact_phone = data.contact_phone
 
@@ -1128,10 +1186,34 @@ class ReservationService:
         if hasattr(data, 'early_checkin'):
             r.early_checkin = bool(getattr(data, 'early_checkin', False))
         if hasattr(data, 'late_checkout'):
-            r.late_checkout = bool(getattr(data, 'late_checkout', False))
-            r.late_checkout_time = (
+            new_late = bool(getattr(data, 'late_checkout', False))
+            new_lct = (
                 (getattr(data, 'late_checkout_time', None) or '').strip() or None
-            ) if r.late_checkout else None
+            ) if new_late else None
+            # Phase 6.5 — granting late check-out on an existing booking must
+            # not collide with an arrival already booked for the checkout day
+            # (updates are THE main path for granting it — guest asks at desk).
+            if new_late and new_lct:
+                res_end = data.check_in_date + timedelta(days=data.stay_days)
+                buffer_min = _cleaning_buffer_minutes(db, r.property_id)
+                min_arrival = earliest_next_arrival(new_lct, buffer_min)
+                next_day_bookings = db.query(Reservation).filter(
+                    Reservation.status.in_(["Confirmada", "Pendiente", "RESERVADA", "SEÑADA", "CONFIRMADA"]),
+                    Reservation.room_id == r.room_id,
+                    Reservation.check_in_date == res_end,
+                    Reservation.id != r.id,
+                ).all()
+                for nb in next_day_bookings:
+                    if nb.arrival_time is None or nb.arrival_time < min_arrival:
+                        llegada = nb.arrival_time.strftime("%H:%M") if nb.arrival_time else "sin hora definida"
+                        raise ValueError(
+                            f"El late check-out hasta las {new_lct} choca con la "
+                            f"reserva {nb.id} que llega a la habitación {r.room_id} "
+                            f"ese día ({llegada}). La llegada siguiente debe ser a "
+                            f"partir de las {min_arrival.strftime('%H:%M')}."
+                        )
+            r.late_checkout = new_late
+            r.late_checkout_time = new_lct
 
         db.commit()
         return True
