@@ -10,7 +10,7 @@
 
 | Item | Estado |
 |---|---|
-| Versión | v1.10.0-dev (listo para tag v1.10.0 final tras commit/push) |
+| Versión | v1.10.0-dev (tag `v1.10.0` ya cortado en `c342a4b`/Phase 2b; próximo corte v1.10.1 o v1.11.0 tras verificar Phase 6.5 en staging) |
 | Tests | 870 · 83% cobertura (baseline 752 + Phases 2c/2d/2e + E2E marathon/round-2 + late-checkout blocking + update-path guards) |
 | KPIs | 9 métricas scoreadas 0-100 (último run: 100/100) |
 | Cliente activo | Hospedaje Los Monges (15 habitaciones) |

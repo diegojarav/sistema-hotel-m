@@ -14,7 +14,7 @@
 
 ## [v1.10.0] — abril-mayo 2026 · DB Audit Phase 1 + Phase 2a (Guests & Buildings) + Meal Plan UI sweep + Phase 2b (Type harmonization) + Phase 2c (Multi-vehicle) + Phase 2d (Multi-currency) + Phase 2e (Hotel-day + early/late check-in/out)
 
-> Versión en preparación. Phase 1 + Phase 2a (incluye sub-fixes A–E del Bug #2) + Phase 2a-ext (birth_date + billing_profiles + guest_vehicles) + Meal Plan UI sweep + vehicle propagation desde reserva + Phase 2b (type harmonization) + Phase 2c (multi-vehicle per reservation) + Phase 2d (multi-currency MVP) + **Phase 2e (hotel-day logic + early/late check-in/out MVP)** ya en `dev`. Listo para tag v1.10.0 final tras commit + push.
+> Tag `v1.10.0` cortado en `c342a4b` (Phase 2b). Todo lo posterior en esta sección es v1.10.0-dev: Phase 2c (multi-vehicle) + Phase 2d (multi-currency MVP) + Phase 2e (hotel-day + early/late check-in/out) + fixes E2E marathon/round-2 + Phase 6.5 parcial (late-checkout blocking + update-path guards). Próximo corte: v1.10.1 o v1.11.0 tras verificar Phase 6.5 en staging.
 
 ### Update-path availability guards (2026-07-10, tarde)
 
