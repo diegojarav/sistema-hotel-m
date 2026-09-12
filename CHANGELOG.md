@@ -16,6 +16,17 @@
 
 > Tag `v1.10.0` cortado en `c342a4b` (Phase 2b). Todo lo posterior en esta sección es v1.10.0-dev: Phase 2c (multi-vehicle) + Phase 2d (multi-currency MVP) + Phase 2e (hotel-day + early/late check-in/out) + fixes E2E marathon/round-2 + Phase 6.5 parcial (late-checkout blocking + update-path guards). Próximo corte: v1.10.1 o v1.11.0 tras verificar Phase 6.5 en staging.
 
+### Staging VM disaster recovery + fresh-install fixes (2026-09-12)
+
+GCP borro TODO el proyecto de staging durante el lapse de billing (VM, discos, snapshots, hasta la red default). La reconstruccion via `recreate_vm.sh` expuso una clase de bugs invisible hasta ahora: **el path de instalacion desde cero nunca se habia ejercitado** desde Phase 2e.
+
+- **Bug 1 — seed crash en schema fresco** (`cd8ef18`): las migraciones agregan columnas NOT NULL con `DEFAULT` SQL real, pero los modelos solo declaraban `default=` Python-side — `init_db()` fresco emitia `NOT NULL` sin default y `seed_monges.py` (INSERT crudo) fallaba con IntegrityError. Fix: `server_default` en las 22 columnas afectadas + test de paridad metadata-wide + repro raw-INSERT (`test_schema_defaults.py`, +2 tests → 872).
+- **Bug 2 — migracion 005 asumia el schema historico**: backfill `WHERE breakfast_included = 1` crashea en schema fresco donde la columna legacy nunca existio (dropped en Phase 2b). Fix: guard self-heal `_column_exists` (patron de 011/509d386). Cadena completa 001-019 verificada verde contra schema fresco local.
+- **Bug 3 — setup_gcp_staging.sh nunca corria migraciones**: solo `init_db()` + seeds — las migraciones con DATA seeds (012 buildings, 017 monedas PYG/USD/BRL) quedaban sin aplicar → VM sin edificios ni FX. Fix: `run_migrations.py` agregado al setup DESPUES de los seeds (012/017 iteran sobre properties existentes).
+- **Gotcha operacional documentado**: migracion 017 salta el seed si `accepted_currencies` tiene CUALQUIER row para la property — un ARS soft-removed (is_active=0) del marathon bloqueaba el seed de PYG/USD/BRL.
+- Estado fresh-VM ademas requiere re-config manual: `GOOGLE_API_KEY` en `.env` (el agente da 503 sin ella) y meals-config + plan `CON_DESAYUNO` (el marathon S3/S4 lo requieren por codigo).
+- `seed_monges.py`: stdout UTF-8 forzado (misma clase cp1252 que el marathon).
+
 ### Update-path availability guards (2026-07-10, tarde)
 
 `update_reservation` reescribía `check_in_date`/`stay_days`/`room_id` SIN ningún check de disponibilidad — editar fechas o cambiar de habitación podía double-bookear silenciosamente (la misma clase de bug que el marathon arregló en el create path, `b246175`) o mover una reserva con parking a una ventana con el estacionamiento lleno.

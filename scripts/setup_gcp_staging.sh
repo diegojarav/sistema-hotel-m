@@ -239,6 +239,16 @@ info "Running seed_monges.py (property, rooms, categories)..."
 info "Running seed_test_data.py (reservations, checkins, sessions)..."
 "${VENV_DIR}/bin/python" scripts/seed_test_data.py --db-path "${PROJECT_DIR}/backend/hotel.db"
 
+# Run migrations AFTER seeding. init_db() already creates the modern schema
+# (ALTERs no-op), but the migrations also carry DATA seeds and backfills that
+# operate on the just-seeded rows and that nothing else provides: 011 (guest
+# backfill), 012 (default building per property), 017 (accepted currencies
+# PYG/USD/BRL per property). Skipping this step left the 2026-09-12 rebuilt
+# VM with no buildings and no FX currencies. Must run after the property
+# exists — 012/017 iterate SELECT id FROM properties.
+info "Running migrations (history + data seeds 011/012/017)..."
+"${VENV_DIR}/bin/python" scripts/run_migrations.py
+
 # Create default users
 info "Creating default users..."
 PYTHONPATH="${PROJECT_DIR}/backend" "${VENV_DIR}/bin/python" -c "

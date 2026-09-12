@@ -149,15 +149,19 @@ def run(conn: sqlite3.Connection):
 
     # --- 4. Backfill legacy breakfast_included --------------------------
     # Only applies when the old flag was set and the new flag is still default.
-    cursor.execute(
-        """
-        UPDATE properties
-           SET meals_enabled = 1,
-               meal_inclusion_mode = 'INCLUIDO'
-         WHERE breakfast_included = 1
-           AND (meals_enabled = 0 OR meals_enabled IS NULL)
-        """
-    )
+    # Self-heal (2026-09-12): on a FRESH init_db() schema the legacy column
+    # never existed (dropped from the models in Phase 2b / migration 014), so
+    # there is nothing to backfill — skip instead of crashing the chain.
+    if _column_exists(cursor, "properties", "breakfast_included"):
+        cursor.execute(
+            """
+            UPDATE properties
+               SET meals_enabled = 1,
+                   meal_inclusion_mode = 'INCLUIDO'
+             WHERE breakfast_included = 1
+               AND (meals_enabled = 0 OR meals_enabled IS NULL)
+            """
+        )
 
     # --- 5. Seed SOLO_HABITACION plan per property ----------------------
     cursor.execute("SELECT id, meal_inclusion_mode FROM properties")
