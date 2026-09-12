@@ -90,8 +90,12 @@ def is_applied(conn, version, name):
 
 def record_migration(conn, version, name, description):
     """Record a successful migration."""
+    # success=1 EXPLICIT: on tables created by init_db() before the model
+    # gained server_default (2026-09-12), omitting the column stored NULL,
+    # which is_applied() (success = 1 filter) treats as not-applied — the
+    # next run then re-attempts and dies on the UNIQUE constraint.
     conn.execute(
-        "INSERT INTO migration_history (version, name, description) VALUES (?, ?, ?)",
+        "INSERT INTO migration_history (version, name, description, success) VALUES (?, ?, ?, 1)",
         (version, name, description)
     )
     conn.commit()

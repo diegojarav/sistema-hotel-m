@@ -839,9 +839,13 @@ class MigrationHistory(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     applied_at = Column(DateTime, default=datetime.now)
-    applied_by = Column(String, default="run_migrations.py")
+    applied_by = Column(String, default="run_migrations.py", server_default="run_migrations.py")
     # Phase 2b #Bool: Integer(0/1) → Boolean for consistency with the rest of the schema.
-    success = Column(Boolean, default=True)
+    # server_default REQUIRED (2026-09-12): the runner raw-INSERTs omitting this
+    # column; on an init_db()-created table without a SQL default the row got
+    # success=NULL, is_applied() (filters success=1) then treated applied
+    # migrations as pending and re-runs collided on the UNIQUE constraint.
+    success = Column(Boolean, default=True, server_default=text("1"))
     __table_args__ = (
         UniqueConstraint("version", "name", name="uq_migration_history_version_name"),
     )
