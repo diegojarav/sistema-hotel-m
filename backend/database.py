@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import (
     create_engine, Column, Integer, String, Date, Float, ForeignKey, DateTime,
-    Time, event, Boolean, UniqueConstraint, CheckConstraint, Index, JSON,
+    Time, event, Boolean, UniqueConstraint, CheckConstraint, Index, JSON, text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 from datetime import datetime
@@ -75,8 +75,8 @@ class SessionLog(Base):
     logout_time = Column(DateTime, nullable=True)  # Null if still active
     ip_address = Column(String, nullable=True)  # Track IP
     user_agent = Column(String, nullable=True)  # Track browser/device
-    device_type = Column(String, nullable=False, default="PC")  # 'PC' or 'Mobile'
-    status = Column(String, nullable=False, default="active")  # 'active' or 'closed'
+    device_type = Column(String, nullable=False, default="PC", server_default="PC")  # 'PC' or 'Mobile'
+    status = Column(String, nullable=False, default="active", server_default="active")  # 'active' or 'closed'
     closed_reason = Column(String, nullable=True)  # 'manual_logout', 'tab_closed', 'server_restart'
 
 
@@ -213,14 +213,15 @@ class Reservation(Base):
     # Backfilled by migration 011 from existing (property_id, guest_name) tuples.
     guest_id = Column(Integer, ForeignKey("guests.id", ondelete="SET NULL"), nullable=True, index=True)
 
-    # v1.10.0 — Phase 2e — Early check-in / late check-out (MVP).
-    # MVP scope: flags + late_checkout_time persisted so receptionists can
-    # note the request. **Availability blocking deferred to Phase 6.5** —
-    # ReservationService.create_reservations does NOT yet consult these
-    # fields when checking room overlap. Surcharges live on Property and
-    # are applied at folio generation (not at booking).
-    early_checkin = Column(Boolean, default=False, nullable=False)
-    late_checkout = Column(Boolean, default=False, nullable=False)
+    # v1.10.0 — Phase 2e — Early check-in / late check-out. Availability
+    # blocking is ACTIVE since Phase 6.5 (2026-07-10) via the shared guards
+    # in ReservationService. Surcharges live on Property.
+    # server_default REQUIRED on NOT NULL columns: migrations add them with
+    # SQL "DEFAULT 0", but a fresh init_db() without server_default emits
+    # bare NOT NULL — raw-INSERT seeders (seed_monges.py) then fail with
+    # IntegrityError. Bit the VM disaster-recovery rebuild 2026-09-12.
+    early_checkin = Column(Boolean, default=False, server_default=text("0"), nullable=False)
+    late_checkout = Column(Boolean, default=False, server_default=text("0"), nullable=False)
     # NULL when late_checkout=False; "HH:MM" string when True (mirrors
     # Property.check_*_time column type).
     late_checkout_time = Column(String, nullable=True)
@@ -287,7 +288,7 @@ class CajaSesion(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
     opened_at = Column(DateTime, default=datetime.now, nullable=False)
     closed_at = Column(DateTime, nullable=True)
-    opening_balance = Column(Float, nullable=False, default=0.0)
+    opening_balance = Column(Float, nullable=False, default=0.0, server_default=text("0"))
     closing_balance_declared = Column(Float, nullable=True)
     closing_balance_expected = Column(Float, nullable=True)
     difference = Column(Float, nullable=True)
@@ -370,13 +371,13 @@ class AcceptedCurrency(Base):
     currency_code = Column(String, nullable=False)            # ISO 4217
     currency_name = Column(String, nullable=False)            # snapshot
     currency_symbol = Column(String, nullable=False)          # snapshot
-    decimal_places = Column(Integer, nullable=False, default=2)
+    decimal_places = Column(Integer, nullable=False, default=2, server_default=text("2"))
     # Rate TO BASE: 1 unit of this currency = `exchange_rate` units of base.
     # E.g. base=PYG, USD with rate=7500 → 100 USD becomes 750_000 PYG.
     exchange_rate = Column(Float, nullable=False)
     rate_updated_at = Column(DateTime, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    sort_order = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, server_default=text("1"), nullable=False)
+    sort_order = Column(Integer, default=0, server_default=text("0"), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
@@ -522,12 +523,15 @@ class Property(Base):
     # v1.10.0 Phase 2e — surcharges in BASE currency units (0 = free).
     # Applied at folio generation when the reservation has the matching
     # flag set.
-    early_checkin_surcharge = Column(Integer, default=0, nullable=False)
-    late_checkout_surcharge = Column(Integer, default=0, nullable=False)
+    # server_default matches migrations 018/019 (DEFAULT 0/30) — required so
+    # fresh init_db() schemas accept raw INSERTs that omit these columns
+    # (seed_monges.py). See Reservation.early_checkin note.
+    early_checkin_surcharge = Column(Integer, default=0, server_default=text("0"), nullable=False)
+    late_checkout_surcharge = Column(Integer, default=0, server_default=text("0"), nullable=False)
     # Phase 6.5 — minutes of cleaning time required between a late check-out
     # and the next same-day arrival on the same room. Consulted by the
     # availability guard in ReservationService.create_reservations.
-    cleaning_buffer_minutes = Column(Integer, default=30, nullable=False)
+    cleaning_buffer_minutes = Column(Integer, default=30, server_default=text("30"), nullable=False)
     # Phase 2b: `breakfast_included` REMOVED (was deprecated v1.7). Migration 014
     # drops the SQLite column via DROP COLUMN (SQLite 3.35+). The whole "should
     # the hotel include breakfast?" question is now answered by `meals_enabled`
@@ -610,11 +614,11 @@ class Producto(Base):
     property_id = Column(String, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=True, index=True)
     name = Column(String, nullable=False)
     category = Column(String, nullable=False, index=True)  # BEBIDA|SNACK|SERVICIO|MINIBAR|OTRO
-    price = Column(Float, nullable=False, default=0.0)  # Current unit price in Gs
+    price = Column(Float, nullable=False, default=0.0, server_default=text("0"))  # Current unit price in Gs
     stock_current = Column(Integer, nullable=True)  # null if is_stocked=False
     stock_minimum = Column(Integer, nullable=True)  # alert threshold
-    is_stocked = Column(Boolean, nullable=False, default=True)
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_stocked = Column(Boolean, nullable=False, default=True, server_default=text("1"))
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("1"), index=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     # Phase 1 #15: enum CHECK on category.
@@ -642,7 +646,7 @@ class Consumo(Base):
     # Phase 1 #9: RESTRICT — soft-delete via Producto.is_active=False; never hard-delete.
     producto_id = Column(String, ForeignKey("producto.id", ondelete="RESTRICT"), nullable=False, index=True)
     producto_name = Column(String, nullable=False)  # snapshot at registration time
-    quantity = Column(Integer, nullable=False, default=1)
+    quantity = Column(Integer, nullable=False, default=1, server_default=text("1"))
     unit_price = Column(Float, nullable=False)  # snapshot at registration time
     total = Column(Float, nullable=False)  # quantity * unit_price
     description = Column(String, nullable=True)
@@ -705,12 +709,12 @@ class MealPlan(Base):
     code = Column(String, nullable=False)  # CON_DESAYUNO, MEDIA_PENSION, SOLO_HABITACION, etc.
     name = Column(String, nullable=False)  # Display label
     description = Column(String, nullable=True)
-    surcharge_per_person = Column(Float, nullable=False, default=0.0)  # PYG per person per night
-    surcharge_per_room = Column(Float, nullable=False, default=0.0)  # PYG per room per night
-    applies_to_mode = Column(String, nullable=False, default="ANY")  # ANY | INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
+    surcharge_per_person = Column(Float, nullable=False, default=0.0, server_default=text("0"))  # PYG per person per night
+    surcharge_per_room = Column(Float, nullable=False, default=0.0, server_default=text("0"))  # PYG per room per night
+    applies_to_mode = Column(String, nullable=False, default="ANY", server_default="ANY")  # ANY | INCLUIDO | OPCIONAL_PERSONA | OPCIONAL_HABITACION
     # Phase 2b #Bool: Integer(0/1) → Boolean. is_system=True for seeded/protected plans.
-    is_system = Column(Boolean, nullable=False, default=False)
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_system = Column(Boolean, nullable=False, default=False, server_default=text("0"))
+    is_active = Column(Boolean, nullable=False, default=True, server_default=text("1"), index=True)
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
@@ -742,7 +746,7 @@ class EmailLog(Base):
     reserva_id = Column(String, ForeignKey("reservations.id", ondelete="RESTRICT"), nullable=False, index=True)
     recipient_email = Column(String, nullable=False)
     subject = Column(String, nullable=False)
-    status = Column(String, nullable=False, default="PENDIENTE", index=True)  # ENVIADO | FALLIDO | PENDIENTE
+    status = Column(String, nullable=False, default="PENDIENTE", server_default="PENDIENTE", index=True)  # ENVIADO | FALLIDO | PENDIENTE
     error_message = Column(String, nullable=True)
     sent_at = Column(DateTime, nullable=True, index=True)
     # v1.10.0 — Phase 1 Fix #2: was String (mismatched users.id Integer). Existing
@@ -1159,7 +1163,7 @@ class ReservationVehicle(Base):
     # reservations.vehicle_plate / vehicle_model snapshot columns. Exactly
     # one row per reservation should have is_primary=True (enforced at
     # service layer — SQLite doesn't easily express partial UNIQUE).
-    is_primary = Column(Boolean, default=False, nullable=False)
+    is_primary = Column(Boolean, default=False, server_default=text("0"), nullable=False)
 
     notes = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.now)

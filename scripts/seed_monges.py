@@ -38,6 +38,12 @@ from datetime import datetime, date
 from pathlib import Path
 from uuid import uuid4
 
+# Windows redirected stdout defaults to cp1252, which can't encode the banner
+# box-drawing glyphs — force UTF-8 (same fix as scripts/e2e_marathon.py)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # ============================================
 # CONFIGURATION
 # ============================================
